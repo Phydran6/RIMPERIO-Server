@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Datei:        caddy/Caddyfile
+# Projekt:      RIMPERIO
+# Autor:        Phydran6
+# Version:      2026.10.31.15.40.00
+# Beschreibung: Einziger Weg von außen. /api/* geht an das Backend, alles andere
+#               an die Oberfläche. Standardmäßig HTTP auf Port 80 — sobald in der
+#               .env eine Domain in RIMPERIO_SITE_ADDRESS steht, holt Caddy von selbst
+#               ein Let's-Encrypt-Zertifikat und schaltet HTTPS ein.
+# ---------------------------------------------------------------------------
+
+{$RIMPERIO_SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# API ans Backend.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Alles Übrige an die Oberfläche.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	header {
+		# Ein paar schlanke Sicherheits-Header.
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

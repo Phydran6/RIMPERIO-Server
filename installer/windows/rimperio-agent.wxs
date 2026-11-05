@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Datei:        rimperio-agent.wxs
+  Projekt:      RIMPERIO — Agent-Installer (MSI)
+  Autor:        Phydran6
+  Version:      2026.10.31.15.40.00
+
+  Beschreibung: WiX-v4-Quelle für das MSI-Paket des Agents. Bewusst ohne eigene
+                Custom-Action-DLL — nur Bordmittel von WiX:
+                  * legt rimperio-agent.exe nach "Program Files\RIMPERIO Agent",
+                  * schreibt Server/Geheimnis/Standort nach HKLM\SOFTWARE\RIMPERIO\Agent,
+                  * registriert und startet den Dienst "rimperio-agent".
+                Der Dienst liest beim ersten Start die Registry-Eckdaten, legt
+                seine Konfiguration an und meldet sich selbst am Server an.
+                Darum braucht die Installation selbst keine Netzverbindung.
+
+  Bauen:        wix build rimperio-agent.wxs -d Version=26.10.31 -o rimperio-agent.msi
+  Verteilen:    msiexec /i rimperio-agent.msi SERVER=https://rmm.example.de SECRET=... SITE=Buero /qn
+-->
+<!-- Version kommt per  -d Version=YY.MM.DD  aus build-msi.ps1; sonst dieser Wert. -->
+<?ifndef Version ?>
+<?define Version = "26.10.31" ?>
+<?endif?>
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="RIMPERIO Agent"
+           Manufacturer="Phydran6"
+           Version="$(Version)"
+           UpgradeCode="6F3A2B1C-9D4E-4F5A-8B7C-1E2D3F4A5B6C"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <SummaryInformation Description="RIMPERIO — Remote Monitoring & Management Agent"
+                        Manufacturer="Phydran6" />
+
+    <MajorUpgrade DowngradeErrorMessage="Eine neuere Version des RIMPERIO-Agents ist bereits installiert." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Vom Administrator bei der Installation mitgegeben. -->
+    <Property Id="SERVER" Secure="yes" />
+    <Property Id="SECRET" Secure="yes" Hidden="yes" />
+    <Property Id="SITE" Secure="yes" Value="Standard" />
+    <Property Id="INSECURE" Secure="yes" Value="0" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Phydran6/RIMPERIO" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- Ohne SERVER und SECRET ergibt eine Neuinstallation keinen Sinn. -->
+    <Launch Condition="Installed OR (SERVER AND SECRET)"
+            Message="Bitte SERVER und SECRET angeben, z. B.: msiexec /i rimperio-agent.msi SERVER=https://rmm.example.de SECRET=GEHEIMNIS /qn" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="RIMPERIO Agent">
+
+        <Component Id="AgentExe" Bitness="always64">
+          <File Id="rimperio_agent.exe" Source="rimperio-agent.exe" KeyPath="yes" />
+
+          <!-- Dienst registrieren, automatisch starten, beim Deinstallieren entfernen. -->
+          <ServiceInstall Id="AgentService"
+                          Name="rimperio-agent"
+                          DisplayName="RIMPERIO Agent"
+                          Description="RIMPERIO — Remote Monitoring &amp; Management Agent."
+                          Type="ownProcess"
+                          Start="auto"
+                          ErrorControl="normal"
+                          Account="LocalSystem"
+                          Arguments="run"
+                          Vital="yes" />
+          <ServiceControl Id="AgentServiceControl"
+                          Name="rimperio-agent"
+                          Start="install"
+                          Stop="both"
+                          Remove="uninstall"
+                          Wait="no" />
+        </Component>
+
+        <!-- Eckdaten für den Selbst-Bootstrap des Dienstes. -->
+        <Component Id="AgentRegistry" Bitness="always64">
+          <RegistryKey Root="HKLM" Key="SOFTWARE\RIMPERIO\Agent">
+            <RegistryValue Name="Server" Type="string" Value="[SERVER]" KeyPath="yes" />
+            <RegistryValue Name="Secret" Type="string" Value="[SECRET]" />
+            <RegistryValue Name="Site" Type="string" Value="[SITE]" />
+            <RegistryValue Name="Insecure" Type="string" Value="[INSECURE]" />
+          </RegistryKey>
+        </Component>
+
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="RIMPERIO Agent" Level="1">
+      <ComponentRef Id="AgentExe" />
+      <ComponentRef Id="AgentRegistry" />
+    </Feature>
+  </Package>
+</Wix>

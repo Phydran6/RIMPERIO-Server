@@ -1,0 +1,35 @@
+/**
+ * Datei:        main.css
+ * Projekt:      RIMPERIO — Frontend
+ * Autor:        Phydran6
+ * Version:      2026.10.31.15.40.00
+ * Beschreibung: Tailwind-Einstieg plus ein paar wiederkehrende Bausteine.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { @apply antialiased; }
+  body { @apply bg-ink-950 text-slate-200 font-sans; }
+}
+
+@layer components {
+  .card { @apply bg-ink-900 border border-white/5 rounded-xl shadow-sm; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition; }
+  .btn-primary { @apply btn bg-brand-500 hover:bg-brand-600 text-white; }
+  .btn-ghost { @apply btn bg-white/5 hover:bg-white/10 text-slate-200; }
+  .btn-danger { @apply btn bg-red-600/90 hover:bg-red-600 text-white; }
+  .input {
+    @apply w-full rounded-lg bg-ink-950 border border-white/10 px-3 py-2 text-sm
+           text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60;
+  }
+  .label { @apply block text-xs font-medium text-slate-400 mb-1; }
+  .badge { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium; }
+  .badge-online { @apply badge bg-emerald-500/15 text-emerald-300; }
+  .badge-offline { @apply badge bg-slate-500/15 text-slate-400; }
+  .badge-warn { @apply badge bg-amber-500/15 text-amber-300; }
+  .badge-crit { @apply badge bg-red-500/15 text-red-300; }
+  .th { @apply text-left text-xs font-semibold uppercase tracking-wide text-slate-500 px-4 py-3; }
+  .td { @apply px-4 py-3 text-sm border-t border-white/5; }
+}

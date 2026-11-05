@@ -1,0 +1,27 @@
+{
+  "_comment": "Windows-Ressourcen des Agents. goversioninfo erzeugt daraus resource.syso, das go build mit einbindet. Korrekte Metadaten (Hersteller, Produkt, Version) sind ein Baustein guter AV-Reputation.",
+  "FixedFileInfo": {
+    "FileVersion": { "Major": 2026, "Minor": 11, "Patch": 5, "Build": 0 },
+    "ProductVersion": { "Major": 2026, "Minor": 11, "Patch": 5, "Build": 0 },
+    "FileFlagsMask": "3f",
+    "FileFlags": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "CompanyName": "Phydran6",
+    "FileDescription": "RIMPERIO — Remote Monitoring & Management Agent",
+    "InternalName": "rimperio-agent",
+    "LegalCopyright": "(c) 2026 Phydran6 — MIT License",
+    "OriginalFilename": "rimperio-agent.exe",
+    "ProductName": "RIMPERIO Agent",
+    "ProductVersion": "2026.11.05.12.00.00",
+    "Comments": "https://github.com/Phydran6/RIMPERIO"
+  },
+  "VarFileInfo": {
+    "Translation": { "LangID": "0409", "CharsetID": "04B0" }
+  },
+  "IconPath": "",
+  "ManifestPath": ""
+}

@@ -1,0 +1,97 @@
+# ---------------------------------------------------------------------------
+# Datei:        .github/workflows/agent-release.yml
+# Projekt:      RIMPERIO
+# Autor:        Phydran6
+# Version:      2026.10.31.15.40.00
+# Beschreibung: Baut die Agent-Artefakte (Windows .exe + .msi, Linux amd64/arm64),
+#               signiert sie — falls ein Zertifikat als Secret hinterlegt ist —
+#               und hängt sie bei einem v*-Tag an das GitHub-Release.
+#
+# Signatur-Secrets (optional, Repo-Settings → Secrets):
+#   RIMPERIO_PFX_BASE64     Base64 der .pfx  (base64 -w0 zertifikat.pfx)
+#   RIMPERIO_PFX_PASSWORD   Passwort der .pfx
+# Ohne diese Secrets werden die Artefakte UNSIGNIERT gebaut (mit Warnung).
+# ---------------------------------------------------------------------------
+name: Agent Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: agent/go.sum
+
+      - name: goversioninfo installieren
+        run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
+
+      - name: Agent-.exe bauen
+        shell: pwsh
+        run: ./installer/windows/build-agent.ps1
+
+      - name: WiX installieren
+        run: dotnet tool install --global wix
+
+      - name: MSI bauen
+        shell: pwsh
+        run: ./installer/windows/build-msi.ps1
+
+      - name: Signieren (falls Zertifikat vorhanden)
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.RIMPERIO_PFX_BASE64 }}
+          RIMPERIO_PFX_PASSWORD: ${{ secrets.RIMPERIO_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PFX_B64)) {
+            Write-Warning "Kein RIMPERIO_PFX_BASE64-Secret — Artefakte bleiben UNSIGNIERT."
+          } else {
+            $pfx = "$env:RUNNER_TEMP\cert.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+            $env:RIMPERIO_SIGN_METHOD = "pfx"
+            $env:RIMPERIO_PFX_PATH = $pfx
+            ./installer/windows/sign.ps1 -File agent/bin/rimperio-agent.exe
+            ./installer/windows/sign.ps1 -File installer/windows/rimperio-agent.msi
+            Remove-Item $pfx -Force
+          }
+
+      - name: Als Release-Artefakte anhängen
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            agent/bin/rimperio-agent.exe
+            installer/windows/rimperio-agent.msi
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: agent/go.sum
+
+      - name: Linux-Binaries bauen (amd64 + arm64)
+        working-directory: agent
+        run: |
+          mkdir -p bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o bin/rimperio-agent-linux-amd64 ./cmd/rimperio-agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o bin/rimperio-agent-linux-arm64 ./cmd/rimperio-agent
+
+      - name: Als Release-Artefakte anhängen
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            agent/bin/rimperio-agent-linux-amd64
+            agent/bin/rimperio-agent-linux-arm64

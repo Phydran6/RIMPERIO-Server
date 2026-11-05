@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# Datei:        docker-compose.yml
+# Projekt:      RIMPERIO
+# Autor:        Phydran6
+# Version:      2026.10.31.15.40.00
+# Beschreibung: Der ganze Server als ein Stack: Reverse Proxy (Caddy), API
+#               (FastAPI), Oberfläche (Vue hinter nginx), Datenbank (PostgreSQL).
+#               Nur Caddy ist von außen erreichbar.
+# ---------------------------------------------------------------------------
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rimperio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rimperio}
+      POSTGRES_DB: ${POSTGRES_DB:-rimperio}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rimperio} -d ${POSTGRES_DB:-rimperio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RIMPERIO_SITE_ADDRESS: ${RIMPERIO_SITE_ADDRESS:-:80}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

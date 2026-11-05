@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Datei:        .github/workflows/ci.yml
+# Projekt:      RIMPERIO
+# Autor:        Phydran6
+# Version:      2026.10.31.15.40.00
+# Beschreibung: Baut bei jedem Push/PR die drei Teile — Backend, Agent, Frontend —
+#               damit Fehler früh auffallen.
+# ---------------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Abhängigkeiten
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Import- und Syntaxprüfung
+        working-directory: backend
+        run: |
+          python -m compileall -q app
+          python -c "import app.main; print('backend import ok')"
+
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: agent/go.sum
+      - name: Vet + Build
+        working-directory: agent
+        run: |
+          go vet ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install + Build
+        working-directory: frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run build

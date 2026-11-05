@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# Datei:        .gitattributes
+# Projekt:      RIMPERIO
+# Autor:        Phydran6
+# Beschreibung: Zeilenenden festnageln. Alles Text standardmäßig LF — sonst
+#               brechen auf dem Linux-Server die Shell-Skripte und der Caddyfile
+#               an CRLF. Nur die windows-eigenen Skripte bleiben CRLF.
+# ---------------------------------------------------------------------------
+* text=auto eol=lf
+
+# Windows-eigene Skripte: CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Ausdrücklich LF (Deployment-kritisch)
+*.sh      text eol=lf
+*.go      text eol=lf
+*.py      text eol=lf
+Caddyfile text eol=lf
+Dockerfile text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+
+# Binärdateien
+*.png binary
+*.ico binary
+*.msi binary
+*.exe binary
