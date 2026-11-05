@@ -10,11 +10,11 @@
 #               ganzen Stack. Läuft auf einem Linux-Host mit Root.
 #
 # Aufruf:
-#   curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO/main/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/install.sh | sudo bash
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-REPO="https://github.com/Phydran6/RIMPERIO.git"
+REPO="https://github.com/Phydran6/RIMPERIO-Server.git"
 DIR="${RIMPERIO_DIR:-/opt/rimperio}"
 RIMPERIO_VERSION="2026.10.31.15.40.00"
 

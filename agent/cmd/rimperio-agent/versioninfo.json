@@ -17,7 +17,7 @@
     "OriginalFilename": "rimperio-agent.exe",
     "ProductName": "RIMPERIO Agent",
     "ProductVersion": "2026.11.05.12.00.00",
-    "Comments": "https://github.com/Phydran6/RIMPERIO"
+    "Comments": "https://github.com/Phydran6/RIMPERIO-Server"
   },
   "VarFileInfo": {
     "Translation": { "LangID": "0409", "CharsetID": "04B0" }

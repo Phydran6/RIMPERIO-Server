@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Phydran6/RIMPERIO/agent/internal/core"
+	"github.com/Phydran6/RIMPERIO-Server/agent/internal/core"
 )
 
 func main() {

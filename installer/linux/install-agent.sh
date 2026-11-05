@@ -20,7 +20,7 @@ SECRET="${SECRET:-}"
 SITE="${SITE:-Standard}"
 DESC="${DESC:-}"
 INSECURE="${INSECURE:-0}"
-BASE_URL="${RIMPERIO_BASE_URL:-https://github.com/Phydran6/RIMPERIO/releases/latest/download}"
+BASE_URL="${RIMPERIO_BASE_URL:-https://github.com/Phydran6/RIMPERIO-Server/releases/latest/download}"
 
 while [ $# -gt 0 ]; do
   case "$1" in

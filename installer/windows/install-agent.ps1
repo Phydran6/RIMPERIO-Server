@@ -13,7 +13,7 @@
       -Server https://rmm.example.de -Secret GEHEIMNIS -Site Buero
 
   Oder als Einzeiler (Platzhalter ersetzen):
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO/main/installer/windows/install-agent.ps1))) `
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/installer/windows/install-agent.ps1))) `
       -Server https://rmm.example.de -Secret GEHEIMNIS
 #>
 [CmdletBinding()]
@@ -22,7 +22,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Secret,
     [string]$Site = "Standard",
     [string]$Description = "",
-    [string]$ExeUrl = "https://github.com/Phydran6/RIMPERIO/releases/latest/download/rimperio-agent.exe",
+    [string]$ExeUrl = "https://github.com/Phydran6/RIMPERIO-Server/releases/latest/download/rimperio-agent.exe",
     [string]$InstallDir = "$env:ProgramFiles\RIMPERIO Agent",
     [switch]$Insecure
 )

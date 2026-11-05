@@ -95,7 +95,7 @@ const secret = ref('GEHEIMNIS')
 let timer = null
 
 const serverUrl = window.location.origin
-const RAW = 'https://raw.githubusercontent.com/Phydran6/RIMPERIO/main'
+const RAW = 'https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main'
 
 const winOneLiner = computed(() =>
   `& ([scriptblock]::Create((irm ${RAW}/installer/windows/install-agent.ps1))) \`\n  -Server ${serverUrl} -Secret ${secret.value}`)

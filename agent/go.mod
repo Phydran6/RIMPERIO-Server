@@ -1,4 +1,4 @@
-module github.com/Phydran6/RIMPERIO/agent
+module github.com/Phydran6/RIMPERIO-Server/agent
 
 go 1.26.0
 

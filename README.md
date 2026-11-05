@@ -99,7 +99,7 @@ außen auf den Rechner offen sein. Genau wie beim LogBot-Agent: HTTPS mit
 **Server** — auf einem Linux-Host mit Root:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/install.sh | sudo bash
 ```
 
 Danach:
@@ -112,7 +112,7 @@ Danach:
 fertige Befehl mit eingesetztem Server und Geheimnis. Windows, kurz:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO/main/installer/windows/install-agent.ps1))) `
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/installer/windows/install-agent.ps1))) `
   -Server https://rmm.example.de -Secret DEIN_ENROLL_GEHEIMNIS
 ```
 

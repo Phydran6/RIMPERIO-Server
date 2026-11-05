@@ -94,7 +94,7 @@ In der CI übernimmt das [`.github/workflows/agent-release.yml`](../.github/work
 
 ```powershell
 # als Administrator
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO/main/installer/windows/install-agent.ps1))) `
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/installer/windows/install-agent.ps1))) `
   -Server https://rmm.example.de -Secret GEHEIMNIS -Site Buero
 ```
 

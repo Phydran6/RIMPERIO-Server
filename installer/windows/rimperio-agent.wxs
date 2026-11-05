@@ -42,7 +42,7 @@
     <Property Id="SITE" Secure="yes" Value="Standard" />
     <Property Id="INSECURE" Secure="yes" Value="0" />
 
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Phydran6/RIMPERIO" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Phydran6/RIMPERIO-Server" />
     <Property Id="ARPNOMODIFY" Value="1" />
 
     <!-- Ohne SERVER und SECRET ergibt eine Neuinstallation keinen Sinn. -->
