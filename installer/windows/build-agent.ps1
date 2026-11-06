@@ -1,4 +1,4 @@
-<#
+﻿<#
   Datei:        build-agent.ps1
   Projekt:      RIMPERIO — Agent-Installer
   Autor:        Phydran6
@@ -28,15 +28,35 @@ try {
         $icoPath = Join-Path $PSScriptRoot "rimperio.ico"
         Push-Location "cmd\rimperio-agent"
         try {
+            # Version aus der VERSION-Datei (YYYY.MM.DD.HH.MM.SS) in die Ressource
+            # schreiben — so tragen exe und Release immer dieselbe Version.
+            $ver = (Get-Content "$agentRoot\..\VERSION" -Raw).Trim()
+            $p = $ver.Split('.') | ForEach-Object { [int]$_ }
+            $fixed = [ordered]@{ Major = $p[0]; Minor = $p[1]; Patch = $p[2]; Build = $p[3] * 100 + $p[4] }
+            $vi = Get-Content versioninfo.json -Raw | ConvertFrom-Json
+            $vi.FixedFileInfo.FileVersion = $fixed
+            $vi.FixedFileInfo.ProductVersion = $fixed
+            # Text-Version = numerische Version (Windows zeigt beide; SignPath prüft sie).
+            $verText = "{0}.{1}.{2}.{3}" -f $fixed.Major, $fixed.Minor, $fixed.Patch, $fixed.Build
+            $vi.StringFileInfo.ProductVersion = $verText
+            $vi.StringFileInfo | Add-Member -NotePropertyName FileVersion -NotePropertyValue $verText -Force
+            $viBuild = "versioninfo.build.json"
+            # UTF-8 ohne BOM — Go's JSON-Parser lehnt ein BOM ab (PowerShell 5.1 schreibt sonst eins).
+            [IO.File]::WriteAllText((Join-Path (Get-Location) $viBuild), ($vi | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+
             if (Test-Path $icoPath) {
-                goversioninfo -64 -icon "$icoPath" -o resource.syso versioninfo.json
-                Write-Host "Versions-Ressource + Symbol eingebettet."
+                goversioninfo -64 -icon "$icoPath" -o resource.syso $viBuild
+                Write-Host "Versions-Ressource ($ver) + Symbol eingebettet."
             } else {
-                goversioninfo -64 -o resource.syso versioninfo.json
-                Write-Host "Versions-Ressource eingebettet (Symbol fehlt: installer/windows/rimperio.ico)."
+                goversioninfo -64 -o resource.syso $viBuild
+                Write-Host "Versions-Ressource ($ver) eingebettet (Symbol fehlt: installer/windows/rimperio.ico)."
             }
+            if ($LASTEXITCODE -ne 0) { throw "goversioninfo schlug fehl." }
         }
-        finally { Pop-Location }
+        finally {
+            Remove-Item "versioninfo.build.json" -ErrorAction SilentlyContinue
+            Pop-Location
+        }
     } else {
         Write-Warning "goversioninfo nicht gefunden — exe ohne Versions-Ressource."
         Write-Warning "Installieren: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest"

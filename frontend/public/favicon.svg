@@ -17,10 +17,14 @@
   <circle cx="256" cy="240" r="170" fill="none" stroke="url(#gold)" stroke-width="6" opacity="0.8"/>
 
   <!-- Wortmarke -->
-  <text x="256" y="250" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
-        font-weight="700" font-size="110" letter-spacing="2" fill="url(#gold)">RIMPERIO</text>
+  <!-- textLength hält die Breite fest, egal welche Serifenschrift das System hat. -->
+  <text x="256" y="268" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
+        font-weight="700" font-size="86" textLength="372" lengthAdjust="spacingAndGlyphs"
+        fill="url(#gold)">RIMPERIO</text>
   <!-- Blitz als Akzent -->
-  <path d="M243 196 L231 238 L250 238 L236 286 L272 230 L252 230 L264 196 Z" fill="url(#bg)" stroke="url(#gold)" stroke-width="3" stroke-linejoin="round"/>
+  <!-- über der Wortmarke, damit er keinen Buchstaben verdeckt -->
+  <path transform="translate(256 148) scale(0.7) translate(-251.5 -241)"
+        d="M243 196 L231 238 L250 238 L236 286 L272 230 L252 230 L264 196 Z" fill="url(#gold)" stroke="url(#gold)" stroke-width="3" stroke-linejoin="round"/>
 
   <!-- Monitor + Zahnrad -->
   <g fill="none" stroke="url(#gold)" stroke-width="9" stroke-linejoin="round" stroke-linecap="round">

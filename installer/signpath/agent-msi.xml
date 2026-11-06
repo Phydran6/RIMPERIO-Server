@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Datei:        installer/signpath/agent-msi.xml
+  Projekt:      RIMPERIO
+  Autor:        Phydran6
+  Version:      2026.11.06.12.00.00
+  Beschreibung: SignPath-Artefakt-Konfiguration für das Agent-MSI.
+                In SignPath als Artefakt-Konfiguration mit dem Slug "agent-msi"
+                anlegen. Die exe im MSI ist zu diesem Zeitpunkt schon signiert
+                (eigener Signierauftrag "agent-exe" vor dem MSI-Bau).
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <msi-file path="rimperio-agent.msi">
+      <authenticode-sign />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>

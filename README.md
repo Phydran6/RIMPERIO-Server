@@ -5,7 +5,7 @@
 **Ein schlankes, selbst-gehostetes Remote Monitoring &amp; Management —
 Rechner sehen, überwachen und aus der Ferne steuern. Ohne Lizenz, ohne Cloud.**
 
-In der Tradition von [Tactical RMM](https://docs.tacticarimperio.com/), im Stil von
+In der Tradition von [Tactical RMM](https://docs.tacticalrmm.com/), im Stil von
 [LogBot](https://github.com/Phydran6/Logbot): ein Docker-Stack, ein
 Installationsbefehl, eine Oberfläche im Browser — dazu ein Agent für Windows und
 Linux, der sich als **signierte `.exe` und `.msi`** ausliefern lässt.
@@ -145,12 +145,55 @@ cd frontend && npm install && npm run dev
 |---|---|
 | **Versionsschema** | `JAHR.MONAT.TAG.STUNDE.MINUTE.SEKUNDE` — [`VERSION`](VERSION) |
 | **Lizenz** | [MIT](LICENSE) |
-| **Referenzen** | Vorbild [Tactical RMM](https://docs.tacticarimperio.com/), Geschwister-Projekt [LogBot](https://github.com/Phydran6/Logbot) |
+| **Referenzen** | Vorbild [Tactical RMM](https://docs.tacticalrmm.com/), Geschwister-Projekt [LogBot](https://github.com/Phydran6/Logbot) |
 
 > **Ehrlich zur „von jedem Antivirus als OK"-Frage:** garantieren kann das
 > niemand. Der seriöse Weg ist echtes Code Signing + sauberer Build +
 > Fehlalarm-Meldung — und genau den geht RIMPERIO. Keine Tarnung, keine Umgehung.
 > Einzelheiten: [installer/README.md](installer/README.md).
+
+---
+
+## Code signing policy
+
+*Die Signier-Richtlinie steht auf Englisch, weil die SignPath Foundation sie so
+verlangt und prüft.*
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/).
+
+Signed artifacts (`rimperio-agent.exe`, `rimperio-agent.msi`) are built
+exclusively from this repository's source code by the GitHub Actions workflow
+[`agent-release.yml`](.github/workflows/agent-release.yml) on GitHub-hosted
+runners. Every release signing request is approved manually.
+
+**Team roles**
+
+| Role | Members |
+|---|---|
+| Committers and reviewers | [Phydran6](https://github.com/Phydran6) |
+| Approvers | [Phydran6](https://github.com/Phydran6) |
+
+Changes from contributors outside the team are reviewed by a committer before
+they are merged.
+
+**Privacy policy**
+
+This program will not transfer any information to other networked systems
+unless specifically requested by the user or the person installing or operating
+it. The RIMPERIO agent communicates **only** with the RIMPERIO server whose
+address is configured during installation (`SERVER=…`). That server is operated
+by the person or organization that installed the agent, not by this project. The
+agent sends system and inventory data (hardware, operating system, installed
+software, update status, check results) and runs tasks issued from that server.
+No data is sent to the RIMPERIO authors or any other third party.
+
+**Uninstall:** remove *RIMPERIO Agent* via *Settings → Apps* (or
+`msiexec /x rimperio-agent.msi`). Without the MSI, run `rimperio-agent uninstall`
+as administrator (removes service and configuration), then delete
+`C:\Program Files\RIMPERIO Agent\`. On Linux: `sudo rimperio-agent uninstall &&
+sudo rm /usr/local/bin/rimperio-agent`. See
+[installer/README.md](installer/README.md#deinstallieren).
 
 <div align="center">
 <sub>Entwickelt von <a href="https://github.com/Phydran6">Phydran6</a></sub>

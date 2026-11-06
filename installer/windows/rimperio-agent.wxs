@@ -45,6 +45,10 @@
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Phydran6/RIMPERIO-Server" />
     <Property Id="ARPNOMODIFY" Value="1" />
 
+    <!-- Symbol in "Apps & Features" (aus brand/rimperio-icon.png, siehe brand/README.md). -->
+    <Icon Id="rimperio.ico" SourceFile="rimperio.ico" />
+    <Property Id="ARPPRODUCTICON" Value="rimperio.ico" />
+
     <!-- Ohne SERVER und SECRET ergibt eine Neuinstallation keinen Sinn. -->
     <Launch Condition="Installed OR (SERVER AND SECRET)"
             Message="Bitte SERVER und SECRET angeben, z. B.: msiexec /i rimperio-agent.msi SERVER=https://rmm.example.de SECRET=GEHEIMNIS /qn" />

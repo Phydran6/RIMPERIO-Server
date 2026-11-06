@@ -1,4 +1,4 @@
-<#
+﻿<#
   Datei:        sign.ps1
   Projekt:      RIMPERIO — Agent-Installer
   Autor:        Phydran6

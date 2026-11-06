@@ -5,12 +5,12 @@ Hier liegt das Markenzeichen von RIMPERIO.
 | Datei | Wofür |
 |---|---|
 | [`../frontend/public/favicon.svg`](../frontend/public/favicon.svg) | Favicon + Logo in der Oberfläche (SVG, skaliert überall) |
-| `rimperio-icon.png` *(hier ablegen)* | dein echtes Logo als PNG, 256×256 oder 512×512 |
+| `rimperio-icon.png` | Logo als PNG, 256×256. **Derzeit aus `favicon.svg` gerendert**; zum Austauschen einfach durch das echte Logo ersetzen |
 | `../installer/windows/rimperio.ico` *(erzeugt)* | Symbol der `.exe` und `.msi` |
 
 ## Dein Logo überall einsetzen
 
-1. Lege dein Logo als **`brand/rimperio-icon.png`** ab (quadratisch, am besten 512×512).
+1. Lege dein Logo als **`brand/rimperio-icon.png`** ab (quadratisch, 256×256; größer geht nicht, das ICO-Format endet bei 256).
 2. Erzeuge daraus das Windows-Symbol:
 
    ```bash

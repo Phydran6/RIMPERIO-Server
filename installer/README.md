@@ -44,6 +44,39 @@ Defender „vertrauenswürdig" festmachen. Drei Wege, nach Budget:
 > **Empfehlung:** Als Open-Source-Projekt zuerst **SignPath Foundation** anfragen.
 > Wer sofort und unabhängig signieren will: **Azure Trusted Signing**.
 
+### SignPath Foundation einrichten (kostenlos)
+
+Die CI ist fertig vorbereitet; es fehlen nur die Zugangsdaten. Ablauf:
+
+1. **Antrag stellen:** <https://signpath.org/apply>. Die Voraussetzungen erfüllt
+   das Repo bereits: MIT-Lizenz, öffentlicher Quellcode, Build in GitHub Actions,
+   und die Abschnitte *Code signing policy*, Rollen und Datenschutz stehen im
+   [README](../README.md#code-signing-policy). Zusätzlich verlangt die Foundation
+   **2FA** auf GitHub und bei SignPath sowie ein **bereits veröffentlichtes
+   Release** (unsigniert ist ok). Die Prüfung dauert einige Tage.
+2. **Nach der Freigabe** in SignPath:
+   - den *Trusted Build System* „GitHub.com" mit dem Projekt verknüpfen,
+   - zwei Artefakt-Konfigurationen anlegen, Inhalt aus
+     [`signpath/agent-exe.xml`](signpath/agent-exe.xml) (Slug `agent-exe`) und
+     [`signpath/agent-msi.xml`](signpath/agent-msi.xml) (Slug `agent-msi`),
+   - einen API-Token für einen Benutzer mit *Submitter*-Rolle erzeugen.
+3. **Im GitHub-Repo** unter *Settings → Secrets and variables → Actions*:
+
+   | Art | Name | Wert |
+   |---|---|---|
+   | Secret | `SIGNPATH_API_TOKEN` | der API-Token |
+   | Variable | `SIGNPATH_ORGANIZATION_ID` | Organisations-ID aus SignPath |
+   | Variable | `SIGNPATH_PROJECT_SLUG` | Projekt-Slug aus SignPath |
+   | Variable | `SIGNPATH_SIGNING_POLICY_SLUG` | optional, Standard `release-signing` (zum Testen `test-signing`) |
+
+4. **Release taggen** (`git tag v2026.11.06 && git push --tags`). Der Workflow
+   schickt erst die exe, dann das MSI (mit der signierten exe darin) zu SignPath.
+   Jeder Auftrag wartet bis zu einer Stunde auf deine **manuelle Freigabe** im
+   SignPath-Webportal; danach hängen die signierten Dateien am Release.
+
+Ist SignPath nicht eingerichtet, nimmt die CI ein PFX-Secret
+(`RIMPERIO_PFX_BASE64`/`RIMPERIO_PFX_PASSWORD`), sonst baut sie unsigniert.
+
 ### Signieren im Projekt
 
 [`sign.ps1`](windows/sign.ps1) kapselt `signtool`. Gesteuert wird über
@@ -113,6 +146,35 @@ selbst am Server an — die Installation selbst braucht also kein Netz.
 ```bash
 sudo bash install-agent.sh --server https://rmm.example.de --secret GEHEIMNIS --site Buero
 ```
+
+---
+
+## Deinstallieren
+
+**Windows, per MSI installiert:** *Einstellungen → Apps → RIMPERIO Agent →
+Deinstallieren*, oder still:
+
+```powershell
+msiexec /x rimperio-agent.msi /qn
+```
+
+Das MSI stoppt und entfernt den Dienst und löscht das Programmverzeichnis.
+
+**Windows, per Skript installiert** (als Administrator):
+
+```powershell
+& "C:\Program Files\RIMPERIO Agent\rimperio-agent.exe" uninstall   # Dienst + Konfiguration
+Remove-Item "C:\Program Files\RIMPERIO Agent" -Recurse -Force
+```
+
+**Linux:**
+
+```bash
+sudo rimperio-agent uninstall          # Dienst + Konfiguration
+sudo rm /usr/local/bin/rimperio-agent
+```
+
+Den Rechner danach in der Oberfläche unter *Agent → Entfernen* austragen (nur Admins).
 
 ---
 

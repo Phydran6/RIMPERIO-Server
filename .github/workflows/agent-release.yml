@@ -2,15 +2,28 @@
 # Datei:        .github/workflows/agent-release.yml
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Version:      2026.10.31.15.40.00
+# Version:      2026.11.06.12.00.00
 # Beschreibung: Baut die Agent-Artefakte (Windows .exe + .msi, Linux amd64/arm64),
-#               signiert sie — falls ein Zertifikat als Secret hinterlegt ist —
-#               und hängt sie bei einem v*-Tag an das GitHub-Release.
+#               signiert sie und hängt sie bei einem v*-Tag an das GitHub-Release.
 #
-# Signatur-Secrets (optional, Repo-Settings → Secrets):
-#   RIMPERIO_PFX_BASE64     Base64 der .pfx  (base64 -w0 zertifikat.pfx)
-#   RIMPERIO_PFX_PASSWORD   Passwort der .pfx
-# Ohne diese Secrets werden die Artefakte UNSIGNIERT gebaut (mit Warnung).
+# Reihenfolge Windows:  exe bauen → exe signieren → MSI (mit signierter exe)
+#                       bauen → MSI signieren.
+#
+# Signierweg — der erste, der eingerichtet ist, gewinnt:
+#
+#   1) SignPath (kostenlos für Open Source über die SignPath Foundation)
+#      Secret    SIGNPATH_API_TOKEN            API-Token eines Submitters
+#      Variable  SIGNPATH_ORGANIZATION_ID      Organisations-ID bei SignPath
+#      Variable  SIGNPATH_PROJECT_SLUG         z. B. RIMPERIO-Server
+#      Variable  SIGNPATH_SIGNING_POLICY_SLUG  optional, Standard: release-signing
+#      Artefakt-Konfigurationen "agent-exe" und "agent-msi" → installer/signpath/
+#
+#   2) PFX-Zertifikat
+#      Secret    RIMPERIO_PFX_BASE64           Base64 der .pfx (base64 -w0 x.pfx)
+#      Secret    RIMPERIO_PFX_PASSWORD         Passwort der .pfx
+#
+#   Nichts davon gesetzt → Artefakte bleiben UNSIGNIERT (mit Warnung).
+#   Secrets/Variablen: Repo → Settings → Secrets and variables → Actions.
 # ---------------------------------------------------------------------------
 name: Agent Release
 
@@ -21,16 +34,40 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   windows:
+    # SignPath Foundation verlangt GitHub-gehostete Runner für die ganze Kette.
     runs-on: windows-latest
+    env:
+      SIGNPATH_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
           cache-dependency-path: agent/go.sum
+
+      - name: Signierweg bestimmen
+        id: sign
+        shell: pwsh
+        env:
+          SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          PFX_B64: ${{ secrets.RIMPERIO_PFX_BASE64 }}
+        run: |
+          if ($env:SIGNPATH_TOKEN -and $env:SIGNPATH_ORG -and $env:SIGNPATH_PROJECT) {
+            $m = "signpath"
+          } elseif ($env:PFX_B64) {
+            $m = "pfx"
+          } else {
+            $m = "none"
+            Write-Warning "Weder SignPath noch PFX eingerichtet — Artefakte bleiben UNSIGNIERT."
+          }
+          Write-Host "Signierweg: $m"
+          "method=$m" >> $env:GITHUB_OUTPUT
 
       - name: goversioninfo installieren
         run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
@@ -39,6 +76,55 @@ jobs:
         shell: pwsh
         run: ./installer/windows/build-agent.ps1
 
+      # --- exe signieren -------------------------------------------------------
+      - name: exe für SignPath hochladen
+        if: steps.sign.outputs.method == 'signpath'
+        id: upload-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-exe-unsigned
+          path: agent/bin/rimperio-agent.exe
+          if-no-files-found: error
+
+      - name: exe bei SignPath signieren
+        if: steps.sign.outputs.method == 'signpath'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: agent-exe
+          github-artifact-id: ${{ steps.upload-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          # Release-Signaturen brauchen eine manuelle Freigabe — Zeit dafür lassen.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: agent/bin/signed
+
+      - name: signierte exe übernehmen
+        if: steps.sign.outputs.method == 'signpath'
+        shell: pwsh
+        run: Move-Item agent/bin/signed/rimperio-agent.exe agent/bin/rimperio-agent.exe -Force
+
+      - name: PFX bereitstellen
+        if: steps.sign.outputs.method == 'pfx'
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.RIMPERIO_PFX_BASE64 }}
+        run: |
+          $pfx = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+          "RIMPERIO_PFX_PATH=$pfx" >> $env:GITHUB_ENV
+
+      - name: exe mit PFX signieren
+        if: steps.sign.outputs.method == 'pfx'
+        shell: pwsh
+        env:
+          RIMPERIO_SIGN_METHOD: pfx
+          RIMPERIO_PFX_PASSWORD: ${{ secrets.RIMPERIO_PFX_PASSWORD }}
+        run: ./installer/windows/sign.ps1 -File agent/bin/rimperio-agent.exe
+
+      # --- MSI bauen (mit der bereits signierten exe) ---------------------------
       - name: WiX installieren
         run: dotnet tool install --global wix
 
@@ -46,22 +132,57 @@ jobs:
         shell: pwsh
         run: ./installer/windows/build-msi.ps1
 
-      - name: Signieren (falls Zertifikat vorhanden)
+      # --- MSI signieren -------------------------------------------------------
+      - name: MSI für SignPath hochladen
+        if: steps.sign.outputs.method == 'signpath'
+        id: upload-msi
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-msi-unsigned
+          path: installer/windows/rimperio-agent.msi
+          if-no-files-found: error
+
+      - name: MSI bei SignPath signieren
+        if: steps.sign.outputs.method == 'signpath'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: agent-msi
+          github-artifact-id: ${{ steps.upload-msi.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: installer/windows/signed
+
+      - name: signiertes MSI übernehmen
+        if: steps.sign.outputs.method == 'signpath'
+        shell: pwsh
+        run: Move-Item installer/windows/signed/rimperio-agent.msi installer/windows/rimperio-agent.msi -Force
+
+      - name: MSI mit PFX signieren
+        if: steps.sign.outputs.method == 'pfx'
         shell: pwsh
         env:
-          PFX_B64: ${{ secrets.RIMPERIO_PFX_BASE64 }}
+          RIMPERIO_SIGN_METHOD: pfx
           RIMPERIO_PFX_PASSWORD: ${{ secrets.RIMPERIO_PFX_PASSWORD }}
+        run: ./installer/windows/sign.ps1 -File installer/windows/rimperio-agent.msi
+
+      - name: PFX entfernen
+        if: always() && steps.sign.outputs.method == 'pfx'
+        shell: pwsh
+        run: Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force -ErrorAction SilentlyContinue
+
+      # --- Ergebnis ------------------------------------------------------------
+      - name: Signaturen anzeigen
+        if: steps.sign.outputs.method != 'none'
+        shell: pwsh
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:PFX_B64)) {
-            Write-Warning "Kein RIMPERIO_PFX_BASE64-Secret — Artefakte bleiben UNSIGNIERT."
-          } else {
-            $pfx = "$env:RUNNER_TEMP\cert.pfx"
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
-            $env:RIMPERIO_SIGN_METHOD = "pfx"
-            $env:RIMPERIO_PFX_PATH = $pfx
-            ./installer/windows/sign.ps1 -File agent/bin/rimperio-agent.exe
-            ./installer/windows/sign.ps1 -File installer/windows/rimperio-agent.msi
-            Remove-Item $pfx -Force
+          foreach ($f in "agent/bin/rimperio-agent.exe", "installer/windows/rimperio-agent.msi") {
+            $s = Get-AuthenticodeSignature $f
+            Write-Host "$f : $($s.Status) — $($s.SignerCertificate.Subject)"
+            if ($s.Status -ne 'Valid') { throw "Signatur von $f ist nicht gültig ($($s.Status))." }
           }
 
       - name: Als Release-Artefakte anhängen
