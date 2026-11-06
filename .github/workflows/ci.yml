@@ -27,8 +27,14 @@ jobs:
       - name: Import- und Syntaxprüfung
         working-directory: backend
         run: |
-          python -m compileall -q app
-          python -c "import app.main; print('backend import ok')"
+          # Fehler zusätzlich als Annotation ausgeben (ohne Anmeldung lesbar).
+          if ! python -m compileall -q app > /tmp/out.txt 2>&1 \
+             || ! python -c "import app.main; print('backend import ok')" >> /tmp/out.txt 2>&1; then
+            cat /tmp/out.txt
+            tail -n 15 /tmp/out.txt | while IFS= read -r l; do echo "::error title=Backend-Import::$l"; done
+            exit 1
+          fi
+          cat /tmp/out.txt
 
   agent:
     runs-on: ubuntu-latest

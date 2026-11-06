@@ -125,12 +125,23 @@ jobs:
         run: ./installer/windows/sign.ps1 -File agent/bin/rimperio-agent.exe
 
       # --- MSI bauen (mit der bereits signierten exe) ---------------------------
+      # WiX bewusst auf v4 festgenagelt: die .wxs ist v4-Schema, und v4 steht
+      # unter MS-RL. Ab v7 verlangt WiX eine EULA mit Umsatz-abhängiger Gebühr (OSMF).
       - name: WiX installieren
-        run: dotnet tool install --global wix
+        run: dotnet tool install --global wix --version 4.0.6
 
       - name: MSI bauen
         shell: pwsh
-        run: ./installer/windows/build-msi.ps1
+        run: |
+          # Ausgabe mitschneiden und bei Fehlern als Annotation ausgeben —
+          # die sind auch ohne Anmeldung über die API lesbar.
+          $log = "$env:RUNNER_TEMP\msi.log"
+          pwsh -NoProfile -File ./installer/windows/build-msi.ps1 *>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content $log -Tail 15 | ForEach-Object { Write-Host "::error title=MSI bauen::$_" }
+            exit $code
+          }
 
       # --- MSI signieren -------------------------------------------------------
       - name: MSI für SignPath hochladen
