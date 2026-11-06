@@ -36,6 +36,18 @@ permissions:
   contents: write
   actions: read
 
+env:
+  RELEASE_BODY: |
+    RIMPERIO-Agent für Windows (`.exe`, `.msi`) und Linux (amd64, arm64),
+    gebaut von GitHub Actions ausschließlich aus dem Quellcode dieses Repositorys.
+
+    Installation und Verteilung: [installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/installer/README.md)
+
+    **Code signing:** Free code signing provided by [SignPath.io](https://about.signpath.io/),
+    certificate by [SignPath Foundation](https://signpath.org/).
+    See the [code signing policy](https://github.com/Phydran6/RIMPERIO-Server#code-signing-policy)
+    and [privacy policy](https://github.com/Phydran6/RIMPERIO-Server#privacy-policy).
+
 jobs:
   windows:
     # SignPath Foundation verlangt GitHub-gehostete Runner für die ganze Kette.
@@ -200,6 +212,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ env.RELEASE_BODY }}
           files: |
             agent/bin/rimperio-agent.exe
             installer/windows/rimperio-agent.msi
@@ -224,6 +237,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ env.RELEASE_BODY }}
           files: |
             agent/bin/rimperio-agent-linux-amd64
             agent/bin/rimperio-agent-linux-arm64

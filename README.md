@@ -94,6 +94,18 @@ außen auf den Rechner offen sein. Genau wie beim LogBot-Agent: HTTPS mit
 
 ---
 
+## Download
+
+Fertige Agent-Dateien (Windows `.exe` und `.msi`, Linux amd64/arm64) gibt es unter
+**[Releases](https://github.com/Phydran6/RIMPERIO-Server/releases/latest)**.
+Sie werden ausschließlich von GitHub Actions aus diesem Quellcode gebaut.
+
+*Free code signing provided by [SignPath.io](https://about.signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/).*
+Details: [Code signing policy](#code-signing-policy).
+
+---
+
 ## Schnellstart
 
 **Server** — auf einem Linux-Host mit Root:
@@ -167,7 +179,7 @@ exclusively from this repository's source code by the GitHub Actions workflow
 [`agent-release.yml`](.github/workflows/agent-release.yml) on GitHub-hosted
 runners. Every release signing request is approved manually.
 
-**Team roles**
+### Team roles
 
 | Role | Members |
 |---|---|
@@ -177,7 +189,7 @@ runners. Every release signing request is approved manually.
 Changes from contributors outside the team are reviewed by a committer before
 they are merged.
 
-**Privacy policy**
+### Privacy policy
 
 This program will not transfer any information to other networked systems
 unless specifically requested by the user or the person installing or operating
@@ -188,7 +200,9 @@ agent sends system and inventory data (hardware, operating system, installed
 software, update status, check results) and runs tasks issued from that server.
 No data is sent to the RIMPERIO authors or any other third party.
 
-**Uninstall:** remove *RIMPERIO Agent* via *Settings → Apps* (or
+### Uninstall
+
+Remove *RIMPERIO Agent* via *Settings → Apps* (or
 `msiexec /x rimperio-agent.msi`). Without the MSI, run `rimperio-agent uninstall`
 as administrator (removes service and configuration), then delete
 `C:\Program Files\RIMPERIO Agent\`. On Linux: `sudo rimperio-agent uninstall &&
