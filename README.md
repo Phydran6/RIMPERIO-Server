@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/rimperio-icon.svg" alt="RIMPERIO" width="160">
+
 # RIMPERIO
 
 **Ein schlankes, selbst-gehostetes Remote Monitoring &amp; Management —

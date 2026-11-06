@@ -5,6 +5,7 @@ Hier liegt das Markenzeichen von RIMPERIO.
 | Datei | Wofür |
 |---|---|
 | [`../frontend/public/favicon.svg`](../frontend/public/favicon.svg) | Favicon + Logo in der Oberfläche (SVG, skaliert überall) |
+| [`../docs/assets/rimperio-icon.svg`](../docs/assets/rimperio-icon.svg) | Logo im README (Kopie von `favicon.svg`; auch im Übersichts-Repo `Phydran6/RIMPERIO` unter demselben Pfad) |
 | `rimperio-icon.png` | Logo als PNG, 256×256. **Derzeit aus `favicon.svg` gerendert**; zum Austauschen einfach durch das echte Logo ersetzen |
 | `../installer/windows/rimperio.ico` *(erzeugt)* | Symbol der `.exe` und `.msi` |
 
