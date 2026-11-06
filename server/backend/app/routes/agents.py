@@ -69,7 +69,8 @@ async def list_agents(
             first_seen=agent.first_seen,
             extra_data=getattr(agent, "extra_data", {}) or {},
             metadata=getattr(agent, "extra_data", {}) or {},
-            is_online=is_online
+            is_online=is_online,
+            agent_uid=agent.agent_uid,
         ))
 
     return AgentListResponse(items=items, total=total, page=page, page_size=page_size)

@@ -86,6 +86,26 @@ EVENTS: Dict[str, Dict[str, Any]] = {
         "hint": "Ein Gerät, das bisher geliefert hat, ist verstummt.",
         "default": False,
     },
+    "rmm_offline": {
+        "label": "Rechner (RMM-Agent) offline",
+        "hint": "Ein Rechner mit RIMPERIO-Agent meldet sich nicht mehr.",
+        "default": True,
+    },
+    "rmm_threshold": {
+        "label": "Rechner über Schwelle",
+        "hint": "CPU, Arbeitsspeicher oder Platte über der eingestellten Schwelle.",
+        "default": False,
+    },
+    "rmm_check": {
+        "label": "Check fehlgeschlagen",
+        "hint": "Eine Prüfung (Dienst, Port, Ping, Skript …) meldet einen Fehler.",
+        "default": True,
+    },
+    "rmm_patches": {
+        "label": "Updates verfügbar",
+        "hint": "Ein Patch-Scan hat ausstehende Updates gefunden.",
+        "default": False,
+    },
     "update_available": {
         "label": "Neuer Stand auf GitHub",
         "hint": "Ein Update steht bereit.",

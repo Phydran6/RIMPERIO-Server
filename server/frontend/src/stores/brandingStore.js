@@ -38,22 +38,22 @@ export const useBrandingStore = defineStore('branding', () => {
     allow_theme_toggle: true,
     
     // Markenfarben
-    primary_color: '#3b82f6',
-    secondary_color: '#8b5cf6',
-    accent_color: '#10b981',
+    primary_color: '#b8860b',
+    secondary_color: '#1e3a6e',
+    accent_color: '#d4af37',
     success_color: '#22c55e',
     warning_color: '#f59e0b',
     danger_color: '#ef4444',
     
     // Dark Mode - Custom
     dark_scheme: {
-      background: '#444464',
-      surface: '#313146',
-      surface_elevated: '#3a3a54',
-      border: '#45455f',
+      background: '#0b1322',
+      surface: '#111c32',
+      surface_elevated: '#17243f',
+      border: '#24324f',
       text_primary: '#f8fafc',
-      text_secondary: '#e2e8f0',
-      text_muted: '#cbd5e1'
+      text_secondary: '#cbd5e1',
+      text_muted: '#94a3b8'
     },
     
     // Light Mode

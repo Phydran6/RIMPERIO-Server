@@ -32,6 +32,7 @@ from . import shell
 from . import tokens
 from . import updater
 from . import watchdog
+from . import rmm
 from .config import settings, validate_security_settings
 from .database import get_db, async_session, engine
 from .limiter import limiter, agent_key, client_ip as real_client_ip
@@ -48,6 +49,7 @@ from .routes import (auth_router, mfa_router, health_router, users_router, agent
                      alerts_router,
                      caddy as caddy_router, network as network_router)
 from .branding import branding_router
+from .routes.rmm import router as rmm_router, agent_router as rmm_agent_router
 
 # =============================================================================
 # Security-Headers Middleware
@@ -140,6 +142,8 @@ app.include_router(sso_router)
 app.include_router(about_router)
 app.include_router(discovery_router)
 app.include_router(alerts_router)
+app.include_router(rmm_router)
+app.include_router(rmm_agent_router)
 app.include_router(caddy_router.router)
 app.include_router(network_router.router)
 
@@ -1044,6 +1048,9 @@ def _spawn(coro) -> None:
 
 @app.on_event("startup")
 async def start_background_tasks():
+    # RMM: Tabellen/Spalten anlegen, dann Offline-Waechter starten (app/rmm.py).
+    await rmm.ensure_schema()
+    _spawn(rmm.sweep_loop())
     # Raeumt auf, BEVOR die Platte voll ist (app/diskguard.py).
     _spawn(diskguard.watch_task())
     # Merkt, wenn RIMPERIO selbst nicht mehr sammelt, und meldet es nach aussen

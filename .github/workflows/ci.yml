@@ -22,10 +22,10 @@ jobs:
         with:
           python-version: '3.12'
       - name: Abhängigkeiten
-        working-directory: backend
+        working-directory: server/backend
         run: pip install -r requirements.txt
       - name: Import- und Syntaxprüfung
-        working-directory: backend
+        working-directory: server/backend
         run: |
           # Fehler zusätzlich als Annotation ausgeben (ohne Anmeldung lesbar).
           if ! python -m compileall -q app > /tmp/out.txt 2>&1 \
@@ -59,7 +59,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install + Build
-        working-directory: frontend
+        working-directory: server/frontend
         run: |
           npm install --no-audit --no-fund
           npm run build

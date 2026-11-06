@@ -143,7 +143,7 @@ func (c *Client) doJSON(method, path, bearer string, body, out any) error {
 
 func (c *Client) Enroll(req EnrollRequest) (*EnrollResponse, error) {
 	var res EnrollResponse
-	if err := c.doJSON(http.MethodPost, "/api/agents/enroll", "", req, &res); err != nil {
+	if err := c.doJSON(http.MethodPost, "/api/rmm/agent/enroll", "", req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -151,26 +151,26 @@ func (c *Client) Enroll(req EnrollRequest) (*EnrollResponse, error) {
 
 func (c *Client) Checkin(req CheckinRequest) (*CheckinResponse, error) {
 	var res CheckinResponse
-	if err := c.doJSON(http.MethodPost, "/api/agents/checkin", c.Token, req, &res); err != nil {
+	if err := c.doJSON(http.MethodPost, "/api/rmm/agent/checkin", c.Token, req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
 }
 
 func (c *Client) SendInventory(inv Inventory) error {
-	return c.doJSON(http.MethodPost, "/api/agents/inventory", c.Token, inv, nil)
+	return c.doJSON(http.MethodPost, "/api/rmm/agent/inventory", c.Token, inv, nil)
 }
 
 func (c *Client) SendResults(results []CommandResult) error {
 	if len(results) == 0 {
 		return nil
 	}
-	return c.doJSON(http.MethodPost, "/api/agents/results", c.Token, results, nil)
+	return c.doJSON(http.MethodPost, "/api/rmm/agent/results", c.Token, results, nil)
 }
 
 func (c *Client) SendCheckResults(results []CheckResultOut) error {
 	if len(results) == 0 {
 		return nil
 	}
-	return c.doJSON(http.MethodPost, "/api/agents/check-results", c.Token, results, nil)
+	return c.doJSON(http.MethodPost, "/api/rmm/agent/check-results", c.Token, results, nil)
 }

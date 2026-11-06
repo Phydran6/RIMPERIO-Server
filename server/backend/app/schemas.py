@@ -128,6 +128,8 @@ class AgentResponse(BaseModel):
     log_count: Optional[int] = None
     retention_max_logs: Optional[int] = None
     retention_days: Optional[int] = None
+    # Gesetzt, wenn auf dem Gerät der RIMPERIO-Agent (Fernwartung) läuft.
+    agent_uid: Optional[str] = None
     class Config:
         from_attributes = True
 

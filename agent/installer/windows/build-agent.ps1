@@ -18,7 +18,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$agentRoot = (Resolve-Path "$PSScriptRoot\..\..\agent").Path
+$agentRoot = (Resolve-Path "$PSScriptRoot\..\..").Path   # agent/installer/windows -> agent
 $out = "bin\rimperio-agent.exe"
 
 Push-Location $agentRoot

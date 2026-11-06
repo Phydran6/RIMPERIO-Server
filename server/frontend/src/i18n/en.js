@@ -59,6 +59,12 @@ export default {
 
   nav: {
     monitoring: 'Monitoring',
+    rmm: 'Remote management',
+    rmmAgents: 'Computers',
+    rmmScripts: 'Scripts',
+    rmmChecks: 'Checks',
+    rmmPatches: 'Patches',
+    rmmAlerts: 'Computer alerts',
     dashboard: 'Dashboard',
     logs: 'Logs',
     devices: 'Devices',

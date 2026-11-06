@@ -115,6 +115,13 @@
             class="link text-sm"
             @click.stop
           >Logs anzeigen →</router-link>
+          <router-link
+            v-if="agent.agent_uid"
+            :to="`/rmm/agents/${agent.agent_uid}`"
+            class="link text-sm"
+            title="Auf diesem Gerät läuft der RIMPERIO-Agent"
+            @click.stop
+          >Fernwartung →</router-link>
 
           <div class="flex items-center gap-1">
             <button

@@ -24,7 +24,7 @@
     <!-- ================================================================
          KENNZAHLEN
          ================================================================ -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5" :class="statCards.length > 4 ? 'xl:grid-cols-3' : 'xl:grid-cols-4'">
       <component
         :is="card.to ? 'router-link' : 'div'"
         v-for="card in statCards"
@@ -211,6 +211,8 @@ const errorCount = computed(() => {
 
 const warningCount = computed(() => stats.value?.logs_by_level?.warning || 0)
 
+const rmm = ref(null)
+
 const statCards = computed(() => [
   {
     label: 'Logs gesamt',
@@ -249,6 +251,29 @@ const statCards = computed(() => [
     tint: 'var(--primary-soft)',
     to: '/agents',
   },
+  // Fernwartung: nur, wenn schon Rechner mit RIMPERIO-Agent angebunden sind.
+  ...(rmm.value?.agents_total ? [
+    {
+      label: 'Rechner online',
+      value: `${fmt(rmm.value.agents_online)} / ${fmt(rmm.value.agents_total)}`,
+      hint: rmm.value.agents_offline ? `${fmt(rmm.value.agents_offline)} offline` : 'Alle Rechner melden sich',
+      icon: 'devices',
+      color: 'var(--color-success)',
+      tint: 'var(--success-soft)',
+      valueColor: rmm.value.agents_offline ? 'var(--color-warning)' : null,
+      to: '/rmm',
+    },
+    {
+      label: 'Rechner-Alarme',
+      value: fmt(rmm.value.alerts_active),
+      hint: rmm.value.patches_pending ? `${fmt(rmm.value.patches_pending)} Updates ausstehend` : 'Offline, Schwellen, Checks',
+      icon: 'warning',
+      color: 'var(--color-warning)',
+      tint: 'var(--warning-soft)',
+      valueColor: rmm.value.alerts_active ? 'var(--color-danger)' : null,
+      to: '/rmm/alerts',
+    },
+  ] : []),
 ])
 
 const levelBars = computed(() => {
@@ -306,6 +331,8 @@ async function load(force) {
     cachedLogsTs = now
 
     stats.value = s
+    // RMM-Zahlen: klein, ungecacht, ein Fehler darf das Dashboard nicht leeren.
+    auth.api('/api/rmm/summary').then(r => { rmm.value = r }).catch(() => {})
     logs.value = l || []
     lastLoaded.value = new Date()
   } catch (e) {

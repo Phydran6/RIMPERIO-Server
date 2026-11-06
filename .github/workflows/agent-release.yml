@@ -16,7 +16,7 @@
 #      Variable  SIGNPATH_ORGANIZATION_ID      Organisations-ID bei SignPath
 #      Variable  SIGNPATH_PROJECT_SLUG         z. B. RIMPERIO-Server
 #      Variable  SIGNPATH_SIGNING_POLICY_SLUG  optional, Standard: release-signing
-#      Artefakt-Konfigurationen "agent-exe" und "agent-msi" → installer/signpath/
+#      Artefakt-Konfigurationen "agent-exe" und "agent-msi" → agent/installer/signpath/
 #
 #   2) PFX-Zertifikat
 #      Secret    RIMPERIO_PFX_BASE64           Base64 der .pfx (base64 -w0 x.pfx)
@@ -41,7 +41,7 @@ env:
     RIMPERIO-Agent für Windows (`.exe`, `.msi`) und Linux (amd64, arm64),
     gebaut von GitHub Actions ausschließlich aus dem Quellcode dieses Repositorys.
 
-    Installation und Verteilung: [installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/installer/README.md)
+    Installation und Verteilung: [agent/installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/agent/installer/README.md)
 
     **Code signing:** Free code signing provided by [SignPath.io](https://about.signpath.io/),
     certificate by [SignPath Foundation](https://signpath.org/).
@@ -86,7 +86,7 @@ jobs:
 
       - name: Agent-.exe bauen
         shell: pwsh
-        run: ./installer/windows/build-agent.ps1
+        run: ./agent/installer/windows/build-agent.ps1
 
       # --- exe signieren -------------------------------------------------------
       - name: exe für SignPath hochladen
@@ -134,7 +134,7 @@ jobs:
         env:
           RIMPERIO_SIGN_METHOD: pfx
           RIMPERIO_PFX_PASSWORD: ${{ secrets.RIMPERIO_PFX_PASSWORD }}
-        run: ./installer/windows/sign.ps1 -File agent/bin/rimperio-agent.exe
+        run: ./agent/installer/windows/sign.ps1 -File agent/bin/rimperio-agent.exe
 
       # --- MSI bauen (mit der bereits signierten exe) ---------------------------
       # WiX bewusst auf v4 festgenagelt: die .wxs ist v4-Schema, und v4 steht
@@ -148,7 +148,7 @@ jobs:
           # Ausgabe mitschneiden und bei Fehlern als Annotation ausgeben —
           # die sind auch ohne Anmeldung über die API lesbar.
           $log = "$env:RUNNER_TEMP\msi.log"
-          pwsh -NoProfile -File ./installer/windows/build-msi.ps1 *>&1 | Tee-Object -FilePath $log
+          pwsh -NoProfile -File ./agent/installer/windows/build-msi.ps1 *>&1 | Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
             Get-Content $log -Tail 15 | ForEach-Object { Write-Host "::error title=MSI bauen::$_" }
@@ -162,7 +162,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agent-msi-unsigned
-          path: installer/windows/rimperio-agent.msi
+          path: agent/installer/windows/rimperio-agent.msi
           if-no-files-found: error
 
       - name: MSI bei SignPath signieren
@@ -177,12 +177,12 @@ jobs:
           github-artifact-id: ${{ steps.upload-msi.outputs.artifact-id }}
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 3600
-          output-artifact-directory: installer/windows/signed
+          output-artifact-directory: agent/installer/windows/signed
 
       - name: signiertes MSI übernehmen
         if: steps.sign.outputs.method == 'signpath'
         shell: pwsh
-        run: Move-Item installer/windows/signed/rimperio-agent.msi installer/windows/rimperio-agent.msi -Force
+        run: Move-Item agent/installer/windows/signed/rimperio-agent.msi agent/installer/windows/rimperio-agent.msi -Force
 
       - name: MSI mit PFX signieren
         if: steps.sign.outputs.method == 'pfx'
@@ -190,7 +190,7 @@ jobs:
         env:
           RIMPERIO_SIGN_METHOD: pfx
           RIMPERIO_PFX_PASSWORD: ${{ secrets.RIMPERIO_PFX_PASSWORD }}
-        run: ./installer/windows/sign.ps1 -File installer/windows/rimperio-agent.msi
+        run: ./agent/installer/windows/sign.ps1 -File agent/installer/windows/rimperio-agent.msi
 
       - name: PFX entfernen
         if: always() && steps.sign.outputs.method == 'pfx'
@@ -202,7 +202,7 @@ jobs:
         if: steps.sign.outputs.method != 'none'
         shell: pwsh
         run: |
-          foreach ($f in "agent/bin/rimperio-agent.exe", "installer/windows/rimperio-agent.msi") {
+          foreach ($f in "agent/bin/rimperio-agent.exe", "agent/installer/windows/rimperio-agent.msi") {
             $s = Get-AuthenticodeSignature $f
             Write-Host "$f : $($s.Status) — $($s.SignerCertificate.Subject)"
             if ($s.Status -ne 'Valid') { throw "Signatur von $f ist nicht gültig ($($s.Status))." }
@@ -215,7 +215,7 @@ jobs:
           body: ${{ env.RELEASE_BODY }}
           files: |
             agent/bin/rimperio-agent.exe
-            installer/windows/rimperio-agent.msi
+            agent/installer/windows/rimperio-agent.msi
 
   linux:
     runs-on: ubuntu-latest

@@ -38,18 +38,18 @@
 
 :root {
   /* Markenfarben */
-  --color-primary: #3b82f6;
-  --color-secondary: #8b5cf6;
-  --color-accent: #10b981;
+  --color-primary: #b8860b;
+  --color-secondary: #1e3a6e;
+  --color-accent: #d4af37;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
 
   /* Dark Scheme */
-  --dark-bg: #16161f;
-  --dark-surface: #1e1e2a;
-  --dark-surface-elevated: #262633;
-  --dark-border: #32323f;
+  --dark-bg: #0b1322;
+  --dark-surface: #111c32;
+  --dark-surface-elevated: #17243f;
+  --dark-border: #24324f;
   --dark-text-primary: #f8fafc;
   --dark-text-secondary: #cbd5e1;
   --dark-text-muted: #94a3b8;
@@ -723,3 +723,34 @@ footer,
   0% { background-position: 100% 50%; }
   100% { background-position: 0 50%; }
 }
+
+/* ==========================================================================
+   RMM-Seiten (Rechner, Skripte, Checks, Patches, Alarme)
+   ========================================================================== */
+.rmm-note { padding: .75rem 1rem; border-radius: var(--radius); margin-bottom: 1rem; font-size: .875rem; }
+.rmm-note.is-error { background: var(--danger-soft); color: var(--color-danger); }
+.rmm-note.is-ok { background: var(--success-soft); color: var(--color-success); }
+.rmm-note.is-info { background: var(--primary-soft); color: var(--color-text-primary); }
+.rmm-dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 9999px; background: var(--color-text-muted); }
+.rmm-dot.is-online { background: var(--color-success); }
+.rmm-dot.is-offline { background: var(--color-danger); }
+.is-bad { color: var(--color-danger); font-weight: 600; }
+.is-warn { color: var(--color-warning); font-weight: 600; }
+.rmm-muted { color: var(--color-text-muted); font-size: .8125rem; }
+.rmm-grid { display: grid; gap: .75rem 1.5rem; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
+.rmm-grid dt { color: var(--color-text-muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; }
+.rmm-grid dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.rmm-form { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+.rmm-form label { display: flex; flex-direction: column; gap: .25rem; font-size: .8125rem; color: var(--color-text-secondary); }
+.rmm-form .is-wide { grid-column: 1 / -1; }
+.rmm-tabs { display: flex; flex-wrap: wrap; gap: .25rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1rem; }
+.rmm-tabs button { padding: .5rem .9rem; border: 0; background: none; color: var(--color-text-secondary); border-bottom: 2px solid transparent; cursor: pointer; }
+.rmm-tabs button.is-active { color: var(--color-primary); border-bottom-color: var(--color-primary); font-weight: 600; }
+.rmm-pre { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: .75rem; font-family: ui-monospace, Consolas, monospace; font-size: .8rem; white-space: pre-wrap; max-height: 24rem; overflow: auto; margin: .5rem 0 0; }
+.rmm-code { font-family: ui-monospace, Consolas, monospace; font-size: .8125rem; }
+.rmm-table-wrap { overflow-x: auto; }
+.rmm-bar { height: .4rem; border-radius: 9999px; background: var(--color-border); overflow: hidden; min-width: 4rem; }
+.rmm-bar > span { display: block; height: 100%; background: var(--color-primary); }
+.rmm-bar > span.is-warn { background: var(--color-warning); }
+.rmm-bar > span.is-bad { background: var(--color-danger); }
+.rmm-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }

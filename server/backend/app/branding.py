@@ -82,7 +82,7 @@ class BrandingConfig(BaseModel):
     
     # Allgemein
     company_name: str = "RIMPERIO"
-    tagline: str = "Zentraler Log-Server"
+    tagline: str = "Logs, Überwachung und Fernwartung"
     # Frueher stand hier "© 2026 RIMPERIO. All rights reserved." Das war schlicht
     # falsch: RIMPERIO steht unter der MIT-Lizenz, die Rechte sind also gerade
     # NICHT vorbehalten, sondern eingeraeumt. Und es beantwortete keine einzige
@@ -100,19 +100,19 @@ class BrandingConfig(BaseModel):
     allow_theme_toggle: bool = True
     
     # Markenfarben
-    primary_color: str = "#3b82f6"
-    secondary_color: str = "#8b5cf6"
-    accent_color: str = "#10b981"
+    primary_color: str = "#b8860b"
+    secondary_color: str = "#1e3a6e"
+    accent_color: str = "#d4af37"
     success_color: str = "#22c55e"
     warning_color: str = "#f59e0b"
     danger_color: str = "#ef4444"
     
     # Dark Mode Farben
     dark_scheme: ColorScheme = ColorScheme(
-        background="#16161f",
-        surface="#1e1e2a",
-        surface_elevated="#262633",
-        border="#32323f",
+        background="#0b1322",
+        surface="#111c32",
+        surface_elevated="#17243f",
+        border="#24324f",
         text_primary="#f8fafc",
         text_secondary="#cbd5e1",
         text_muted="#94a3b8"

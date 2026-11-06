@@ -60,6 +60,12 @@ export default {
   nav: {
     // Bereich 1: Was ist im Netz passiert?
     monitoring: 'Überwachung',
+    rmm: 'Fernwartung',
+    rmmAgents: 'Rechner',
+    rmmScripts: 'Skripte',
+    rmmChecks: 'Checks',
+    rmmPatches: 'Patches',
+    rmmAlerts: 'Rechner-Alarme',
     dashboard: 'Dashboard',
     logs: 'Logs',
     devices: 'Geräte',

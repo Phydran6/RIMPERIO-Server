@@ -22,7 +22,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
-$exeSource = Resolve-Path "$here\..\..\agent\bin\rimperio-agent.exe" -ErrorAction SilentlyContinue
+$exeSource = Resolve-Path "$here\..\..\bin\rimperio-agent.exe" -ErrorAction SilentlyContinue
 if (-not $exeSource) { throw "agent\bin\rimperio-agent.exe fehlt. Zuerst build-agent.ps1 ausführen." }
 
 if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
@@ -32,7 +32,7 @@ if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
 # MSI-Version aus der VERSION-Datei ableiten (YYYY.MM.DD… -> YY.MM.DD),
 # denn MSI erlaubt im ersten Feld nur 0..255.
 if (-not $Version) {
-    $v = (Get-Content "$here\..\..\VERSION" -Raw).Trim()
+    $v = (Get-Content "$here\..\..\..\VERSION" -Raw).Trim()
     $p = $v.Split('.')
     $Version = ("{0}.{1}.{2}" -f ($p[0].Substring(2)), [int]$p[1], [int]$p[2])
 }

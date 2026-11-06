@@ -16,7 +16,7 @@
                 Welcher Weg, wofür, und warum "von jedem AV als OK" niemand
                 garantieren kann: siehe installer/README.md.
 
-  Aufruf:       pwsh ./sign.ps1 -File ..\..\agent\bin\rimperio-agent.exe
+  Aufruf:       pwsh ./sign.ps1 -File ..\..\bin\rimperio-agent.exe
   Steuerung:    über Umgebungsvariablen (siehe unten) — nichts im Klartext im Repo.
 #>
 [CmdletBinding()]

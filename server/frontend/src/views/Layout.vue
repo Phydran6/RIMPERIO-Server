@@ -420,6 +420,18 @@ const navGroups = computed(() => {
       ],
     },
     {
+      key: 'rmm',
+      title: t('nav.rmm'),
+      icon: 'devices',
+      items: [
+        { key: 'rmm-agents', to: '/rmm', name: 'RmmAgents', icon: 'devices', label: t('nav.rmmAgents'), match: ['RmmAgentDetail'] },
+        { key: 'rmm-scripts', to: '/rmm/scripts', name: 'RmmScripts', icon: 'terminal', label: t('nav.rmmScripts') },
+        { key: 'rmm-checks', to: '/rmm/checks', name: 'RmmChecks', icon: 'check', label: t('nav.rmmChecks') },
+        { key: 'rmm-patches', to: '/rmm/patches', name: 'RmmPatches', icon: 'download', label: t('nav.rmmPatches') },
+        { key: 'rmm-alerts', to: '/rmm/alerts', name: 'RmmAlerts', icon: 'warning', label: t('nav.rmmAlerts') },
+      ],
+    },
+    {
       key: 'analysis',
       title: t('nav.analysis'),
       icon: 'ai',

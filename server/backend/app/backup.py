@@ -115,6 +115,13 @@ SCOPES: Dict[str, dict] = {
         "order": 50,
         "sensitive": True,
     },
+    "rmm": {
+        "label": "Fernwartung (RMM)",
+        "label_en": "Remote management (RMM)",
+        "hint": "Skripte, Checks, Patch-Stand, Befehlsverlauf und Alarme der RMM-Agents.",
+        "tables": ["scripts", "checks", "check_results", "patch_reports", "commands", "rmm_alerts"],
+        "order": 55,
+    },
     "logs": {
         "label": "Logdaten",
         "label_en": "Log data",
@@ -125,7 +132,7 @@ SCOPES: Dict[str, dict] = {
 }
 
 # Bereiche, die standardmaessig angehakt sind, wenn vor einem Eingriff gefragt wird.
-DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks"]
+DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks", "rmm"]
 
 
 def scope_catalog() -> List[dict]:

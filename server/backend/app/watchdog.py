@@ -251,7 +251,11 @@ async def _check_agents(session, config: dict) -> None:
     rows = (await session.execute(
         select(Agent.hostname, Agent.last_seen, Agent.extra_data)
         .where(Agent.last_seen.is_not(None),
-               Agent.last_seen >= now - timedelta(days=7))
+               Agent.last_seen >= now - timedelta(days=7),
+               # Rechner mit RIMPERIO-Agent überwacht rmm.py genauer (Check-in
+               # jede Minute) - sonst gäbe es für reine RMM-Rechner, die gar
+               # keine Logs schicken, hier einen Fehlalarm.
+               Agent.agent_uid.is_(None))
     )).all()
 
     offline = set()
