@@ -1,0 +1,58 @@
+# ==============================================================================
+# Name:        Phydran6
+# Kontakt:     Phydran6
+# Version:     2026.08.02.16.00.00
+# Changelog:   docs/changelog/database.md
+# Beschreibung: RIMPERIO mit EXTERNER PostgreSQL-Datenbank
+# ==============================================================================
+#
+# Damit läuft RIMPERIO nur noch als Anwendung; die Daten liegen auf einem
+# Datenbankserver, der nicht Teil dieses Stacks ist (eigener Server, verwaltete
+# Cloud-Datenbank, NAS, …). Der mitgelieferte Postgres-Container startet nicht
+# mehr, das Volume bleibt aber unangetastet — ein Rückweg ist also möglich.
+#
+# VERWENDUNG
+#   1. In der .env eintragen (eines von beiden):
+#        DATABASE_URL=postgresql://benutzer:passwort@db.example.com:5432/rimperio
+#      oder die Einzelwerte:
+#        DB_HOST=db.example.com
+#        DB_PORT=5432
+#        DB_USER=rimperio
+#        DB_PASSWORD=…
+#        DB_NAME=rimperio
+#      Bei einer Datenbank außerhalb des eigenen Netzes zusätzlich:
+#        DB_SSLMODE=require
+#
+#   2. Schema einmalig auf dem externen Server anlegen:
+#        psql "postgresql://benutzer:passwort@db.example.com:5432/rimperio" -f db/init.sql
+#
+#   3. Starten:
+#        docker compose -f docker-compose.yml -f docker-compose.external-db.yml up -d
+#
+#      Damit man das nicht jedes Mal tippt, in der .env:
+#        COMPOSE_FILE=docker-compose.yml:docker-compose.external-db.yml
+#
+# BESTEHENDE DATEN ÜBERNEHMEN (vorher Container stoppen)
+#   docker compose exec postgres pg_dump -U rimperio rimperio > rimperio.sql
+#   psql "postgresql://…/rimperio" < rimperio.sql
+#
+# HINWEIS
+#   Die laufenden Startup-Migrationen (fehlende Spalten/Indizes) legt das Backend
+#   auch auf einer externen Datenbank selbst an — der Benutzer braucht dafür
+#   Rechte zum Ändern der Tabellen.
+# ==============================================================================
+
+services:
+  # Mitgelieferte Datenbank abschalten: das Profil wird nie aktiviert, der
+  # Service bleibt damit außen vor (Volume und Daten bleiben erhalten).
+  postgres:
+    profiles:
+      - unused-local-db
+
+  # Ohne lokalen Datenbank-Container gibt es nichts, worauf gewartet werden
+  # könnte - die Wartebedingung muss deshalb weg.
+  backend:
+    depends_on: []
+
+  syslog:
+    depends_on: []

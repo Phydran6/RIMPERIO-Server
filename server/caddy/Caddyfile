@@ -1,0 +1,31 @@
+# ==============================================================================
+# Name:        Phydran6
+# Kontakt:     Phydran6
+# Version:     2026.07.31.23.00.00
+# Beschreibung: RIMPERIO - Caddy Reverse Proxy (Startkonfiguration)
+#
+# Das ist nur der Zustand beim ersten Start: reines HTTP auf Port 80.
+# HTTPS/FQDN wird im Web-UI unter "Einstellungen -> Netzwerk -> Reverse Proxy"
+# eingerichtet; die dort erzeugte Konfiguration wird gespeichert und beim Start
+# erneut geladen (siehe backend/app/routes/caddy.py).
+#
+# Port 80 bleibt in JEDER erzeugten Konfiguration erreichbar - es gibt bewusst
+# keinen Zwangs-Redirect auf HTTPS, damit man sich nicht aussperren kann.
+# ==============================================================================
+
+{
+    admin 0.0.0.0:2019
+}
+
+(rimperio_routes) {
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+    handle {
+        reverse_proxy frontend:80
+    }
+}
+
+:80 {
+    import rimperio_routes
+}

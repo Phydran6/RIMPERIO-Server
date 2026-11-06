@@ -2,13 +2,15 @@
 # Datei:        .gitignore
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Beschreibung: Was nicht ins Repo gehört — Geheimnisse, Baureste, Zertifikate.
+# Beschreibung: Was nicht ins Repo gehört: Geheimnisse, Baureste, Zertifikate.
 # ---------------------------------------------------------------------------
 
 # Umgebung / Geheimnisse
 .env
-*.env
+.env.*
 !.env.example
+!server/.env.example
+docker-compose.override.yml
 *.pem
 *.key
 *.pfx
@@ -26,30 +28,26 @@ venv/
 
 # Node / Frontend
 node_modules/
-frontend/dist/
+dist/
 .vite/
 npm-debug.log*
 
 # Go / Agent
 agent/bin/
-agent/dist/
 *.exe
 *.msi
 *.syso
 
 # Datenbank / Laufzeit
 pgdata/
-data/
+*.dump
+backup.sql
 *.sqlite
-*.db
-
-# Caddy
-caddy/data/
-caddy/config/
 
 # Editor / OS
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
+*.swp
 *.log

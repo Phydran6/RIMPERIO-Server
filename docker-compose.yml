@@ -1,68 +1,335 @@
-# ---------------------------------------------------------------------------
-# Datei:        docker-compose.yml
-# Projekt:      RIMPERIO
-# Autor:        Phydran6
-# Version:      2026.10.31.15.40.00
-# Beschreibung: Der ganze Server als ein Stack: Reverse Proxy (Caddy), API
-#               (FastAPI), Oberfläche (Vue hinter nginx), Datenbank (PostgreSQL).
-#               Nur Caddy ist von außen erreichbar.
-# ---------------------------------------------------------------------------
+# ==============================================================================
+# Name:        Phydran6
+# Kontakt:     Phydran6
+# Changelog:   docs/changelog/database.md
+# Beschreibung: RIMPERIO - Docker Compose Konfiguration
+# ==============================================================================
+#
+# NAMEN: WAS IST HIER EIGENTLICH WESSEN?
+#
+#   Frueher hiess jeder Container in diesem Stack `rimperio-irgendwas` - auch
+#   PostgreSQL und Caddy. Das war irrefuehrend: PostgreSQL ist nicht "von
+#   RIMPERIO", es ist PostgreSQL. Und daran haengt eine praktische Frage, naemlich
+#   *wie* man ein Ding aktualisiert. Deshalb sagen die Namen es jetzt:
+#
+#     rimperio-app-*   Aus DIESEM Quellcode gebaut (backend, frontend, syslog).
+#                    Aktualisiert werden sie ueber System -> Updates: neuer
+#                    Stand von GitHub, Container neu bauen. Ein Image-Update
+#                    gibt es fuer sie nicht - es gibt kein fertiges Image.
+#
+#     rimperio-ext-*   Fremde, fertige Images (postgres, caddy, ...). Die werden
+#                    aktualisiert, indem man ein neueres Image holt - genau wie
+#                    ueberall sonst auch. Zustaendig dafuer: System -> Container.
+#                    RIMPERIOs Patchmanagement fasst sie NICHT an.
+#
+#   Zusaetzlich traegt jeder Dienst Labels (de.rimperio.*). Danach richten sich
+#   die Container-Uebersicht in der Oberflaeche und der Update-Pruefer
+#   (Tugtainer) - der Name allein ist fuer Menschen, die Labels fuer Maschinen.
+#
+#   Alte Namen bleiben im Docker-Netz als Alias erreichbar. Eine gespeicherte
+#   Adresse wie `http://rimperio-n8n:5678` funktioniert also weiter.
+# ==============================================================================
+
+# Container-Protokolle begrenzen. Docker hebt sie sonst ohne Obergrenze auf -
+# jede Ingest-Anfrage ist eine Zeile im Backend-Protokoll, jeder gescheiterte
+# Syslog-Stapel eine im Syslog-Protokoll. Ein Agent in einer
+# Wiederholschleife fuellt damit die Platte, und zwar an einer Stelle, die der
+# Plattenwaechter nicht aufraeumen kann. 5 x 10 MB je Container reichen fuer
+# `docker logs` voellig.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-rimperio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rimperio}
-      POSTGRES_DB: ${POSTGRES_DB:-rimperio}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rimperio} -d ${POSTGRES_DB:-rimperio}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
-  backend:
-    build: ./backend
+  # ============================================================================
+  # FREMD: PostgreSQL. Nicht von RIMPERIO - ganz normales PostgreSQL.
+  # ============================================================================
+  postgres:
+    # PostgreSQL-Major-Version ueber POSTGRES_VERSION in .env steuerbar.
+    # Standard: 17 (neu + stabil). Neuinstallationen bekommen direkt 17-alpine.
+    # NOTBREMSE bei bestehender 16er-DB: POSTGRES_VERSION=16 in .env setzen,
+    # dann laeuft alles sofort weiter. Datenerhaltendes Upgrade: db/migrate.sh.
+    # Details: README -> "Update / PostgreSQL-Major-Upgrade".
+    image: postgres:${POSTGRES_VERSION:-17}-alpine
+    container_name: rimperio-ext-postgres
+    hostname: postgres
     restart: unless-stopped
-    env_file: .env
+    logging: *default-logging
+    labels:
+      de.rimperio.stack: "core"
+      de.rimperio.origin: "upstream"          # fremdes Image
+      de.rimperio.update: "image"             # Update = neueres Image holen
+      de.rimperio.component: "postgres"
+      de.rimperio.role: "Datenbank — hier liegen alle Logs"
+      de.rimperio.critical: "true"
     environment:
-      DB_HOST: db
-      DB_PORT: "5432"
-    depends_on:
-      db:
-        condition: service_healthy
+      POSTGRES_USER: ${DB_USER:-rimperio}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD muss gesetzt sein}
+      POSTGRES_DB: ${DB_NAME:-rimperio}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      # Nur vom Server selbst erreichbar. Vorher war der Port auf allen
+      # Schnittstellen offen - die Datenbank hing damit ungeschuetzt im
+      # Netz und war nur durch das Passwort getrennt.
+      # Zugriff von aussen wirklich noetig? Dann DB_BIND=0.0.0.0 in der .env.
+      - "${DB_BIND:-127.0.0.1}:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)\""]
-      interval: 15s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-rimperio} -d ${DB_NAME:-rimperio}"]
+      interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      rimperio:
+        aliases:
+          - postgres
+          - rimperio-postgres                 # alter Name, damit nichts bricht
 
-  frontend:
-    build: ./frontend
+  # ============================================================================
+  # EIGEN: Syslog-Empfaenger. Aus ./server/syslog gebaut.
+  # ============================================================================
+  syslog:
+    build: ./server/syslog
+    image: rimperio/syslog:local
+    container_name: rimperio-app-syslog
+    hostname: syslog
     restart: unless-stopped
+    logging: *default-logging
+    labels:
+      de.rimperio.stack: "core"
+      de.rimperio.origin: "rimperio"            # aus diesem Quellcode gebaut
+      de.rimperio.update: "source"            # Update = System -> Updates
+      de.rimperio.component: "syslog"
+      de.rimperio.role: "Nimmt Syslog auf Port 514 entgegen (UDP und TCP)"
+      de.rimperio.critical: "true"
+    environment:
+      # Bei externer Datenbank DB_HOST in der .env auf den externen Server setzen
+      # (oder DATABASE_URL nutzen) - siehe server/deploy/external-db.yml.
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-rimperio}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-rimperio}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_SSLMODE: ${DB_SSLMODE:-}
+      # Ab dieser Plattenbelegung (%) wird Syslog verworfen statt gespeichert -
+      # damit die Datenbank nicht an voller Platte stirbt. Gleicher Wert wie im Backend.
+      DISK_INGEST_STOP: ${DISK_INGEST_STOP:-95}
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      rimperio:
+        aliases:
+          - syslog
+          - rimperio-syslog
+
+  # ============================================================================
+  # EIGEN: Backend (FastAPI). Aus ./server/backend gebaut.
+  # ============================================================================
+  backend:
+    build: ./server/backend
+    image: rimperio/backend:local
+    container_name: rimperio-app-backend
+    hostname: backend
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      de.rimperio.stack: "core"
+      de.rimperio.origin: "rimperio"
+      de.rimperio.update: "source"
+      de.rimperio.component: "backend"
+      de.rimperio.role: "API, Oberflaechen-Logik, Patchmanagement, Terminal"
+      de.rimperio.critical: "true"
+    # ACHTUNG, bewusst weitreichende Rechte: privileged + pid:host + SYS_BOOT
+    # existieren fuer den Neustart-Knopf, das Terminal, das Patchmanagement und
+    # die Container-Verwaltung (der Container steuert damit den *Host*).
+    # Preis: wer im Backend Code ausfuehren kann, uebernimmt den ganzen Server.
+    # Wer das nicht braucht, faehrt die Rechte herunter mit:
+    #   docker compose -f docker-compose.yml -f server/deploy/hardened.yml up -d
+    privileged: true
+    pid: "host"
+    security_opt:
+      - seccomp=unconfined
+    cap_add:
+      - SYS_BOOT
+    # DNS wird zur Laufzeit ueber "Einstellungen -> Netzwerk -> DNS" verwaltet
+    # (schreibt /etc/resolv.conf im Container). Standard: per DHCP vergebener
+    # System-DNS des Hosts; optional eigene Server. Siehe backend routes/network.py.
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-rimperio}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-rimperio}
+      # Externe Datenbank: setzt die Einzelwerte oben ausser Kraft.
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_SSLMODE: ${DB_SSLMODE:-}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET muss gesetzt sein}
+      CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
+      CADDY_CERTS_DIR: ${CADDY_CERTS_DIR:-/caddy-certs}
+      # Notausstieg: CADDY_FORCE_HTTP=true in der .env setzen, Backend neu starten
+      # -> zurueck auf reines HTTP (Port 80), gespeicherte TLS-Config wird verworfen.
+      CADDY_FORCE_HTTP: ${CADDY_FORCE_HTTP:-false}
+      SITE_URL: ${SITE_URL:-}
+      # Patchmanagement (System -> Updates): wo die Installation auf dem HOST
+      # liegt und gegen welches Repository geprueft wird. Das Update selbst
+      # laeuft auf dem Host (systemd-run), nicht in diesem Container.
+      RIMPERIO_INSTALL_DIR: ${RIMPERIO_INSTALL_DIR:-/opt/rimperio}
+      RIMPERIO_REPO_SLUG: ${RIMPERIO_REPO_SLUG:-Phydran6/RIMPERIO-Server}
+      RIMPERIO_BRANCH: ${RIMPERIO_BRANCH:-main}
+      # Optional: hebt das Limit der anonymen GitHub-Abfragen an.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Sofortmeldung bei neuem Stand: Takt des eigenen Beobachters und das
+      # Secret fuer den GitHub-Webhook (ohne Secret nimmt der Server keine
+      # Webhook-Meldung an). Siehe app/updater.py.
+      RIMPERIO_UPDATE_WATCH: ${RIMPERIO_UPDATE_WATCH:-true}
+      RIMPERIO_UPDATE_WATCH_INTERVAL: ${RIMPERIO_UPDATE_WATCH_INTERVAL:-120}
+      RIMPERIO_WEBHOOK_SECRET: ${RIMPERIO_WEBHOOK_SECRET:-}
+      # Sicherungen: Ablageort im Container (haengt am Volume unten) und wie
+      # viele aufgehoben werden.
+      RIMPERIO_BACKUP_DIR: /backups
+      RIMPERIO_KEEP_BACKUPS: ${RIMPERIO_KEEP_BACKUPS:-10}
+      # Terminal im Browser (System -> Konsole). Es oeffnet eine Root-Shell auf
+      # dem HOST - wie die Konsole in Proxmox VE. Nur Administratoren, jede
+      # Sitzung wird protokolliert. Abschalten: RIMPERIO_WEBSHELL=false.
+      RIMPERIO_WEBSHELL: ${RIMPERIO_WEBSHELL:-true}
+      RIMPERIO_WEBSHELL_MAX_SESSIONS: ${RIMPERIO_WEBSHELL_MAX_SESSIONS:-3}
+      RIMPERIO_WEBSHELL_IDLE_TIMEOUT: ${RIMPERIO_WEBSHELL_IDLE_TIMEOUT:-900}
+      # Plattenwaechter: raeumt auf, BEVOR es eng wird. Siehe app/diskguard.py.
+      DISK_MONITOR_INTERVAL: ${DISK_MONITOR_INTERVAL:-60}
+      DISK_USAGE_WARN: ${DISK_USAGE_WARN:-80}
+      DISK_USAGE_HIGH: ${DISK_USAGE_HIGH:-88}
+      DISK_USAGE_THRESHOLD: ${DISK_USAGE_THRESHOLD:-93}
+      DISK_USAGE_TARGET: ${DISK_USAGE_TARGET:-75}
+      DISK_MIN_KEEP_HOURS: ${DISK_MIN_KEEP_HOURS:-24}
+      DISK_ALLOW_TRUNCATE: ${DISK_ALLOW_TRUNCATE:-false}
+      # Ab hier keine Annahme mehr (Agents bekommen 503 und liefern spaeter nach).
+      DISK_INGEST_STOP: ${DISK_INGEST_STOP:-95}
+      # Notreserve in MB: wird bei voller Platte geloescht, damit die Datenbank
+      # weiterlaeuft. 0 = aus.
+      DISK_RESERVE_MB: ${DISK_RESERVE_MB:-1024}
+      # Gleiche Meldungen innerhalb von N Sekunden zu einer Zeile mit Anzahl
+      # zusammenfassen. 0 = aus.
+      LOG_REPEAT_WINDOW: ${LOG_REPEAT_WINDOW:-60}
+      # Meldungen nach aussen - eingestellt wird unter System -> Benachrichtigungen.
+      # Diese Variablen sind nur der Rueckfall fuer Betrieb ganz ohne Datenbank.
+      ALERT_TELEGRAM_BOT_TOKEN: ${ALERT_TELEGRAM_BOT_TOKEN:-}
+      ALERT_TELEGRAM_CHAT_ID: ${ALERT_TELEGRAM_CHAT_ID:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      # Anmeldung ueber Microsoft 365 / Entra ID (OpenID Connect).
+      # Eingerichtet wird das in der Oberflaeche unter Sicherheit -> Single Sign-on.
+      OIDC_ENABLED: ${OIDC_ENABLED:-}
+      # Sprache der Oberflaeche, wenn ein Browser nichts anderes verlangt.
+      RIMPERIO_DEFAULT_LANGUAGE: ${RIMPERIO_DEFAULT_LANGUAGE:-de}
+    expose:
+      - "8000"
+    volumes:
+      - caddy_certs:/caddy-certs
+      # Sicherungen liegen in einem eigenen Volume: so ueberstehen sie einen
+      # Neubau der Container - und genau dafuer sind sie da.
+      - backup_data:/backups
+      # Branding-Dateien und die erzeugte Postfix-Konfiguration.
+      - app_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      rimperio:
+        aliases:
+          - backend
+          - rimperio-backend
+
+  # ============================================================================
+  # EIGEN: Frontend (Vue, ausgeliefert von nginx). Aus ./server/frontend gebaut.
+  # ============================================================================
+  frontend:
+    build: ./server/frontend
+    image: rimperio/frontend:local
+    container_name: rimperio-app-frontend
+    hostname: frontend
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      de.rimperio.stack: "core"
+      de.rimperio.origin: "rimperio"
+      de.rimperio.update: "source"
+      de.rimperio.component: "frontend"
+      de.rimperio.role: "Die Weboberflaeche"
+      de.rimperio.critical: "true"
+    expose:
+      - "80"
     depends_on:
       - backend
+    networks:
+      rimperio:
+        aliases:
+          - frontend
+          - rimperio-frontend
 
+  # ============================================================================
+  # FREMD: Caddy. Reverse Proxy und TLS - nicht von RIMPERIO.
+  # ============================================================================
   caddy:
-    image: caddy:2-alpine
+    image: caddy:${CADDY_VERSION:-2}-alpine
+    container_name: rimperio-ext-caddy
+    hostname: caddy
     restart: unless-stopped
+    logging: *default-logging
+    labels:
+      de.rimperio.stack: "core"
+      de.rimperio.origin: "upstream"
+      de.rimperio.update: "image"
+      de.rimperio.component: "caddy"
+      de.rimperio.role: "Reverse Proxy und TLS-Zertifikate"
+      de.rimperio.critical: "true"
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      RIMPERIO_SITE_ADDRESS: ${RIMPERIO_SITE_ADDRESS:-:80}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./server/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - caddy_certs:/etc/caddy/certs
     depends_on:
-      - backend
       - frontend
+      - backend
+    networks:
+      rimperio:
+        aliases:
+          - caddy
+          - rimperio-caddy
+
+# HINWEIS zu Zusatzdiensten: In DIESEM Stack laeuft bewusst nichts Fremdes,
+# ausser dem, was RIMPERIO zum Laufen braucht (PostgreSQL und Caddy).
+# Portainer, Tugtainer, n8n, Open WebUI und Postfix liegen in
+# server/deploy/optional.yml und haengen dort je an einem eigenen Profil -
+# eingeschaltet wird bewusst, in der Oberflaeche unter System -> Zusatzdienste
+# oder beim Installieren.
+#
+# Der Grund fuer die Trennung: Portainer und Tugtainer brauchen den
+# Docker-Socket, und wer darauf schreiben kann, ist faktisch root auf diesem
+# Server. Genau deshalb wurde der frueher hier enthaltene portainer-agent
+# entfernt, und deshalb bekommt Tugtainer den Socket nur lesend.
+#
+#   docker compose -f docker-compose.yml -f server/deploy/optional.yml \
+#     --profile portainer up -d
 
 volumes:
-  pgdata:
+  postgres_data:
   caddy_data:
   caddy_config:
+  caddy_certs:
+  backup_data:
+  app_data:
+
+networks:
+  rimperio:
+    driver: bridge

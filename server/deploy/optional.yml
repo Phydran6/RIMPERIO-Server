@@ -1,0 +1,291 @@
+# ==============================================================================
+# Name:        Phydran6
+# Kontakt:     Phydran6
+# Changelog:   docs/changelog/database.md
+# Beschreibung: RIMPERIO - optionale Zusatzdienste (fremde Images, eigene Profile)
+# ==============================================================================
+#
+# WAS HIER DRIN STEHT
+#   Fuenf Dienste, die RIMPERIO nicht braucht, aber viele daneben haben wollen.
+#   Keiner davon startet von selbst: jeder haengt an einem eigenen Profil.
+#
+#     portainer    Container-Oberflaeche im Browser
+#     tugtainer    sieht nach, ob fuer die fremden Images Updates bereitliegen
+#     n8n          Automatisierung (u.a. fuer die KI-Auswertung)
+#     openwebui    Open WebUI - KI-Oberflaeche, auch fuer lokale Modelle
+#     postfix      Mailversand, damit der Server Mails verschicken kann
+#
+#   ALLE fuenf sind fremde Images (rimperio-ext-*). Keines davon wird von RIMPERIOs
+#   Patchmanagement aktualisiert - dafuer ist System -> Container zustaendig.
+#
+# WATCHTOWER IST RAUS
+#   Watchtower hat Images geholt UND Container eigenmaechtig ausgetauscht. Genau
+#   das will man auf einem Log-Server nicht: ein Update mitten in der Nacht,
+#   das niemand angestossen hat und das hinterher keiner zuordnen kann.
+#   Tugtainer nimmt seinen Platz ein und macht standardmaessig nur eines:
+#   nachsehen und melden. Eingespielt wird dann bewusst - in RIMPERIOs
+#   Oberflaeche unter System -> Container, in Tugtainers eigener Oberflaeche
+#   oder auf der Kommandozeile.
+#
+# VERWENDUNG
+#   Direkt:
+#     docker compose -f docker-compose.yml -f server/deploy/optional.yml \
+#       --profile portainer --profile tugtainer up -d
+#
+#   Dauerhaft in der .env (dann reicht "docker compose up -d"):
+#     COMPOSE_FILE=docker-compose.yml:server/deploy/optional.yml
+#     COMPOSE_PROFILES=portainer,tugtainer
+#
+#   Der Installer schreibt beides selbst, wenn man die Dienste dort auswaehlt;
+#   in der Oberflaeche stehen sie unter System -> Zusatzdienste.
+#
+# ZUGANGSDATEN
+#   Stehen in der .env und sind in der Oberflaeche unter System -> Zusatzdienste
+#   fuer Administratoren einsehbar. Der Installer wuerfelt sie beim ersten Mal
+#   aus; ein leeres Feld laesst den jeweiligen Dienst gar nicht erst starten.
+#
+# ------------------------------------------------------------------------------
+# SICHERHEITSHINWEIS, bewusst hier und nicht im Kleingedruckten
+#   Portainer und Tugtainer brauchen den Docker-Socket (/var/run/docker.sock).
+#   Wer darauf SCHREIBEN kann, ist faktisch root auf diesem Server - egal, was
+#   in der Container-Konfiguration sonst steht. Deshalb bekommen beide den
+#   Socket hier nur LESEND (`:ro`):
+#
+#     Portainer  zeigt dann alles an, kann aber nichts starten oder loeschen.
+#     Tugtainer  sieht nach, ob Updates bereitliegen, und meldet sie - mehr
+#                nicht. Genau so ist es gewollt.
+#
+#   Wer Tugtainer auch selbst austauschen lassen will, setzt in der .env
+#   TUGTAINER_SOCKET_MODE=rw und weiss, worauf er sich einlaesst.
+# ==============================================================================
+
+# Container-Protokolle begrenzen (wie im Kern-Stack, docker-compose.yml):
+# ohne Grenze wachsen sie unbemerkt, ausser Reichweite des Plattenwaechters.
+# Anker gelten nur innerhalb einer Datei - deshalb hier noch einmal.
+x-logging: &optional-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+
+  # ----------------------------------------------------------------------------
+  # Portainer - Container-Oberflaeche (fremdes Image)
+  # ----------------------------------------------------------------------------
+  portainer:
+    image: portainer/portainer-ce:${PORTAINER_VERSION:-2.21.4-alpine}
+    container_name: rimperio-ext-portainer
+    hostname: portainer
+    restart: unless-stopped
+    logging: *optional-logging
+    profiles: ["portainer"]
+    labels:
+      de.rimperio.stack: "optional"
+      de.rimperio.origin: "upstream"
+      de.rimperio.update: "image"
+      de.rimperio.component: "portainer"
+      de.rimperio.role: "Container-Oberflaeche im Browser"
+    command: >
+      --admin-password-file /run/secrets/portainer_password
+      --http-enabled
+    ports:
+      # Standard: nur vom Server selbst erreichbar. Wer aus dem Netz herankommen
+      # will, setzt PORTAINER_BIND=0.0.0.0 - und sollte vorher HTTPS einrichten.
+      - "${PORTAINER_BIND:-127.0.0.1}:${PORTAINER_PORT:-9000}:9000"
+      - "${PORTAINER_BIND:-127.0.0.1}:${PORTAINER_HTTPS_PORT:-9443}:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - portainer_data:/data
+      - ./data/portainer_password:/run/secrets/portainer_password:ro
+    networks:
+      rimperio:
+        aliases:
+          - portainer
+          - rimperio-portainer
+
+  # ----------------------------------------------------------------------------
+  # Tugtainer - sieht nach, ob fuer die fremden Images Updates bereitliegen
+  # ----------------------------------------------------------------------------
+  #   Loest Watchtower ab. Unterschied in einem Satz: Watchtower hat getauscht,
+  #   Tugtainer sagt Bescheid.
+  #
+  #   Automatische Updates sind in Tugtainer ab Werk AUS. Zusammen mit dem
+  #   nur lesbaren Docker-Socket unten heisst das: dieser Container kann gar
+  #   nichts austauschen, selbst wenn ihn jemand versehentlich umstellt.
+  #
+  #   RIMPERIOs eigene Container (rimperio-app-*) haben kein Image in einer
+  #   Registry - sie werden hier gebaut. Tugtainer kann fuer sie also gar nichts
+  #   finden; zustaendig ist das Patchmanagement unter System -> Updates.
+  tugtainer:
+    image: ghcr.io/quenary/tugtainer:${TUGTAINER_VERSION:-1}
+    container_name: rimperio-ext-tugtainer
+    hostname: tugtainer
+    restart: unless-stopped
+    logging: *optional-logging
+    profiles: ["tugtainer"]
+    labels:
+      de.rimperio.stack: "optional"
+      de.rimperio.origin: "upstream"
+      de.rimperio.update: "image"
+      de.rimperio.component: "tugtainer"
+      de.rimperio.role: "Prueft, ob fuer die fremden Images Updates bereitliegen"
+    environment:
+      # Gemeinsames Geheimnis fuer Tugtainers eigene Agenten auf anderen Hosts.
+      # Wer nur diesen einen Server hat, braucht es nicht - es steht trotzdem
+      # gesetzt da, weil ein leeres Geheimnis ein offenes Scheunentor waere.
+      AGENT_SECRET: ${TUGTAINER_AGENT_SECRET:-}
+      TZ: ${TZ:-Europe/Berlin}
+    ports:
+      # Wie ueberall hier: standardmaessig nur vom Server selbst erreichbar.
+      - "${TUGTAINER_BIND:-127.0.0.1}:${TUGTAINER_PORT:-9412}:80"
+    volumes:
+      - tugtainer_data:/tugtainer
+      # LESEND. Damit kann Tugtainer nachsehen und vergleichen - aber nichts
+      # anfassen. Fuer "darf auch tauschen": TUGTAINER_SOCKET_MODE=rw.
+      - /var/run/docker.sock:/var/run/docker.sock:${TUGTAINER_SOCKET_MODE:-ro}
+    networks:
+      rimperio:
+        aliases:
+          - tugtainer
+          - rimperio-tugtainer
+
+  # ----------------------------------------------------------------------------
+  # n8n - Automatisierung (fremdes Image)
+  # ----------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:${N8N_VERSION:-1.68.0}
+    container_name: rimperio-ext-n8n
+    hostname: n8n
+    restart: unless-stopped
+    logging: *optional-logging
+    profiles: ["n8n"]
+    labels:
+      de.rimperio.stack: "optional"
+      de.rimperio.origin: "upstream"
+      de.rimperio.update: "image"
+      de.rimperio.component: "n8n"
+      de.rimperio.role: "Automatisierung: Workflows, Benachrichtigungen"
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://rimperio-n8n:5678/}
+      GENERIC_TIMEZONE: ${TZ:-Europe/Berlin}
+      # Ohne Anmeldung stuende die Oberflaeche offen - und mit ihr jeder
+      # hinterlegte Zugang zu Telegram, Mail oder KI-Anbietern.
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:?N8N_PASSWORD muss gesetzt sein, wenn das n8n-Profil laeuft}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
+    ports:
+      - "${N8N_BIND:-127.0.0.1}:${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      rimperio:
+        aliases:
+          - n8n
+          - rimperio-n8n                      # alter Name, damit gespeicherte
+                                            # Webhook-Adressen weiter stimmen
+
+  # ----------------------------------------------------------------------------
+  # Open WebUI - KI-Oberflaeche (fremdes Image)
+  # ----------------------------------------------------------------------------
+  #   Warum das hier steht: Open WebUI spricht dieselbe Sprache wie OpenAI
+  #   (`/api/chat/completions`), kann aber hinter sich ein *lokales* Modell
+  #   haengen haben - Ollama auf demselben Server, ein Modell im Netz, oder
+  #   doch einen Anbieter im Internet. Fuer RIMPERIO ist das einerlei: die
+  #   KI-Auswertung schickt ihre Anfrage an eine Adresse und bekommt eine
+  #   Antwort. Was dahinter laeuft, entscheidet der Betreiber.
+  #
+  #   Der eigentliche Gewinn: mit Open WebUI + Ollama verlaesst kein einziges
+  #   Byte den Server. Eingerichtet wird es unter System -> KI-Auswertung,
+  #   Anbieter "Open WebUI".
+  #
+  #   Ollama selbst ist NICHT Teil dieses Stacks - ein Sprachmodell will
+  #   Arbeitsspeicher und moeglichst eine Grafikkarte, das gehoert bewusst
+  #   nicht nebenbei auf einen Log-Server. OLLAMA_BASE_URL zeigt auf eine
+  #   vorhandene Installation.
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:${OPENWEBUI_VERSION:-main}
+    container_name: rimperio-ext-openwebui
+    hostname: openwebui
+    restart: unless-stopped
+    logging: *optional-logging
+    profiles: ["openwebui"]
+    labels:
+      de.rimperio.stack: "optional"
+      de.rimperio.origin: "upstream"
+      de.rimperio.update: "image"
+      de.rimperio.component: "openwebui"
+      de.rimperio.role: "KI-Oberflaeche, auch fuer lokale Modelle (Ollama)"
+    environment:
+      # Woher die Modelle kommen. Leer lassen, wenn Open WebUI nur an einen
+      # Anbieter im Internet weiterreichen soll.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OPENAI_API_BASE_URL: ${OPENWEBUI_OPENAI_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY:-}
+      # Ohne das kann sich jeder als erster Benutzer registrieren und hat damit
+      # die Oberflaeche - samt hinterlegter Schluessel.
+      ENABLE_SIGNUP: ${OPENWEBUI_ENABLE_SIGNUP:-false}
+      WEBUI_AUTH: "true"
+      WEBUI_SECRET_KEY: ${OPENWEBUI_SECRET_KEY:?OPENWEBUI_SECRET_KEY muss gesetzt sein, wenn das openwebui-Profil laeuft}
+      WEBUI_NAME: ${OPENWEBUI_NAME:-RIMPERIO KI}
+      TZ: ${TZ:-Europe/Berlin}
+    ports:
+      - "${OPENWEBUI_BIND:-127.0.0.1}:${OPENWEBUI_PORT:-3000}:8080"
+    volumes:
+      - openwebui_data:/app/backend/data
+    networks:
+      rimperio:
+        aliases:
+          - openwebui
+          - rimperio-openwebui
+
+  # ----------------------------------------------------------------------------
+  # Postfix - damit der Server Mails verschicken kann (fremdes Image)
+  # ----------------------------------------------------------------------------
+  #   Konfiguriert wird nicht hier, sondern in der Oberflaeche unter
+  #   System -> Mail (nur Administratoren). Das Backend schreibt daraus
+  #   data/postfix/settings.env, das dieser Container beim Start liest.
+  #   Deshalb: nach jeder Aenderung startet das Backend den Container neu.
+  postfix:
+    image: boky/postfix:${POSTFIX_VERSION:-v4.3.1}
+    container_name: rimperio-ext-postfix
+    hostname: postfix
+    restart: unless-stopped
+    logging: *optional-logging
+    profiles: ["postfix"]
+    labels:
+      de.rimperio.stack: "optional"
+      de.rimperio.origin: "upstream"
+      de.rimperio.update: "image"
+      de.rimperio.component: "postfix"
+      de.rimperio.role: "Mailversand"
+    env_file:
+      - ./data/postfix/settings.env
+    environment:
+      # Nur aus dem Docker-Netz annehmen. Ein offenes Relay im Internet ist
+      # binnen Stunden als Spamschleuder in Benutzung.
+      ALLOWED_SENDER_DOMAINS: ${POSTFIX_SENDER_DOMAINS:-}
+      MYNETWORKS: ${POSTFIX_MYNETWORKS:-127.0.0.0/8,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
+      POSTFIX_myhostname: ${POSTFIX_HOSTNAME:-rimperio.local}
+    ports:
+      # Bewusst nur lokal: nach aussen muss dieser Dienst nicht lauschen.
+      - "${POSTFIX_BIND:-127.0.0.1}:${POSTFIX_PORT:-1587}:587"
+    volumes:
+      - postfix_data:/var/spool/postfix
+    networks:
+      rimperio:
+        aliases:
+          - postfix
+          - rimperio-postfix
+
+volumes:
+  portainer_data:
+  tugtainer_data:
+  n8n_data:
+  openwebui_data:
+  postfix_data:

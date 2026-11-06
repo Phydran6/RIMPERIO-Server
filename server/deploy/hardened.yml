@@ -1,0 +1,47 @@
+# ==============================================================================
+# Name:        Phydran6
+# Kontakt:     Phydran6
+# Version:     2026.08.02.18.00.00
+# Changelog:   docs/changelog/database.md
+# Beschreibung: RIMPERIO ohne erweiterte Container-Rechte
+# ==============================================================================
+#
+# WARUM
+#   Der Backend-Container läuft im Standard-Setup mit `privileged: true`,
+#   `pid: host`, `seccomp=unconfined` und `SYS_BOOT`. Das ist die Voraussetzung
+#   für den Neustart-Knopf (der Container startet den *Host* neu) und für das
+#   Auslesen der Host-DNS-Konfiguration über /proc/1/root.
+#
+#   Der Preis ist hoch: Diese Kombination hebt die Trennung zwischen Container
+#   und Server praktisch auf. Wer es schafft, im Backend Code auszuführen — über
+#   eine Lücke in einer Abhängigkeit, ein gekapertes Admin-Konto, einen
+#   fehlerhaften Upload — hat damit den ganzen Server.
+#
+# WAS DIESE DATEI TUT
+#   Sie nimmt genau diese Rechte zurück. RIMPERIO selbst läuft unverändert:
+#   Logs empfangen, anzeigen, filtern, archivieren, Reverse Proxy, Agenten.
+#
+# WAS DANN NICHT MEHR GEHT
+#   * Der Neustart-Knopf unter „Einstellungen" (Host neu starten).
+#   * Das Einspielen von Updates über „System → Updates". Der Systemcheck sagt
+#     das dann auch klar an. Updates laufen weiter über die Kommandozeile:
+#       curl -sSL <RAW-URL>/install.sh | sudo bash -s -- update -y
+#   * Das automatische Übernehmen der Host-DNS-Server. Stattdessen unter
+#     „Einstellungen → Netzwerk → DNS" die Server von Hand eintragen.
+#
+# VERWENDUNG
+#   docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d
+#
+#   Dauerhaft, ohne jedes Mal beide Dateien zu nennen — in die .env:
+#     COMPOSE_FILE=docker-compose.yml:docker-compose.hardened.yml
+# ==============================================================================
+
+services:
+  backend:
+    privileged: false
+    pid: ""
+    cap_add: []
+    # Ersetzt seccomp=unconfined und verhindert zusätzlich, dass ein Prozess im
+    # Container mehr Rechte erlangt, als er beim Start hatte (setuid-Programme).
+    security_opt:
+      - no-new-privileges:true
