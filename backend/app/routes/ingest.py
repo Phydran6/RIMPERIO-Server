@@ -285,7 +285,7 @@ async def check_results(
         if item.status == "fail":
             await raise_alert(
                 session, agent.id, kind, check.severity,
-                f"{agent.hostname}: Check „{check.name}" fehlgeschlagen ({item.value})",
+                f"{agent.hostname}: Check „{check.name}“ fehlgeschlagen ({item.value})",
             )
         elif item.status == "pass":
             await resolve_alert(session, agent.id, kind)

@@ -30,7 +30,7 @@
            Scope="perMachine"
            Compressed="yes">
 
-    <SummaryInformation Description="RIMPERIO — Remote Monitoring & Management Agent"
+    <SummaryInformation Description="RIMPERIO — Remote Monitoring &amp; Management Agent"
                         Manufacturer="Phydran6" />
 
     <MajorUpgrade DowngradeErrorMessage="Eine neuere Version des RIMPERIO-Agents ist bereits installiert." />
