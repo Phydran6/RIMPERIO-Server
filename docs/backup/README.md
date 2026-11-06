@@ -173,13 +173,13 @@ Die klassischen Wege bleiben:
 Datenbank sichern:
 
 ```bash
-docker compose exec postgres pg_dump -U rimperio rimperio > backup.sql
+sudo docker compose exec postgres pg_dump -U rimperio rimperio > backup.sql
 ```
 
 Datenbank einspielen:
 
 ```bash
-docker compose exec -T postgres psql -U rimperio rimperio < backup.sql
+sudo docker compose exec -T postgres psql -U rimperio rimperio < backup.sql
 ```
 
 ---
@@ -187,5 +187,5 @@ docker compose exec -T postgres psql -U rimperio rimperio < backup.sql
 ## Weiter
 
 - [Updates](../updates/README.md) — dort wird die Sicherungsfrage gestellt
-- [Datenbank](../../db/README.md) — Schema und Migration
+- [Datenbank](../../server/db/README.md) — Schema und Migration
 - [Betrieb](../operate/README.md) — Archivierung als Dauerlösung

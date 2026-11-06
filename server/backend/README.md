@@ -2,7 +2,7 @@
 
 FastAPI. Nimmt Logs an, liefert sie aus, und verwaltet den Server selbst.
 
-← [Übersicht](../README.md) · [API-Dokumentation](../docs/api/README.md) · [Alle Dokumente](../docs/README.md)
+← [Übersicht](../../README.md) · [API-Dokumentation](../../docs/api/README.md) · [Alle Dokumente](../../docs/README.md)
 
 ## Aufbau
 
@@ -45,7 +45,7 @@ im Lauf. Deshalb betritt `hostexec.py` per `nsenter` die Namensräume des
 Host-Init und startet den Lauf über `systemd-run` als eigene Unit. Dasselbe gilt
 für Neustart, Zusatzdienste und Terminal.
 
-Der Preis steht in [`docker-compose.yml`](../docker-compose.yml): `privileged`,
+Der Preis steht in [`docker-compose.yml`](../../docker-compose.yml): `privileged`,
 `pid: host`, `SYS_BOOT`. Wer das nicht will, nimmt
 [`server/deploy/hardened.yml`](../deploy/README.md) — dann entfallen genau diese
 Funktionen, alles andere läuft weiter.
@@ -94,5 +94,5 @@ uvicorn app.main:app --reload --port 8000
 
 API-Dokumentation dann unter `http://127.0.0.1:8000/api/docs`.
 
-Änderungen gehören ins [Changelog](docs/changelog/backend.md); der Versionsstand
+Änderungen gehören ins [Changelog](../../docs/changelog/backend.md); der Versionsstand
 im Datei-Kopf wandert mit.

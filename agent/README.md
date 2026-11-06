@@ -4,7 +4,7 @@ Der RIMPERIO-Agent — ein einzelnes Go-Binary, das als Systemdienst läuft, sic
 Takt beim Server meldet, Messwerte und Inventur schickt und mitgegebene Befehle
 ausführt.
 
-← [Übersicht](../README.md) · [Installer &amp; Signatur](../installer/README.md) · [Architektur](../docs/architektur.md)
+← [Übersicht](../README.md) · [Installer &amp; Signatur](installer/README.md) · [Fernwartung](../docs/rmm/README.md)
 
 ---
 
@@ -44,12 +44,12 @@ der Rechner keine offene Tür nach außen.
 ## Befehle
 
 ```text
-rimperio-agent setup      -server URL -secret GEHEIMNIS [-site S] [-desc D] [-insecure]
+rimperio-agent setup      -server URL -secret SCHLÜSSEL [-site S] [-desc D] [-insecure]
                       Anmelden + Dienst einrichten + starten (manueller Weg).
-rimperio-agent bootstrap  -server URL -secret GEHEIMNIS [...]
+rimperio-agent bootstrap  -server URL -secret SCHLÜSSEL [...]
                       Nur Konfiguration anlegen (für den MSI-Installer).
 rimperio-agent install    Dienst registrieren und starten.
-rimperio-agent enroll     -server URL -secret GEHEIMNIS [...]   Nur anmelden.
+rimperio-agent enroll     -server URL -secret SCHLÜSSEL [...]   Nur anmelden.
 rimperio-agent start | stop | restart | uninstall
 rimperio-agent once       Ein Testdurchlauf (ohne Dienst) — gut zum Prüfen.
 rimperio-agent status
@@ -65,11 +65,17 @@ Selbstzertifikat, nie in Produktion.
 
 Zwei Wege, dasselbe Ziel:
 
+Der „Secret“ ist ein **Zugangsschlüssel** aus der Oberfläche
+(*Verwaltung → Zugang & Sicherheit → Zugangsschlüssel*): am besten eine **Einladung**
+(zählbar, läuft ab), alternativ der Generalschlüssel. Dieselben Schlüssel nutzen die
+Log-Agents. Die Anmeldung läuft über `POST /api/rmm/agent/enroll`; ein Gerät mit
+gleichem Hostnamen (etwa eines, das schon Logs schickt) wird dabei weiterverwendet.
+
 - **Direkt** (`setup`/`enroll`): Der Agent meldet sich sofort mit dem
-  Enrollment-Geheimnis an und bekommt sein persönliches Token.
-- **Über die Registry** (MSI): Der Installer legt Server + Geheimnis nach
+  Zugangsschlüssel an und bekommt sein persönliches Token.
+- **Über die Registry** (MSI): Der Installer legt Server + Schlüssel nach
   `HKLM\SOFTWARE\RIMPERIO\Agent`. Beim **ersten Dienststart** meldet der Agent sich
-  selbst an und löscht das Geheimnis danach aus der Konfiguration. So braucht die
+  selbst an und löscht den Schlüssel danach aus der Konfiguration. So braucht die
   MSI-Installation keine Netzverbindung.
 
 Das Token wird serverseitig nur als SHA-256 gespeichert — den Klartext sieht der
@@ -91,7 +97,7 @@ CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o b
 ```
 
 Mit Versions-Ressource und Signatur fürs .exe/.msi: siehe
-[Installer &amp; Signatur](../installer/README.md).
+[Installer &amp; Signatur](installer/README.md).
 
 ---
 

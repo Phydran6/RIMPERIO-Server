@@ -31,23 +31,24 @@ sortiert, nicht nach Bauteilen.
 | das Ganze mit einer lokalen KI, ohne Datenabfluss | [Integrationen → Open WebUI](integrations/README.md#open-webui) |
 | Mails vom Server bekommen | [Integrationen → Mail](integrations/README.md#mail-postfix) |
 | die API benutzen | [API](api/README.md) |
-| Rechner anbinden | [Agents](../agent/logship/README.md) |
-| PostgreSQL migrieren | [Datenbank](../db/README.md) |
+| Rechner fernwarten (Befehle, Skripte, Patches, Checks) | [Fernwartung](rmm/README.md) |
+| Logs von Rechnern einsammeln | [Log-Agents](../agent/logship/README.md) |
+| PostgreSQL migrieren | [Datenbank](../server/db/README.md) |
 
 ## Nach Bauteil
 
 | Verzeichnis | Inhalt |
 |-------------|--------|
-| [`backend/`](../backend/README.md) | FastAPI: API, Auth, Patchmanagement, Sicherung, KI, Mail, Konsole, Systemtagebuch |
-| [`frontend/`](../frontend/README.md) | Vue 3: Oberfläche, Sprachen, Design-System |
-| [`syslog/`](../syslog/README.md) | Syslog-Empfänger auf UDP/TCP 514 |
-| [`db/`](../db/README.md) | Schema, Migration, PostgreSQL-Upgrade |
-| [`caddy/`](../caddy/README.md) | Reverse Proxy und TLS |
-| [`deploy/`](../deploy/README.md) | Compose-Varianten: externe DB, gehärtet, Zusatzdienste |
-| [`install/`](../install/README.md) | Systemprüfung vor der Installation |
+| [`backend/`](../server/backend/README.md) | FastAPI: API, Auth, Patchmanagement, Sicherung, KI, Mail, Konsole, Systemtagebuch |
+| [`frontend/`](../server/frontend/README.md) | Vue 3: Oberfläche, Sprachen, Design-System |
+| [`syslog/`](../server/syslog/README.md) | Syslog-Empfänger auf UDP/TCP 514 |
+| [`db/`](../server/db/README.md) | Schema, Migration, PostgreSQL-Upgrade |
+| [`caddy/`](../server/caddy/README.md) | Reverse Proxy und TLS |
+| [`deploy/`](../server/deploy/README.md) | Compose-Varianten: externe DB, gehärtet, Zusatzdienste |
+| [`install/`](../server/install/README.md) | Systemprüfung vor der Installation |
 | [`agents/`](../agent/logship/README.md) | Installer für Linux und Windows |
-| [`n8n/`](../n8n/README.md) | Fertige Workflows |
-| [`docs/changelog/`](docs/changelog/README.md) | Änderungen je Bereich |
+| [`n8n/`](../server/n8n/README.md) | Fertige Workflows |
+| [`docs/changelog/`](changelog/README.md) | Änderungen je Bereich |
 
 ## Bilder und Zeichen
 

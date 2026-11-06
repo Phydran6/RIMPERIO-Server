@@ -69,6 +69,10 @@ SKIP_PREFLIGHT="${RIMPERIO_SKIP_PREFLIGHT:-false}"
 # Welche Zusatzdienste sollen mit? Komma-getrennt, z.B. "portainer,tugtainer".
 # Leer = nur RIMPERIO. Im manuellen Modus wird gefragt.
 ADDONS="${RIMPERIO_ADDONS:-}"
+# HTTPS gleich bei der Installation (leer = erst mal HTTP, später im Web-UI)
+DOMAIN="${RIMPERIO_DOMAIN:-}"
+TLS_MODE="${RIMPERIO_TLS:-}"          # letsencrypt | internal
+ACME_EMAIL="${RIMPERIO_ACME_EMAIL:-}"
 
 # Bekannte Zusatzdienste (muessen zu server/deploy/optional.yml passen).
 # Watchtower ist raus: es hat Container eigenmaechtig ausgetauscht. Tugtainer
@@ -164,6 +168,10 @@ Optionen (auch als Umgebungsvariable RIMPERIO_*):
                      Möglich: ${ALL_ADDONS// /, }
                      Beispiel: --with portainer,tugtainer
   --no-addons        Ausdrücklich ohne Zusatzdienste
+  --domain <fqdn>    HTTPS gleich einrichten, z.B. rmm.example.de (RIMPERIO_DOMAIN)
+  --tls <art>        letsencrypt (öffentlich erreichbar) | internal (eigenes Netz)
+                     Standard: letsencrypt, wenn --email angegeben, sonst internal
+  --email <adresse>  E-Mail für Let's Encrypt (RIMPERIO_ACME_EMAIL)
   --skip-preflight   Systemprüfung überspringen (nicht empfohlen)
   --no-build         Images nicht neu bauen (nur starten)
   --yes, -y          Keine Rückfragen (unattended)
@@ -208,6 +216,12 @@ parse_args() {
             --with)                 ADDONS="${2:-}"; shift ;;
             --with=*)               ADDONS="${1#*=}" ;;
             --no-addons)            ADDONS="none" ;;
+            --domain)               DOMAIN="${2:-}"; shift ;;
+            --domain=*)             DOMAIN="${1#*=}" ;;
+            --tls)                  TLS_MODE="${2:-}"; shift ;;
+            --tls=*)                TLS_MODE="${1#*=}" ;;
+            --email)                ACME_EMAIL="${2:-}"; shift ;;
+            --email=*)              ACME_EMAIL="${1#*=}" ;;
             --skip-preflight)       SKIP_PREFLIGHT="true" ;;
             --no-build)             NO_BUILD="true" ;;
             --yes|-y|--unattended)  ASSUME_YES="true" ;;
@@ -309,6 +323,67 @@ choose_addons() {
 # ==============================================================================
 # Systemprüfung: trägt diese Maschine die Auswahl?
 # ==============================================================================
+# ==============================================================================
+# HTTPS: Domain und Zertifikat
+# ==============================================================================
+
+# Fragt im manuellen Modus nach der Domain. Automatisch (ohne Tastendruck/--yes)
+# gilt nur, was per --domain/--tls/--email kam - sonst erst mal HTTP.
+ask_https() {
+    if [[ -z "$DOMAIN" && "$MANUAL" == "true" ]]; then
+        echo ""
+        echo "=============================================="
+        echo "  HTTPS"
+        echo "=============================================="
+        echo ""
+        echo "  Unter welcher Domain soll RIMPERIO erreichbar sein? (z.B. rmm.example.de)"
+        echo "  Leer = erst mal nur HTTP per IP; HTTPS geht später im Browser unter"
+        echo "  Einstellungen -> Netzwerk -> Reverse Proxy."
+        echo ""
+        read -r -p "  Domain [leer = nur HTTP]: " DOMAIN </dev/tty || true
+        if [[ -n "$DOMAIN" && -z "$TLS_MODE" ]]; then
+            echo ""
+            echo "    1) Let's Encrypt - die Domain zeigt öffentlich auf diesen Server,"
+            echo "       Port 80 und 443 sind von außen erreichbar"
+            echo "    2) Eigenes Zertifikat (Caddy) - nur im eigenen Netz, der Browser"
+            echo "       fragt einmal nach"
+            local c=""
+            read -r -p "  Zertifikat [1]: " c </dev/tty || true
+            [[ "$c" == "2" ]] && TLS_MODE="internal" || TLS_MODE="letsencrypt"
+        fi
+        if [[ "$TLS_MODE" == "letsencrypt" && -z "$ACME_EMAIL" ]]; then
+            read -r -p "  E-Mail für Let's Encrypt (Hinweise zum Zertifikat): " ACME_EMAIL </dev/tty || true
+        fi
+    fi
+
+    [[ -z "$DOMAIN" ]] && return 0
+    DOMAIN="${DOMAIN,,}"
+    DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN%%/*}"
+    if [[ ! "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+        fail "Ungültige Domain: $DOMAIN (erwartet z.B. rmm.example.de)"
+    fi
+    [[ -z "$TLS_MODE" ]] && { [[ -n "$ACME_EMAIL" ]] && TLS_MODE="letsencrypt" || TLS_MODE="internal"; }
+    case "$TLS_MODE" in
+        letsencrypt|internal) ;;
+        *) fail "Unbekannte Zertifikatsart: $TLS_MODE (letsencrypt oder internal)" ;;
+    esac
+    if [[ "$TLS_MODE" == "letsencrypt" && -z "$ACME_EMAIL" ]]; then
+        log_warn "Let's Encrypt braucht eine E-Mail (--email) - nehme das eigene Zertifikat (internal)."
+        TLS_MODE="internal"
+    fi
+    log_info "HTTPS: https://$DOMAIN ($TLS_MODE)"
+}
+
+# Schreibt die HTTPS-Wahl in die .env. Ohne Domain bleibt alles, wie es ist.
+apply_https_config() {
+    [[ -z "$DOMAIN" ]] && return 0
+    local env_file="$INSTALL_DIR/.env"
+    set_env_value "$env_file" "RIMPERIO_DOMAIN" "$DOMAIN"
+    set_env_value "$env_file" "RIMPERIO_TLS" "$TLS_MODE"
+    set_env_value "$env_file" "RIMPERIO_ACME_EMAIL" "$ACME_EMAIL"
+    set_env_value "$env_file" "SITE_URL" "https://$DOMAIN"
+}
+
 run_preflight() {
     [[ "$SKIP_PREFLIGHT" == "true" ]] && { log_warn "Systemprüfung übersprungen (--skip-preflight)."; return 0; }
 
@@ -524,6 +599,7 @@ ensure_env() {
     if [[ -f "$env_file" ]]; then
         log_info "Bestehende .env bleibt unverändert (Datenbank-Passwort bleibt gültig)"
         apply_addon_config
+        apply_https_config
         return 0
     fi
 
@@ -575,6 +651,7 @@ EOF
     log_success ".env erstellt"
 
     apply_addon_config
+    apply_https_config
 }
 
 # ==============================================================================
@@ -738,7 +815,7 @@ uninstall_rimperio() {
     else
         (cd "$INSTALL_DIR" && docker compose down --remove-orphans) || log_warn "docker compose down meldete einen Fehler"
         log_success "Container gestoppt und entfernt. Daten und $INSTALL_DIR bleiben erhalten."
-        log_info "Wieder starten: cd $INSTALL_DIR && docker compose up -d"
+        log_info "Wieder starten: cd $INSTALL_DIR && sudo docker compose up -d"
     fi
 }
 
@@ -757,8 +834,15 @@ print_summary() {
     echo "=============================================="
     echo ""
     echo "Web-Interface:"
-    echo "  http://${local_ip}"
-    echo "  (HTTPS im UI unter Einstellungen -> Netzwerk -> Reverse Proxy aktivieren)"
+    if [[ -n "$DOMAIN" ]]; then
+        echo "  https://${DOMAIN}   (dazu weiterhin http://${local_ip})"
+        [[ "$TLS_MODE" == "letsencrypt" ]] && echo "  Let's Encrypt klappt nur, wenn ${DOMAIN} auf diesen Server zeigt und Port 80/443 offen sind."
+        [[ "$TLS_MODE" == "internal" ]] && echo "  Eigenes Zertifikat: der Browser fragt beim ersten Aufruf einmal nach."
+    else
+        echo "  http://${local_ip}"
+        echo "  HTTPS: im Browser unter Einstellungen -> Netzwerk -> Reverse Proxy,"
+        echo "  oder gleich beim Einzeiler: ... | sudo bash -s -- --domain rmm.example.de --email du@example.de"
+    fi
     echo ""
     echo "Standard-Login:"
     echo "  Benutzer: admin"
@@ -802,9 +886,9 @@ print_summary() {
     echo ""
     echo "Nützliche Befehle:"
     echo "  cd $INSTALL_DIR"
-    echo "  docker compose logs -f        # Logs anzeigen"
-    echo "  docker compose restart        # Neustart"
-    echo "  docker compose down           # Stoppen"
+    echo "  sudo docker compose logs -f   # Logs anzeigen"
+    echo "  sudo docker compose restart   # Neustart"
+    echo "  sudo docker compose down      # Stoppen"
     echo "  sudo bash install.sh update   # Aktualisieren"
     echo ""
 }
@@ -850,6 +934,7 @@ main() {
             # Erst die Auswahl, dann dagegen pruefen: die Anforderungen haengen
             # davon ab, was mitinstalliert werden soll.
             choose_addons
+            ask_https
             resolve_source
             run_preflight
             check_requirements

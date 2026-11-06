@@ -2,7 +2,7 @@
 
 Änderungen werden **pro Bereich** dokumentiert. Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
-← [Zur Übersicht](../README.md) · [Alle Dokumente](../docs/README.md)
+← [Zur Übersicht](../README.md) · [Alle Dokumente](../README.md)
 
 ---
 

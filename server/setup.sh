@@ -245,6 +245,27 @@ ask_addons() {
     ADDON_LIST="$(IFS=,; echo "${picked[*]}")"
 }
 
+# Setzt DOMAIN, TLS_MODE, ACME_EMAIL (DOMAIN leer = erst mal nur HTTP)
+ask_https() {
+    echo ""
+    echo "  HTTPS: unter welcher Domain soll RIMPERIO erreichbar sein?"
+    echo "    z.B. rmm.example.de. Leer = erst mal nur HTTP per IP; HTTPS geht"
+    echo "    jederzeit im Browser unter Einstellungen -> Netzwerk -> Reverse Proxy."
+    DOMAIN="" TLS_MODE="" ACME_EMAIL=""
+    ask DOMAIN "Domain" ""
+    [[ -z "$DOMAIN" ]] && return 0
+    echo "    1) Let's Encrypt - Domain zeigt öffentlich hierher, Port 80/443 offen"
+    echo "    2) Eigenes Zertifikat (Caddy) - nur im eigenen Netz, Browser fragt einmal"
+    local c=""
+    choose c "Zertifikat" "1" "1|2"
+    if [[ "$c" == "1" ]]; then
+        TLS_MODE="letsencrypt"
+        ask_required ACME_EMAIL "E-Mail für Let's Encrypt" ""
+    else
+        TLS_MODE="internal"
+    fi
+}
+
 # Setzt REF (leer = neuester Stand des Branches)
 ask_ref() {
     echo ""
@@ -269,6 +290,7 @@ server_install() {
         exit 0
     fi
     ask_addons
+    ask_https
     ask_ref
 
     local skip=""
@@ -279,6 +301,8 @@ server_install() {
 
     local args=(install --dir "$SERVER_DIR")
     [[ -n "$ADDON_LIST" ]] && args+=(--with "$ADDON_LIST") || args+=(--no-addons)
+    [[ -n "$DOMAIN" ]] && args+=(--domain "$DOMAIN" --tls "$TLS_MODE")
+    [[ -n "$ACME_EMAIL" ]] && args+=(--email "$ACME_EMAIL")
     [[ -n "$REF" ]] && args+=(--ref "$REF")
     [[ "$BRANCH" != "main" ]] && args+=(--branch "$BRANCH")
     [[ -n "$skip" ]] && args+=("$skip")

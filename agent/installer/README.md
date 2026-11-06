@@ -3,7 +3,7 @@
 Wie aus dem Agent eine `.exe` und eine `.msi` werden — und wie man dafür sorgt,
 dass Windows und Virenscanner ihnen vertrauen.
 
-← [Übersicht](../README.md) · [Agent](../agent/README.md)
+← [Übersicht](../README.md) · [Agent](../README.md)
 
 ---
 
@@ -116,25 +116,29 @@ pwsh .\build-msi.ps1 -Sign
 
 Ergebnis: `agent\bin\rimperio-agent.exe` und `installer\windows\rimperio-agent.msi`.
 
-In der CI übernimmt das [`.github/workflows/agent-release.yml`](../.github/workflows/agent-release.yml)
+In der CI übernimmt das [`.github/workflows/agent-release.yml`](../../.github/workflows/agent-release.yml)
 — bauen, signieren, als Release-Artefakte anhängen.
 
 ---
 
 ## Verteilen
 
+`SCHLÜSSEL` ist ein Zugangsschlüssel aus der Oberfläche (*Verwaltung → Zugang & Sicherheit →
+Zugangsschlüssel*), am besten eine Einladung. Die fertigen Befehle mit eingesetzter
+Server-Adresse stehen unter *Fernwartung → Rechner → Agent hinzufügen*.
+
 **Einzeln / schnell (ohne MSI):**
 
 ```powershell
 # als Administrator
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/installer/windows/install-agent.ps1))) `
-  -Server https://rmm.example.de -Secret GEHEIMNIS -Site Buero
+  -Server https://rmm.example.de -Secret SCHLÜSSEL -Site Buero
 ```
 
 **Per MSI (GPO, Intune, SCCM):**
 
 ```powershell
-msiexec /i rimperio-agent.msi SERVER=https://rmm.example.de SECRET=GEHEIMNIS SITE=Buero /qn
+msiexec /i rimperio-agent.msi SERVER=https://rmm.example.de SECRET=SCHLÜSSEL SITE=Buero /qn
 ```
 
 Das MSI schreibt die Eckdaten nach `HKLM\SOFTWARE\RIMPERIO\Agent`, registriert den
@@ -144,7 +148,7 @@ selbst am Server an — die Installation selbst braucht also kein Netz.
 **Linux:**
 
 ```bash
-sudo bash install-agent.sh --server https://rmm.example.de --secret GEHEIMNIS --site Buero
+sudo bash install-agent.sh --server https://rmm.example.de --secret SCHLÜSSEL --site Buero
 ```
 
 ---

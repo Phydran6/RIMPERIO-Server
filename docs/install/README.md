@@ -24,9 +24,10 @@ Der Installer läuft in dieser Reihenfolge:
 1. **5 Sekunden Countdown.** Eine Taste drücken → Rückfragen werden gestellt.
    Nichts drücken → alles läuft mit Standardwerten durch.
 2. **Auswahl:** RIMPERIO allein oder mit Zusatzdiensten.
-3. **Systemprüfung** gegen genau diese Auswahl.
-4. **Docker** wird geholt, falls er fehlt.
-5. **Bauen und starten.**
+3. **HTTPS:** Domain und Zertifikat (leer = erst mal nur HTTP).
+4. **Systemprüfung** gegen genau diese Auswahl.
+5. **Docker** wird geholt, falls er fehlt.
+6. **Bauen und starten.**
 
 Ohne jede Rückfrage:
 
@@ -39,6 +40,33 @@ Mit Zusatzdiensten, unbeaufsichtigt:
 ```bash
 curl -sSL … /install.sh | sudo bash -s -- --with portainer,tugtainer --yes
 ```
+
+### HTTPS gleich bei der Installation
+
+Der Assistent fragt die Domain ab; der Installer im manuellen Modus ebenso. Direkt im
+Einzeiler geht es mit drei Parametern:
+
+| Parameter | Bedeutung |
+|---|---|
+| `--domain <fqdn>` | Adresse, unter der RIMPERIO per HTTPS erreichbar sein soll, z. B. `rmm.example.de` |
+| `--tls letsencrypt` | Zertifikat von Let's Encrypt – die Domain muss öffentlich auf den Server zeigen, Port 80 und 443 offen |
+| `--tls internal` | eigenes Zertifikat von Caddy – fürs eigene Netz, der Browser fragt einmal nach |
+| `--email <adresse>` | Pflicht für Let's Encrypt (Hinweise zum Zertifikat) |
+
+Ohne `--tls` gilt: mit `--email` Let's Encrypt, sonst `internal`.
+
+```bash
+# öffentlich erreichbar, Zertifikat von Let's Encrypt
+curl -sSL … /install.sh | sudo bash -s -- --domain rmm.example.de --email du@example.de --yes
+
+# nur im eigenen Netz
+curl -sSL … /install.sh | sudo bash -s -- --domain rmm.firma.lan --tls internal --yes
+```
+
+Die Werte landen in der `.env` (`RIMPERIO_DOMAIN`, `RIMPERIO_TLS`, `RIMPERIO_ACME_EMAIL`);
+beim ersten Start richtet das Backend daraus den Reverse Proxy ein. Danach gilt, was im
+Browser unter *Einstellungen → Netzwerk → Reverse Proxy* steht – dort lässt sich alles
+ändern, ohne eine Datei anzufassen. Port 80 bleibt immer als Rettungsweg offen.
 
 Aus einem geklonten Repository:
 
@@ -155,7 +183,7 @@ ein Schalter je Dienst, mit Sicherungsfrage davor.
 > Profil, das man bewusst einschaltet, und nicht im Standard-Stack. Portainer
 > bekommt den Socket nur lesend — die Oberfläche zeigt dann alles, kann aber
 > nichts starten oder löschen. Wer auch verwalten will, nimmt das `:ro` in
-> [`server/deploy/optional.yml`](../../deploy/optional.yml) heraus.
+> [`server/deploy/optional.yml`](../../server/deploy/optional.yml) heraus.
 
 ### Zugangsdaten
 
@@ -189,24 +217,24 @@ Datenbank-Passwort nicht mehr zum bestehenden PostgreSQL-Volume.
 
 ## Andere Betriebsarten
 
-Die Compose-Varianten liegen in [`deploy/`](../../deploy/README.md):
+Die Compose-Varianten liegen in [`deploy/`](../../server/deploy/README.md):
 
 Externe Datenbank:
 
 ```bash
-docker compose -f docker-compose.yml -f server/deploy/external-db.yml up -d
+sudo docker compose -f docker-compose.yml -f server/deploy/external-db.yml up -d
 ```
 
 Ohne erweiterte Container-Rechte:
 
 ```bash
-docker compose -f docker-compose.yml -f server/deploy/hardened.yml up -d
+sudo docker compose -f docker-compose.yml -f server/deploy/hardened.yml up -d
 ```
 
 Mit Zusatzdiensten:
 
 ```bash
-docker compose -f docker-compose.yml -f server/deploy/optional.yml --profile portainer up -d
+sudo docker compose -f docker-compose.yml -f server/deploy/optional.yml --profile portainer up -d
 ```
 
 Damit man das nicht jedes Mal tippt, in die `.env`:
@@ -243,7 +271,7 @@ COMPOSE_PROFILES=portainer,tugtainer
 | `DB_PASSWORD muss gesetzt sein` | `.env` fehlt oder ist leer. `install.sh` erneut laufen lassen. |
 | Backend startet nicht, alles 502 | `docker compose logs backend` ansehen. Meist die Datenbank. |
 | Port 80 belegt | Ein anderer Webserver läuft. Die Systemprüfung sagt das vorher. |
-| PostgreSQL startet nicht nach Update | Major-Upgrade nötig — siehe [Datenbank](../../db/README.md). |
+| PostgreSQL startet nicht nach Update | Major-Upgrade nötig — siehe [Datenbank](../../server/db/README.md). |
 | Zusatzdienst startet nicht | `docker compose logs <name>`, oder im Web-UI unter System → Zusatzdienste das Protokoll ansehen. |
 
 ---

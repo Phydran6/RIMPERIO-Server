@@ -4,7 +4,7 @@ Nimmt Syslog auf **UDP und TCP 514** an, zerlegt es und schreibt es in die
 Datenbank. Eigener Container, eigener Prozess — bewusst getrennt vom Backend:
 Ein Lastausschlag beim Logeingang soll die Oberfläche nicht ausbremsen.
 
-← [Übersicht](../README.md) · [Alle Dokumente](../docs/README.md)
+← [Übersicht](../../README.md) · [Alle Dokumente](../../docs/README.md)
 
 ## Erkannte Formate
 
@@ -36,7 +36,7 @@ Ergebnis: rund 2 statt 96 Datenbankvorgänge pro Sekunde.
 
 ## Konfiguration
 
-Über die Umgebung (siehe [`../docker-compose.yml`](../docker-compose.yml)):
+Über die Umgebung (siehe [`../docker-compose.yml`](../../docker-compose.yml)):
 `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DATABASE_URL`,
 `DB_SSLMODE`, `SYSLOG_PORT`.
 
@@ -52,7 +52,7 @@ In `/etc/rsyslog.d/rimperio.conf` eintragen:
 **UniFi Controller:** Settings → System → Remote Logging → Enable + RIMPERIO-IP
 
 **Alles außerhalb des eigenen Netzes** gehört nicht hierher, sondern an den
-[Agent](../agent/logship/README.md): Syslog ist unverschlüsselt und weist den Absender
+[Agent](../../agent/logship/README.md): Syslog ist unverschlüsselt und weist den Absender
 nicht aus.
 
 ## Anzeige

@@ -3,7 +3,7 @@
 Vue 3 mit Vite, Pinia und Tailwind. Ohne Komponentenbibliothek — das
 Design-System steht in `src/assets/css/main.css`.
 
-← [Übersicht](../README.md) · [Betrieb](../docs/operate/README.md) · [Alle Dokumente](../docs/README.md)
+← [Übersicht](../../README.md) · [Betrieb](../../docs/operate/README.md) · [Alle Dokumente](../../docs/README.md)
 
 ## Aufbau
 
@@ -78,4 +78,4 @@ Für den Betrieb bauen (nach `dist/`):
 npm run build
 ```
 
-Änderungen gehören ins [Changelog](docs/changelog/frontend.md).
+Änderungen gehören ins [Changelog](../../docs/changelog/frontend.md).

@@ -3,7 +3,7 @@
 Reverse Proxy und TLS. Nimmt Port 80 und 443 an und verteilt nach hinten:
 `/api/*` ans Backend, alles andere ans Frontend.
 
-← [Übersicht](../README.md) · [Alle Dokumente](../docs/README.md)
+← [Übersicht](../../README.md) · [Alle Dokumente](../../docs/README.md)
 
 ## Was hier liegt
 

@@ -71,7 +71,7 @@ an Erkenntnis bringt. Rohzeilen kommen nur mit, wenn man es anhakt.
 
 ### Fertiger n8n-Workflow
 
-Unter [`n8n/`](../../n8n/README.md) liegt ein Telegram-Bot, der Logs vom
+Unter [`n8n/`](../../server/n8n/README.md) liegt ein Telegram-Bot, der Logs vom
 Webhook holt, von Claude auswerten lässt und die Antwort in den Chat schickt.
 
 ---
@@ -123,7 +123,7 @@ auch ein neues Passwort setzen.
 
 > Portainer bekommt den Docker-Socket **nur lesend**. Die Oberfläche zeigt damit
 > alles an, kann aber nichts starten, stoppen oder löschen. Wer auch verwalten
-> will, nimmt das `:ro` in [`server/deploy/optional.yml`](../../deploy/optional.yml)
+> will, nimmt das `:ro` in [`server/deploy/optional.yml`](../../server/deploy/optional.yml)
 > heraus — und weiß, worauf er sich einlässt: Schreibzugriff auf den Socket ist
 > faktisch root auf dem Server.
 
@@ -208,4 +208,4 @@ Docker-Netz, solange der Workflow sie nicht weitergibt.
 
 - [API](../api/README.md)
 - [Installation → Zusatzdienste](../install/README.md#zusatzdienste)
-- [n8n-Workflows](../../n8n/README.md)
+- [n8n-Workflows](../../server/n8n/README.md)

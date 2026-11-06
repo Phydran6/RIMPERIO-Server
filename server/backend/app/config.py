@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
-    app_version: str = "2026.10.18.22.00.00"
+    app_version: str = "2026.11.06.23.28.43"
     caddy_admin_url: str = "http://caddy:2019"
     caddy_certs_dir: str = "/caddy-certs"
     # Notausstieg ohne Web-UI: CADDY_FORCE_HTTP=true startet mit reinem HTTP auf
@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     cors_origins: str = ""
     # Öffentliche URL des Servers (für QR-Code-Generierung), z.B. "https://rimperio.example.com"
     site_url: str = ""
+    # HTTPS gleich bei der Installation (install.sh --domain/--tls/--email).
+    # Greift nur, solange noch keine Reverse-Proxy-Konfiguration gespeichert ist;
+    # danach gilt, was unter Einstellungen -> Netzwerk eingestellt wird.
+    rimperio_domain: str = ""
+    rimperio_tls: str = ""          # letsencrypt | internal
+    rimperio_acme_email: str = ""
 
     @property
     def database_url(self) -> str:

@@ -3,7 +3,7 @@
 Kleine Dienste, die Logs von einem Rechner an den RIMPERIO-Server schicken.
 Für **Linux** und **Windows**, jeweils als Einzeiler installierbar.
 
-← [Zurück zur Übersicht](../README.md) · [Alle Dokumente](../docs/README.md)
+← [Zurück zur Übersicht](../README.md) · [Alle Dokumente](../../docs/README.md)
 
 ---
 
@@ -236,6 +236,6 @@ Hostname allein. Welcher Weg gegriffen hat, steht in der Antwort (`matched_by`).
 
 ## Verwandte Dokumente
 
-- [Installation des Servers](../docs/install/README.md)
-- [API und Ingest](../docs/api/README.md)
-- [Änderungen an den Agents](docs/changelog/agents.md)
+- [Installation des Servers](../../docs/install/README.md)
+- [API und Ingest](../../docs/api/README.md)
+- [Änderungen an den Agents](../../docs/changelog/agents.md)

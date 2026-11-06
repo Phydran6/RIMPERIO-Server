@@ -62,7 +62,7 @@ pro Person und Gerät, nicht pro Server. Ohne gemerkte Wahl entscheidet die
 Spracheinstellung des Browsers; versteht der Server sie nicht, gilt Deutsch.
 
 Fehlt eine Übersetzung, erscheint der deutsche Text — nie eine leere Stelle.
-Neue Sprachen kommen als Datei in [`frontend/src/i18n/`](../../frontend/README.md)
+Neue Sprachen kommen als Datei in [`frontend/src/i18n/`](../../server/frontend/README.md)
 dazu.
 
 ---
@@ -163,37 +163,37 @@ cd /opt/rimperio
 Status:
 
 ```bash
-docker compose ps
+sudo docker compose ps
 ```
 
 Protokolle:
 
 ```bash
-docker compose logs -f
+sudo docker compose logs -f
 ```
 
 Nur das Backend:
 
 ```bash
-docker compose logs -f backend
+sudo docker compose logs -f backend
 ```
 
 Neustart:
 
 ```bash
-docker compose restart
+sudo docker compose restart
 ```
 
 Stoppen:
 
 ```bash
-docker compose down
+sudo docker compose down
 ```
 
 Starten:
 
 ```bash
-docker compose up -d
+sudo docker compose up -d
 ```
 
 ---

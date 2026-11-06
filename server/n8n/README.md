@@ -2,7 +2,7 @@
 
 Fertige Abläufe für n8n. Importieren, Zugangsdaten zuweisen, aktivieren.
 
-← [Übersicht](../README.md) · [Integrationen](../docs/integrations/README.md) · [Alle Dokumente](../docs/README.md)
+← [Übersicht](../../README.md) · [Integrationen](../../docs/integrations/README.md) · [Alle Dokumente](../../docs/README.md)
 
 | Datei | Was sie tut |
 |-------|-------------|
@@ -75,4 +75,4 @@ Workflow steht standardmäßig auf `active: false`. Nach dem Setup oben rechts i
 
 Wer nur „erklär mir diese Logzeilen" will, braucht n8n nicht: RIMPERIO kann Claude
 und ChatGPT auch direkt ansprechen. Siehe
-[Integrationen → KI-Auswertung](../docs/integrations/README.md#ki-auswertung).
+[Integrationen → KI-Auswertung](../../docs/integrations/README.md#ki-auswertung).

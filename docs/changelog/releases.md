@@ -2,14 +2,28 @@
 
 Die Versionsgeschichte des Gesamtprojekts — was in welchem Release dazukam.
 Bis einschließlich `v2026.08.14.14.00.00` stand diese Liste in der
-Haupt-README; sie ist hierher gezogen, damit dort nur noch steht, was LogBot
-*ist* und *kann*.
+Haupt-README; sie ist hierher gezogen, damit dort nur noch steht, was RIMPERIO
+*ist* und *kann* (bis Oktober 2026 hieß der Log-Teil LogBot).
 
 Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ← [Changelog-Übersicht](README.md) · [Zur Haupt-README](../README.md)
 
 ---
+
+## v2026.11.06.23.28.43 (2026-11-06) – LogBot und RIMPERIO werden eins
+
+- **Ein System statt zwei.** Der Log-Server LogBot ist in RIMPERIO aufgegangen; alles,
+  was LogBot kann, kann RIMPERIO. LogBot bleibt nutzbar, wird aber nicht weiterentwickelt.
+- **Fernwartung (RMM)** als eigener Bereich: Rechner, Befehle, Skript-Bibliothek, Checks,
+  Patches, Rechner-Alarme, Dashboard-Kacheln. Ein Gerät ist eine Zeile für Logs *und*
+  Fernwartung. Anmeldung der Agents über die vorhandenen Zugangsschlüssel/Einladungen.
+- **Meldungen** für Rechner (offline, Schwelle, Check, Updates) über Mail/Telegram/n8n.
+- **Sicherung** mit eigenem Bereich „Fernwartung (RMM)“.
+- **HTTPS gleich bei der Installation:** Assistent und Installer fragen die Domain ab,
+  direkt per `--domain`, `--tls`, `--email`. Hinweise nennen `sudo docker compose`.
+- **Aufgeräumtes Repository:** `server/` (Backend, Oberfläche, Syslog, Caddy, DB),
+  `agent/` (RMM-Agent, Installer, Log-Agents), `docs/`. Marke in Gold/Nachtblau.
 
 ## v2026.10.18.22.00.00 (2026-10-18)
 
@@ -510,7 +524,7 @@ veröffentlicht wurden.
 - FIX: **Linux-Installer ignorierte Tastatureingabe beim One-Liner.** Statt 5-s-Timeout pro Abfrage jetzt **ein** Countdown am Start: Taste drücken = manueller Modus (alle Werte werden blockierend abgefragt), sonst automatischer Ablauf. Details: [agents.md](agents.md).
 
 ## v2026.07.18.16.00.00 (2026-07-18)
-- NEU: **Linux-Agent One-Liner-Installation** (`curl … | sudo bash`), teilautomatisch (5 s-Timeout je Abfrage), **Standard = HTTPS** (verschlüsselt + Token, DNS/FQDN, auch übers Internet). FQDN/Token via Parameter, Env-Variable oder Platzhalter. Alle Agent-Daten unter `/opt/logbot-agent/*`. Details: [agents/README.md](../agents/README.md).
+- NEU: **Linux-Agent One-Liner-Installation** (`curl … | sudo bash`), teilautomatisch (5 s-Timeout je Abfrage), **Standard = HTTPS** (verschlüsselt + Token, DNS/FQDN, auch übers Internet). FQDN/Token via Parameter, Env-Variable oder Platzhalter. Alle Agent-Daten unter `/opt/logbot-agent/*`. Details: [agents/README.md](../../agent/logship/README.md).
 - FIX: Linux-Installer Deinstallation/Menü (fehlerhafte Umlaut-Ausgaben, kaputte awk-MAC-Regex); Uninstall räumt Syslog- **und** HTTPS-Modus auf.
 - BACKEND: Ingest setzt `device_type` dynamisch aus dem Agent-Token (`linux` → Linux-Agent). UI: Gerätetyp „Linux-Agent" ergänzt.
 

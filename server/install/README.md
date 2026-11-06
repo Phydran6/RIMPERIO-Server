@@ -1,6 +1,6 @@
 # Systemprüfung
 
-← [Übersicht](../README.md) · [Installation](../docs/install/README.md)
+← [Übersicht](../../README.md) · [Installation](../../docs/install/README.md)
 
 [`preflight.sh`](preflight.sh) beantwortet eine Frage: **Trägt dieser Rechner
 RIMPERIO — und die Zusatzdienste, die man dazuhaben will?**

@@ -498,7 +498,7 @@ Ziel-Major und ohne Rückfrage:
 sudo bash /opt/rimperio/db/migrate.sh 18 -y
 ```
 
-Einzelheiten: [Datenbank](../../db/README.md).
+Einzelheiten: [Datenbank](../../server/db/README.md).
 
 Notbremse, falls schon aktualisiert und die Datenbank nicht mehr startet:
 
@@ -608,7 +608,7 @@ curl -s http://127.0.0.1/api/health
 
 In der Oberfläche: *Systemzustand* für den Gesamtblick, *Updates* für den
 Versionsstand. Was sich geändert hat, steht im
-[Changelog](docs/changelog/README.md).
+[Changelog](../changelog/README.md).
 
 ---
 
@@ -617,4 +617,4 @@ Versionsstand. Was sich geändert hat, steht im
 - [Sicherung](../backup/README.md)
 - [Installation](../install/README.md)
 - [Betrieb](../operate/README.md)
-- [Changelog](docs/changelog/README.md)
+- [Changelog](../changelog/README.md)

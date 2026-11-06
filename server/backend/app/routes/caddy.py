@@ -479,6 +479,25 @@ async def ensure_caddy_config_on_startup(session_factory=None):
         return
 
     if not saved:
+        # Erster Start mit Domain aus der Installation (install.sh --domain):
+        # dieselbe Vorlage wie im Web-UI bauen, anwenden und speichern. Danach
+        # gilt nur noch, was unter Einstellungen -> Netzwerk steht.
+        domain = (settings.rimperio_domain or "").strip().lower()
+        if not domain:
+            return
+        email = (settings.rimperio_acme_email or "").strip()
+        mode = (settings.rimperio_tls or "").strip().lower() or ("letsencrypt" if email else "internal")
+        if mode == "letsencrypt" and not email:
+            logger.warning("Let's Encrypt ohne E-Mail nicht möglich - nehme internes Zertifikat.")
+            mode = "internal"
+        try:
+            caddyfile = _build_template(domain, mode, email or None)
+            await _apply_caddyfile(caddyfile)
+            async with session_factory() as db:
+                await _save_setting(db, "caddy_caddyfile", caddyfile)
+            logger.info("HTTPS aus der Installation eingerichtet: https://%s (%s)", domain, mode)
+        except Exception as exc:
+            logger.error("HTTPS für %s nicht eingerichtet (%s) - bleibe bei HTTP.", domain, exc)
         return
 
     try:

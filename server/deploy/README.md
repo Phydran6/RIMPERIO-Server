@@ -1,9 +1,9 @@
 # Compose-Varianten
 
-Der Standard-Stack steht in [`../docker-compose.yml`](../docker-compose.yml).
+Der Standard-Stack steht in [`../docker-compose.yml`](../../docker-compose.yml).
 Hier liegen die Varianten, die man dazuschaltet.
 
-← [Übersicht](../README.md) · [Alle Dokumente](../docs/README.md)
+← [Übersicht](../../README.md) · [Alle Dokumente](../../docs/README.md)
 
 | Datei | Wofür |
 |-------|-------|
@@ -75,5 +75,5 @@ sollte sie nicht bezahlen.
 
 ## Zusatzdienste
 
-Siehe [Installation → Zusatzdienste](../docs/install/README.md#zusatzdienste)
-und [Integrationen](../docs/integrations/README.md).
+Siehe [Installation → Zusatzdienste](../../docs/install/README.md#zusatzdienste)
+und [Integrationen](../../docs/integrations/README.md).

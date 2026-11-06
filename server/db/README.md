@@ -2,7 +2,7 @@
 
 PostgreSQL. Schema, Migration und das Major-Upgrade.
 
-← [Übersicht](../README.md) · [Alle Dokumente](../docs/README.md)
+← [Übersicht](../../README.md) · [Alle Dokumente](../../docs/README.md)
 
 | Datei | Wofür |
 |-------|-------|
@@ -128,7 +128,7 @@ Docker-Netz steht.
 
 ## Sichern
 
-- **Im Web-UI:** [System → Sicherung](../docs/backup/README.md) — granular, als
+- **Im Web-UI:** [System → Sicherung](../../docs/backup/README.md) — granular, als
   ZIP, optional verschlüsselt.
 - **Klassisch:**
 
