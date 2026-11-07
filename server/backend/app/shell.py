@@ -13,7 +13,7 @@ im Container. Ein Pseudo-Terminal haengt daran, und die Bytes gehen ueber einen
 WebSocket in den Browser.
 
 Das Vorbild ist die Konsole in Proxmox VE: man klickt auf "Konsole" und tippt
-Befehle auf dem System. Genau das gibt es hier, unter *System -> Konsole*.
+Befehle auf dem System. Genau das gibt es hier, unter *RIMPERIO-Server -> Konsole*.
 
 **Das ist der weitreichendste Knopf im ganzen Programm.** Wer ihn erreicht, hat
 den Server. Deshalb:

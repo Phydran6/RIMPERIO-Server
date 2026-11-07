@@ -56,7 +56,7 @@ MODES = {
         "label": "Postfix-Container auf diesem Server",
         "label_en": "Postfix container on this server",
         "hint": ("RIMPERIO bringt seinen eigenen Mailserver mit. Braucht das Profil "
-                 "'postfix' unter System → Zusatzdienste."),
+                 "'postfix' unter RIMPERIO-Server → Zusatzdienste."),
     },
     "relay": {
         "label": "Vorhandener Mailserver (SMTP)",
@@ -270,7 +270,7 @@ def render_postfix_env(config: dict) -> str:
     lines = [
         "# ==========================================================================",
         "# Von RIMPERIO erzeugt - NICHT von Hand bearbeiten.",
-        "# Einzustellen unter System -> Mail. Diese Datei wird bei jedem Speichern",
+        "# Einzustellen unter Einstellungen -> E-Mail. Diese Datei wird bei jedem Speichern",
         "# neu geschrieben; Aenderungen hier gehen verloren.",
         f"# Erzeugt: {datetime.utcnow().isoformat()}Z",
         "# ==========================================================================",

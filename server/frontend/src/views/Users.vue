@@ -175,6 +175,7 @@
               <div class="p-2 rounded text-left mb-2" :style="{ backgroundColor: 'var(--color-surface-elevated)', border: '1px solid var(--color-border)' }">
                 <p class="text-xs mb-1" :style="{ color: 'var(--color-text-muted)' }">API-URL</p>
                 <code class="text-xs break-all" :style="{ color: 'var(--color-text-primary)' }">{{ qrData.api_url }}</code>
+                <p v-if="qrData.warning" class="text-xs mt-1" :style="{ color: 'var(--color-warning)' }">{{ qrData.warning }}</p>
                 <button @click="copyQrUrl" class="mt-1 text-xs px-2 py-0.5 rounded block" :style="{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }">
                   {{ qrCopied ? 'Kopiert!' : 'Kopieren' }}
                 </button>
@@ -290,7 +291,7 @@ async function generateQR() {
   qrData.value = null
   if (qrCountdownTimer) clearInterval(qrCountdownTimer)
   try {
-    const data = await authStore.api('/api/auth/app-qr', { cache: 'no-store' })
+    const data = await authStore.api(`/api/auth/app-qr?origin=${encodeURIComponent(window.location.origin)}`, { cache: 'no-store' })
     qrData.value = data
     startQrCountdown(data.expires_at)
   } catch (e) {

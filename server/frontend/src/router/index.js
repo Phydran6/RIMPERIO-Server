@@ -2,31 +2,22 @@
  * ==============================================================================
  * Name:           Phydran6
  * Kontakt:        Phydran6
- * Version:        2026.08.14.12.00.00
+ * Version:        2026.11.07.23.00.00
  * Changelog:      docs/changelog/frontend.md
  * ==============================================================================
  *
- * RIMPERIO Vue Router - Navigation und Route-Definitionen
+ * RIMPERIO Vue Router - Route-Definitionen
  * ======================================================
- * Fünf Bereiche, und jeder beantwortet eine andere Frage:
+ * Welche Seite unter welcher Adresse liegt. WIE die Seiten im linken Menü
+ * gruppiert sind, steht in src/navigation.js - nur dort.
  *
- *   Überwachung   Was ist im Netz passiert?        Dashboard, Logs, Geräte, Systeme, Zustand
- *   Auswertung    Was mache ich damit?             KI, Webhooks, App
- *   Verwaltung    Wer darf was, und wie lange?     Benutzer, Zugang, Daten
- *   System        Womit läuft das hier?            Container, Updates, Konsole, …
- *   Hilfe         Was ist das eigentlich?          Über RIMPERIO & FAQ
+ * Die Adressen bleiben bewusst die alten (/rmm/patches, /settings/ldap, …):
+ * Meldungen, Lesezeichen und Links in Mails zeigen darauf. Was umgezogen ist,
+ * leitet weiter (siehe "Alte Adressen" unten).
  *
- * Die Trennlinie zwischen „Verwaltung" und „System" ist bewusst diese: in der
- * Verwaltung geht es um Menschen und Daten, im System um die Maschine.
- *
- * Einstellungen, die keine eigene Seite verdienen, liegen weiter unter
- * /settings als Reiter. Die alten Adressen wie /settings/ldap funktionieren
- * unverändert: der Teil hinter /settings wählt den Reiter. Angesteuert werden
- * sie aus dem linken Menü — die Reiterleiste rechts ist nur der zweite Weg.
- *
- * Was eine eigene Seite hat, hat sie, weil es ein eigenes Werkzeug ist und
- * keine Einstellung: Container, Systemtagebuch, Sicherung, Konsole,
- * KI-Auswertung, Single Sign-on, Speicherplatz, Über RIMPERIO.
+ * Einstellungsseite: /settings/<abschnitt> zeigt genau EINEN Abschnitt. Die
+ * Reiterleiste in der Seite gibt es nicht mehr - jeder Abschnitt ist ein
+ * eigener Menüpunkt links.
  *
  * ==============================================================================
  */
@@ -98,6 +89,15 @@ const routes = [
       { path: 'rmm/snmp', name: 'RmmSnmp', component: () => import('../views/RmmSnmp.vue') },
       { path: 'rmm/snmp/:id', name: 'RmmSnmpDevice', component: () => import('../views/RmmSnmpDevice.vue') },
 
+      // Zugangsschlüssel und Einladungen für Agents. Die Seite gab es schon,
+      // sie war nur an keiner Stelle eingehängt.
+      {
+        path: 'agent-tokens',
+        name: 'AgentTokens',
+        component: () => import('../views/AgentTokens.vue'),
+        meta: { admin: true }
+      },
+
       // --- Auswertung --------------------------------------------------------
       {
         path: 'webhooks',
@@ -134,8 +134,13 @@ const routes = [
       },
 
       // --- System ------------------------------------------------------------
-      // Ein Ziel für alle Einstellungen. Der optionale Teil hinter /settings
-      // wählt den Reiter (z.B. /settings/ldap).
+      // Alte Adressen, die umgezogen sind
+      { path: 'settings/agents', redirect: '/agent-tokens' },
+      { path: 'settings/https', redirect: '/settings/network' },
+      { path: 'devices', redirect: '/rmm' },
+
+      // Ein Ziel für alle Einstellungen. Der Teil hinter /settings wählt den
+      // Abschnitt (z.B. /settings/ldap, /settings/dns).
       {
         path: 'settings/:tab?',
         name: 'Settings',

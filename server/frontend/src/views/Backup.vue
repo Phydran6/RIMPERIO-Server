@@ -2,7 +2,7 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - System -> Sicherung: anlegen, herunterladen, zurueckspielen.
+     Beschreibung: RIMPERIO - RIMPERIO-Server -> Sicherung: anlegen, herunterladen, zurueckspielen.
      ============================================================================== -->
 
 <template>

@@ -15,9 +15,9 @@ verlinkt dann zur Fernwartung, die Rechner-Ansicht zu den Logs.
 
 ## Rechner anbinden
 
-1. Unter *Verwaltung → Zugang & Sicherheit → Zugangsschlüssel* eine **Einladung** anlegen
+1. Unter *Geräte → Zugangsschlüssel* eine **Einladung** anlegen
    (zählbar, läuft ab). Der Generalschlüssel geht auch, sollte aber nicht auf jeden Rechner.
-2. *Fernwartung → Rechner → Agent hinzufügen*: Schlüssel eintragen, Befehl kopieren
+2. *Geräte → Rechner → Agent hinzufügen*: Schlüssel eintragen, Befehl kopieren
    (PowerShell, MSI oder Linux).
 3. Der Rechner erscheint nach dem ersten Check-in (≤ 1 Minute).
 

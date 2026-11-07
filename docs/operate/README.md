@@ -116,7 +116,7 @@ Auffälligkeiten.
 
 ## Konsole im Browser
 
-*System → Konsole* — nur für Administratoren.
+*RIMPERIO-Server → Konsole* — nur für Administratoren.
 
 Eine echte Shell auf dem Server, **als root**, direkt im Browser — das Vorbild
 ist die Konsole in Proxmox VE. Befehle laufen auf dem Host, nicht im Container.
@@ -212,7 +212,7 @@ Verbindungstest und Verlauf.
 
 ### Platte läuft voll
 
-*Verwaltung → Daten & Aufbewahrung → Speicherplatz* zeigt die Belegung, die
+*RIMPERIO-Server → Speicherplatz* zeigt die Belegung, die
 Schwellen, die Größe von Logtabelle und Datenbank — und erlaubt, den
 Aufräumlauf sofort anzustoßen.
 
@@ -344,14 +344,14 @@ wird ein Jahr; Fehler und Kritisches bleiben darüber hinaus stehen.
 
 ## Container und ihre Updates
 
-*System → Container → Übersicht & Image-Updates* — nur für Administratoren.
+*RIMPERIO-Server → Container* — nur für Administratoren.
 
 Die Seite beantwortet für jeden Container die einzige Frage, die zählt: **wie
 aktualisiere ich das Ding?**
 
 | Gruppe | Was es ist | Weg |
 |---|---|---|
-| **RIMPERIO selbst** (`rimperio-app-*`) | aus dem Quellcode dieses Projekts gebaut | System → Updates |
+| **RIMPERIO selbst** (`rimperio-app-*`) | aus dem Quellcode dieses Projekts gebaut | RIMPERIO-Server → Updates |
 | **Fremde Dienste** (`rimperio-ext-*`) | ganz normale Images: PostgreSQL, Caddy, n8n … | hier, auf Knopfdruck |
 | **Andere Container** | laufen daneben, gehören nicht dazu | nur zur Information |
 
@@ -366,7 +366,7 @@ aktualisieren“ fehlt bewusst — auf einem Log-Server will niemand, dass sich
 nachts die Datenbank austauscht und am Morgen keiner weiß, warum.
 
 Wer die Prüfung nach Zeitplan und über mehrere Hosts hinweg will, schaltet
-**Tugtainer** dazu (*System → Container → Zusatzdienste*). Es hat den
+**Tugtainer** dazu (*RIMPERIO-Server → Zusatzdienste*). Es hat den
 Docker-Socket nur lesend und kann deshalb ebenfalls nur melden, nicht tauschen.
 
 > Der Vorgänger **Watchtower ist raus**: Er hat Container eigenmächtig
@@ -388,7 +388,7 @@ Docker-Socket nur lesend und kann deshalb ebenfalls nur melden, nicht tauschen.
 
 ### Single Sign-on (Microsoft 365 und andere)
 
-*Verwaltung → Zugang & Sicherheit → Single Sign-on.*
+*Benutzer & Zugang → Single Sign-on.*
 
 **Warum OpenID Connect und nicht SAML.** Beides erledigt dieselbe Aufgabe. Der
 Unterschied liegt in der Rechnung: SAML-Anmeldung für eine eigene, nicht im
@@ -417,7 +417,7 @@ Discovery-Dokuments ein.
 
 ### Zugangsschlüssel für Agents
 
-*Verwaltung → Zugang & Sicherheit → Zugangsschlüssel* — nur für Administratoren.
+*Geräte → Zugangsschlüssel* — nur für Administratoren.
 
 Drei Arten, und die Art entscheidet, was der Schlüssel darf:
 

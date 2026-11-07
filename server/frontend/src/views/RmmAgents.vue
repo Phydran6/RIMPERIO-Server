@@ -29,7 +29,7 @@
       <div class="card-body">
         <p class="rmm-muted mb-3">
           Zur Anmeldung braucht der Agent einen <strong>Zugangsschlüssel</strong> – am besten eine
-          <router-link to="/settings/agents">Einladung</router-link> (zählbar, läuft ab), alternativ den Generalschlüssel.
+          <router-link to="/agent-tokens">Einladung</router-link> (zählbar, läuft ab), alternativ den Generalschlüssel.
           Denselben Schlüssel nutzen auch die Log-Agents.
         </p>
         <label class="rmm-muted">Zugangsschlüssel für die Befehle unten

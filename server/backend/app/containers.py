@@ -14,7 +14,7 @@ der beiden Schubladen:
 * ``source``  - **RIMPERIO-eigen.** Der Container wird aus diesem Quellcode
   gebaut (``rimperio-app-backend``, ``-frontend``, ``-syslog``). Es gibt kein
   fertiges Image irgendwo, also auch nichts zu ziehen. Aktualisiert wird er
-  ueber *System -> Updates*: neuer Stand von GitHub, Container neu bauen.
+  ueber *RIMPERIO-Server -> Updates*: neuer Stand von GitHub, Container neu bauen.
 
 * ``image``   - **Fremd.** PostgreSQL, Caddy, n8n, Portainer, Open WebUI,
   Postfix, Tugtainer. Ganz normale Images aus einer Registry, die regelmaessig
@@ -220,8 +220,8 @@ async def inventory(include_foreign: bool = True) -> dict:
                 "key": "rimperio",
                 "title": "RIMPERIO selbst",
                 "explain": ("Aus dem Quellcode dieses Projekts gebaut. Es gibt kein "
-                            "fertiges Image — aktualisiert wird über System → Updates."),
-                "update_hint": "System → Updates",
+                            "fertiges Image — aktualisiert wird über RIMPERIO-Server → Updates."),
+                "update_hint": "RIMPERIO-Server → Updates",
                 "items": own,
             },
             {
@@ -396,7 +396,7 @@ async def check_image(image: str, force: bool = False) -> dict:
 
     if image.endswith(":local"):
         outcome["error"] = ("Dieses Image wird hier gebaut — eine Registry gibt es dafür "
-                            "nicht. Updates laufen über System → Updates.")
+                            "nicht. Updates laufen über RIMPERIO-Server → Updates.")
         _check_cache[image] = (time.time(), outcome)
         return outcome
 
@@ -509,7 +509,7 @@ async def lifecycle(component: str, action: str) -> dict:
     if component == "backend" and action in ("stop", "restart"):
         # Das Backend ist genau der Prozess, der diesen Aufruf gerade bearbeitet.
         raise ValueError("Das Backend kann sich nicht selbst stoppen. Dafür gibt es "
-                         "den Neustart unter Einstellungen → Wartung.")
+                         "den Neustart unter RIMPERIO-Server → Neustart.")
 
     profile: List[str] = ["--profile", service] if service in PROFILED else []
     result = await _compose([*profile, action, service], timeout=180.0)

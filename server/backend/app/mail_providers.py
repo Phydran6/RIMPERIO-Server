@@ -5,7 +5,7 @@
 # Beschreibung: RIMPERIO - Mail-Anbieter fuer die Einrichtungsassistenten
 # ==============================================================================
 """
-Die Anbieter, fuer die es unter System -> Mail einen eigenen Assistenten gibt.
+Die Anbieter, fuer die es unter Einstellungen -> E-Mail einen eigenen Assistenten gibt.
 
 Jeder Eintrag sagt der Oberflaeche, was sie abfragen muss und was sie selbst
 vorbelegt. Fuer die meisten Anbieter ist das ein SMTP-Zugang mit festem Server,

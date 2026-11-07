@@ -1,39 +1,16 @@
 ﻿<!-- ==============================================================================
      Name:        Phydran6
      Kontakt:     Phydran6
-     Version:     2026.08.14.12.00.00
+     Version:     2026.11.07.23.00.00
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - Einstellungen: eine Seite fuer alles am System.
-                   Verzeichnis (LDAP), Archivierung, Erscheinungsbild und
-                   Anmeldesicherheit sind hier Reiter statt eigener Menuepunkte.
+     Beschreibung: RIMPERIO - Einstellungsseite. /settings/<abschnitt> zeigt
+                   genau EINEN Abschnitt; welcher, waehlt das linke Menue
+                   (src/navigation.js). Die Reiterleisten oben und die
+                   Unter-Reiter bei "Netzwerk" gibt es nicht mehr.
      ============================================================================== -->
 
 <template>
-  <div class="p-6">
-    <div class="mb-5">
-      <h1 class="text-2xl font-bold" :style="{ color: 'var(--color-text-primary)' }">Einstellungen</h1>
-      <p class="text-sm mt-1" :style="{ color: 'var(--color-text-muted)' }">
-        Alles zum System an einem Ort. Die Adresse wechselt mit dem Reiter – so lässt sich
-        ein Bereich verlinken oder als Lesezeichen ablegen.
-      </p>
-    </div>
-
-    <!-- Reiter, nach Themen gruppiert -->
-    <div class="space-y-2 mb-6">
-      <div v-for="group in availableGroups" :key="group.title" class="flex flex-wrap items-center gap-2">
-        <span class="tab-group-label">{{ group.title }}</span>
-        <button
-          v-for="tab in group.tabs"
-          :key="tab.id"
-          class="px-3 py-2 rounded text-sm"
-          :style="tabButtonStyle(tab.id)"
-          @click="setTab(tab.id)"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-    </div>
-
+  <div class="page settings-page">
     <!-- Allgemein -->
     <div v-if="activeTab === 'general'" class="rounded-lg shadow p-6" :style="cardStyle">
       <h2 class="text-lg font-semibold mb-4" :style="{ color: 'var(--color-text-primary)' }">Allgemeine Einstellungen</h2>
@@ -145,61 +122,60 @@
       </div>
     </div>
 
-    <!-- Agent Token -->
-    <div v-if="activeTab === 'agents'" class="rounded-lg shadow p-6 mt-6" :style="cardStyle">
-      <h2 class="text-lg font-semibold mb-4" :style="{ color: 'var(--color-text-primary)' }">Agent Token (global)</h2>
+    <!-- Netzwerk: HTTPS & Adresse bzw. DNS (nur Admin) -->
+    <div v-if="authStore.isAdmin && (activeTab === 'network' || activeTab === 'dns')" class="space-y-4">
+
+    <!-- Oeffentliche Adresse -->
+    <div v-if="activeTab === 'network'" class="rounded-lg shadow p-6" :style="cardStyle">
+      <h2 class="text-lg font-semibold mb-2" :style="{ color: 'var(--color-text-primary)' }">Öffentliche Adresse</h2>
       <p class="text-sm mb-4" :style="{ color: 'var(--color-text-muted)' }">
-        Ein Token für alle Agenten (Linux/Windows). Für höhere Sicherheit kannst du es bei Bedarf regenerieren.
+        Unter dieser Adresse erreichen Handy-App (QR-Code), Agents und Single Sign-on den Server.
+        Leer lassen = automatisch: die Adresse im Browser bzw. die über einen externen HTTPS-Proxy erkannte.
       </p>
-
-      <div v-if="tokenError" class="text-sm mb-2" :style="{ color: 'var(--color-danger)' }">{{ tokenError }}</div>
-      <div v-if="tokenMessage" class="text-sm mb-2" :style="{ color: 'var(--color-success)' }">{{ tokenMessage }}</div>
-
-      <div class="flex flex-col md:flex-row gap-3 items-start md:items-end">
-        <div class="flex-1 w-full">
-          <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">Token</label>
-          <input :value="agentToken?.token || ''" readonly class="w-full rounded px-3 py-2 font-mono" :style="inputStyle">
-          <p class="text-xs mt-1" :style="{ color: 'var(--color-text-muted)' }">
-            Name: {{ agentToken?.name || 'global-agent' }}
-          </p>
-        </div>
-        <div class="flex gap-2">
-          <button
-            class="px-3 py-2 rounded text-white hover:opacity-90"
-            :style="{ backgroundColor: 'var(--color-primary)' }"
-            :disabled="tokenLoading || !agentToken"
-            @click="copyAgentToken"
+      <div class="flex flex-col md:flex-row gap-3 md:items-end">
+        <div class="flex-1">
+          <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">Adresse</label>
+          <input
+            v-model="publicUrlInput"
+            type="text"
+            class="w-full rounded px-3 py-2"
+            :style="inputStyle"
+            :disabled="!!publicUrlEnv"
+            :placeholder="publicUrlSuggestion || 'https://rimperio.example.com'"
           >
-            Kopieren
-          </button>
-          <button
-            class="px-3 py-2 rounded text-white hover:opacity-90"
-            :style="{ backgroundColor: 'var(--color-danger)' }"
-            :disabled="tokenLoading || !agentToken"
-            @click="regenerateAgentToken"
-          >
-            {{ tokenLoading ? 'Regeneriere…' : 'Neu generieren' }}
-          </button>
         </div>
-      </div>
-    </div>
-    <!-- Netzwerk (Reverse Proxy + DNS, nur Admin) -->
-    <div v-if="authStore.isAdmin && activeTab === 'network'" class="mt-6 space-y-4">
-      <!-- Unter-Navigation -->
-      <div class="flex flex-wrap gap-2">
         <button
-          v-for="sub in networkSubTabs"
-          :key="sub.id"
-          class="px-3 py-2 rounded text-sm"
-          :style="subTabButtonStyle(sub.id)"
-          @click="networkSubTab = sub.id"
-        >
-          {{ sub.label }}
-        </button>
+          class="px-3 py-2 rounded text-white hover:opacity-90 disabled:opacity-50"
+          :style="{ backgroundColor: 'var(--color-primary)' }"
+          :disabled="publicUrlSaving || !!publicUrlEnv"
+          @click="savePublicUrl"
+        >{{ publicUrlSaving ? 'Speichere…' : 'Speichern' }}</button>
+        <button
+          v-if="publicUrlSuggestion && publicUrlSuggestion !== publicUrlInput && !publicUrlEnv"
+          class="px-3 py-2 rounded hover:opacity-90"
+          :style="buttonSecondaryStyle"
+          @click="publicUrlInput = publicUrlSuggestion"
+        >{{ publicUrlSuggestion }} übernehmen</button>
       </div>
+      <p v-if="publicUrlEnv" class="text-xs mt-2" :style="{ color: 'var(--color-text-muted)' }">
+        Fest vorgegeben über <code>SITE_URL={{ publicUrlEnv }}</code> in der <code>.env</code> – das hat Vorrang.
+      </p>
+      <p v-else class="text-xs mt-2" :style="{ color: 'var(--color-text-muted)' }">
+        Gerade wirksam: <strong>{{ publicUrlEffective || 'automatisch aus dem Browser' }}</strong>
+      </p>
+      <p v-if="publicUrlMessage" class="text-sm mt-2" :style="{ color: publicUrlError ? 'var(--color-danger)' : 'var(--color-success)' }">
+        {{ publicUrlMessage }}
+      </p>
+    </div>
+
+    <!-- Zustand der Verbindung: was RIMPERIO vom Weg Browser -> Server weiss -->
+    <div v-if="activeTab === 'network'" class="rounded-lg shadow p-4" :style="connectionBoxStyle">
+      <p class="text-sm font-semibold" :style="{ color: 'var(--color-text-primary)' }">{{ connectionState.title }}</p>
+      <p class="text-sm mt-1" :style="{ color: 'var(--color-text-secondary)' }">{{ connectionState.text }}</p>
+    </div>
 
     <!-- Reverse Proxy & TLS (Caddy) -->
-    <div v-if="networkSubTab === 'caddy'" class="rounded-lg shadow p-6" :style="cardStyle">
+    <div v-if="activeTab === 'network'" class="rounded-lg shadow p-6" :style="cardStyle">
       <h2 class="text-lg font-semibold mb-2" :style="{ color: 'var(--color-text-primary)' }">Reverse Proxy & TLS (Caddy)</h2>
       <p class="text-sm mb-4" :style="{ color: 'var(--color-text-muted)' }">
         Angewendet wird <strong>genau das, was unten im Editor steht</strong>. Die Konfiguration wird vorher
@@ -410,7 +386,7 @@
       </div>
 
       <!-- DNS -->
-      <div v-if="networkSubTab === 'dns'" class="rounded-lg shadow p-6" :style="cardStyle">
+      <div v-if="activeTab === 'dns'" class="rounded-lg shadow p-6" :style="cardStyle">
         <h2 class="text-lg font-semibold mb-2" :style="{ color: 'var(--color-text-primary)' }">DNS</h2>
         <p class="text-sm mb-4" :style="{ color: 'var(--color-text-muted)' }">
           Standardmäßig wird der im Netzwerk per DHCP vergebene DNS verwendet. Alternativ kannst du eigene DNS-Server hinterlegen.
@@ -489,7 +465,7 @@
     <!-- /Netzwerk -->
 
     <!-- Datenbank (nur Admin) -->
-    <div v-if="authStore.isAdmin && activeTab === 'database'" class="rounded-lg shadow p-6 mt-6" :style="cardStyle">
+    <div v-if="authStore.isAdmin && activeTab === 'database'" class="rounded-lg shadow p-6" :style="cardStyle">
       <h2 class="text-lg font-semibold mb-4" :style="{ color: 'var(--color-text-primary)' }">Datenbank</h2>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
@@ -544,11 +520,11 @@
     </div>
     
     <!-- Wartung (nur Admin) -->
-    <div v-if="authStore.isAdmin && activeTab === 'maintenance'" class="rounded-lg shadow p-6 mt-6" :style="cardStyle">
+    <div v-if="authStore.isAdmin && activeTab === 'maintenance'" class="rounded-lg shadow p-6" :style="cardStyle">
       <h2 class="text-lg font-semibold mb-4" :style="{ color: 'var(--color-text-primary)' }">Neustart</h2>
       <p class="text-sm mb-4" :style="{ color: 'var(--color-text-secondary)' }">
         Startet das Betriebssystem neu. Aktive Nutzer werden getrennt.
-        Updates gibt es im Bereich <router-link to="/updates" class="link">System → Updates</router-link>.
+        Updates gibt es im Bereich <router-link to="/updates" class="link">RIMPERIO-Server → Updates</router-link>.
       </p>
       <button
         @click="rebootSystem"
@@ -564,7 +540,7 @@
     </div>
     
     <!-- Passwort ändern -->
-    <div v-if="activeTab === 'password'" class="rounded-lg shadow p-6 mt-6" :style="cardStyle">
+    <div v-if="activeTab === 'password'" class="rounded-lg shadow p-6" :style="cardStyle">
       <h2 class="text-lg font-semibold mb-4" :style="{ color: 'var(--color-text-primary)' }">Passwort ändern</h2>
       <form @submit.prevent="changePassword" class="max-w-md space-y-4">
         <div>
@@ -632,49 +608,25 @@ const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-// Reiter, nach Themen gruppiert. Die id ist zugleich der Teil in der Adresse
-// (/settings/ldap) - damit funktionieren die frueheren Links weiter.
-// Die Reiter sind nach denselben Fragen gruppiert wie das linke Menue - wer
-// dort "Zugang & Sicherheit" anklickt, findet die Reiter hier unter derselben
-// Ueberschrift wieder. Vorher hiessen die Gruppen anders als die Menuepunkte,
-// und man musste zweimal suchen.
-const tabGroups = [
-  {
-    title: 'Daten & Aufbewahrung',
-    tabs: [
-      { id: 'retention', label: 'Aufbewahrung' },
-      { id: 'archiving', label: 'Archivierung', adminOnly: true },
-      { id: 'database', label: 'Datenbank', adminOnly: true },
-    ],
-  },
-  {
-    title: 'Zugang & Sicherheit',
-    tabs: [
-      { id: 'password', label: 'Passwort' },
-      { id: 'security', label: 'Anmeldesicherheit' },
-      { id: 'ldap', label: 'Verzeichnis (LDAP)', adminOnly: true },
-      { id: 'agents', label: 'Zugangsschlüssel', adminOnly: true },
-    ],
-  },
-  {
-    title: 'System',
-    tabs: [
-      { id: 'general', label: 'Allgemein' },
-      { id: 'network', label: 'Netzwerk', adminOnly: true },
-      { id: 'maintenance', label: 'Neustart', adminOnly: true },
-      { id: 'branding', label: 'Erscheinungsbild' },
-    ],
-  },
+// Abschnitte dieser Seite. Die id ist zugleich der Teil in der Adresse
+// (/settings/ldap). Welcher Abschnitt wo im Menue steht, regelt
+// src/navigation.js - hier steht nur, wer ihn sehen darf.
+const tabs = [
+  { id: 'general' },
+  { id: 'retention' },
+  { id: 'archiving', adminOnly: true },
+  { id: 'database', adminOnly: true },
+  { id: 'password' },
+  { id: 'security' },
+  { id: 'ldap', adminOnly: true },
+  { id: 'network', adminOnly: true },
+  { id: 'dns', adminOnly: true },
+  { id: 'maintenance', adminOnly: true },
+  { id: 'branding' },
 ]
 
-const tabs = tabGroups.flatMap(group => group.tabs)
 const activeTab = ref('general')
 const tabLoaded = ref({ network: false, database: false })
-const networkSubTabs = [
-  { id: 'caddy', label: 'Reverse Proxy' },
-  { id: 'dns', label: 'DNS' }
-]
-const networkSubTab = ref('caddy')
 
 const settings = ref({
   app_name: 'RIMPERIO',
@@ -718,11 +670,6 @@ const dbSettings = ref(null)
 const dbError = ref('')
 const dbCopyMessage = ref('')
 const showDbPassword = ref(false)
-// Agent Token (Single)
-const agentToken = ref(null)
-const tokenMessage = ref('')
-const tokenError = ref('')
-const tokenLoading = ref(false)
 const saving = ref(false)
 const saveMessage = ref('')
 const saveError = ref(false)
@@ -740,7 +687,7 @@ const caddyLoading = ref(false)
 const caddyMessage = ref('')
 const caddyError = ref('')
 const caddyfile = ref('')
-const caddyDomain = ref('rimperio.example.com')
+const caddyDomain = ref('')
 const caddyMode = ref('custom') // 'http' | 'letsencrypt' | 'custom' | 'internal' | 'external'
 const caddyTrustedProxiesInput = ref('')
 const externalProxy = ref({ detected: false, trusted: false, peer: null, host: null })
@@ -768,6 +715,72 @@ let certUpload = { cert: null, key: null }
 const caddyExtraHostsInput = ref('')
 const caddyHttpsOnly = ref(false)
 const caddyWarnings = ref([])
+// Oeffentliche Adresse (QR-Code, Agents, SSO)
+const publicUrlInput = ref('')
+const publicUrlEnv = ref('')
+const publicUrlEffective = ref('')
+const publicUrlSaving = ref(false)
+const publicUrlMessage = ref('')
+const publicUrlError = ref(false)
+
+/** Vorschlag: die https-Adresse, unter der diese Seite gerade offen ist. */
+const publicUrlSuggestion = computed(() => {
+  if (window.location.protocol === 'https:') return window.location.origin
+  const host = (externalProxy.value?.host || '').trim()
+  return host ? `https://${host}` : ''
+})
+
+async function savePublicUrl() {
+  publicUrlSaving.value = true
+  publicUrlMessage.value = ''
+  publicUrlError.value = false
+  try {
+    const res = await authStore.api('/api/caddy/public-url', {
+      method: 'PUT', body: { url: publicUrlInput.value.trim() },
+    })
+    publicUrlInput.value = res.public_url || ''
+    publicUrlEffective.value = res.effective || ''
+    publicUrlMessage.value = res.public_url
+      ? `Gespeichert: ${res.public_url}`
+      : 'Gespeichert: automatisch ermitteln.'
+  } catch (e) {
+    publicUrlError.value = true
+    publicUrlMessage.value = e.message || 'Speichern fehlgeschlagen'
+  } finally {
+    publicUrlSaving.value = false
+  }
+}
+
+/** Was weiss RIMPERIO ueber den Weg vom Browser zum Server? Klartext statt Raetsel. */
+const connectionState = computed(() => {
+  const page = window.location.protocol === 'https:' ? 'https' : 'http'
+  const ext = externalProxy.value || {}
+  if (ext.detected && ext.trusted) {
+    return { tone: 'ok', title: 'HTTPS über externen Proxy – eingerichtet',
+      text: `Der Proxy ${ext.peer || ''} beendet HTTPS${ext.host ? ` für ${ext.host}` : ''} und reicht an Caddy weiter. Caddy vertraut ihm: Adressen, QR-Code und Client-IPs stimmen.` }
+  }
+  if (ext.detected) {
+    return { tone: 'warn', title: 'HTTPS über externen Proxy erkannt – noch nicht übernommen',
+      text: `Anfragen kommen verschlüsselt über ${ext.peer || 'einen vorgeschalteten Proxy'}${ext.host ? ` (${ext.host})` : ''}. ` +
+        (ext.peer
+          ? 'Unten „Modus externer Proxy übernehmen“ und dann „Apply & Reload“ – oder die Seite einmal über den Proxy neu laden, dann übernimmt RIMPERIO ihn selbst.'
+          : 'Die IP des Proxys ist nicht bekannt (eigene Caddyfile ohne Erkennungs-Kopfzeilen). Modus „HTTPS über externen Proxy“ wählen und seine IP eintragen.') }
+  }
+  if (page === 'https' && caddyMode.value === 'http') {
+    return { tone: 'warn', title: 'Seite per HTTPS offen, Caddy spricht nur HTTP',
+      text: 'Dazwischen beendet jemand HTTPS, aber RIMPERIO hat noch keine Anfrage darüber gesehen. Seite neu laden; hilft das nicht, Modus „HTTPS über externen Proxy“ wählen.' }
+  }
+  if (page === 'https') {
+    return { tone: 'ok', title: 'HTTPS aktiv', text: 'Diese Seite ist verschlüsselt geöffnet.' }
+  }
+  return { tone: 'warn', title: 'Unverschlüsselt (HTTP)',
+    text: 'Diese Seite ist per http offen. Für die Handy-App, Passkeys und SSO wird eine https-Adresse gebraucht.' }
+})
+
+const connectionBoxStyle = computed(() => ({
+  backgroundColor: 'var(--color-surface-elevated)',
+  border: `1px solid ${connectionState.value.tone === 'ok' ? 'var(--color-success)' : 'var(--color-warning)'}`,
+}))
 
 const caddyExtraHosts = computed(() =>
   caddyExtraHostsInput.value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
@@ -778,14 +791,6 @@ const caddyTrustedProxies = computed(() =>
 
 const availableTabs = computed(() => tabs.filter(t => !t.adminOnly || authStore.isAdmin))
 
-const availableGroups = computed(() =>
-  tabGroups
-    .map(group => ({
-      title: group.title,
-      tabs: group.tabs.filter(t => !t.adminOnly || authStore.isAdmin),
-    }))
-    .filter(group => group.tabs.length)
-)
 
 const tlsHint = computed(() => {
   if (caddyMode.value === 'http') return 'Nur HTTP (Port 80). Kein Zertifikat nötig.'
@@ -884,39 +889,10 @@ onMounted(async () => {
     if (data.settings.log_retention_days_info !== undefined) {
       retentionInfoDays.value = Number(data.settings.log_retention_days_info) || 0
     }
-    if (authStore.isAdmin) {
-      // lazy: nur laden, wenn Tab geöffnet wird
-    }
-    await loadAgentToken()
   } catch (e) {
     console.error('Fehler:', e)
   }
 })
-
-function tabButtonStyle(id) {
-  const isActive = activeTab.value === id
-  return {
-    backgroundColor: isActive ? 'var(--color-primary)' : 'var(--color-surface-elevated)',
-    color: isActive ? '#fff' : 'var(--color-text-primary)',
-    border: '1px solid var(--color-border)'
-  }
-}
-
-function subTabButtonStyle(id) {
-  const isActive = networkSubTab.value === id
-  return {
-    backgroundColor: isActive ? 'var(--color-primary)' : 'var(--color-surface-elevated)',
-    color: isActive ? '#fff' : 'var(--color-text-primary)',
-    border: '1px solid var(--color-border)'
-  }
-}
-
-/** Reiter wechseln und dabei die Adresse mitziehen (/settings/<id>). */
-async function setTab(id) {
-  await openTab(id)
-  const target = id === 'general' ? '/settings' : `/settings/${id}`
-  if (route.path !== target) router.push(target)
-}
 
 /** Reiter oeffnen ohne die Adresse anzufassen (fuer den Weg von aussen). */
 async function openTab(id) {
@@ -926,7 +902,7 @@ async function openTab(id) {
     await loadDatabaseSettings()
     tabLoaded.value.database = true
   }
-  if (id === 'network' && authStore.isAdmin && !tabLoaded.value.network) {
+  if ((id === 'network' || id === 'dns') && authStore.isAdmin && !tabLoaded.value.network) {
     await loadCaddyConfig()
     await loadDnsConfig()
     tabLoaded.value.network = true
@@ -952,31 +928,6 @@ async function loadDatabaseSettings() {
   }
 }
 
-async function loadAgentToken() {
-  tokenLoading.value = true
-  tokenError.value = ''
-  tokenMessage.value = ''
-  try {
-    let list = await authStore.api('/api/agent-tokens')
-    if (!Array.isArray(list)) list = []
-    const preferred = list.find(t => t.name === 'global-agent')
-    if (!preferred) {
-      const created = await authStore.api('/api/agent-tokens', {
-        method: 'POST',
-        body: { name: 'global-agent' }
-      })
-      agentToken.value = created
-      tokenMessage.value = 'Standard-Token erstellt'
-    } else {
-      agentToken.value = preferred
-    }
-  } catch (e) {
-    tokenError.value = e.message || 'Token laden fehlgeschlagen'
-  } finally {
-    tokenLoading.value = false
-  }
-}
-
 async function loadCaddyConfig() {
   caddyLoading.value = true
   caddyError.value = ''
@@ -988,10 +939,14 @@ async function loadCaddyConfig() {
     // Gespeicherte Config mit Weiterleitung auf HTTPS? Dann Haken setzen.
     caddyHttpsOnly.value = caddyfile.value.includes('redir @tls_host')
     externalProxy.value = res.external_proxy || { detected: false }
+    publicUrlInput.value = res.public_url || ''
+    publicUrlEnv.value = res.public_url_env || ''
+    publicUrlEffective.value = res.public_url_effective || ''
     // Modus aus der gespeicherten Konfiguration anzeigen statt einer festen Vorgabe
     suppressModeWatch = true
     if (res.detected_mode) caddyMode.value = res.detected_mode
     if (res.detected_domain) caddyDomain.value = res.detected_domain
+    else if (externalProxy.value?.host) caddyDomain.value = String(externalProxy.value.host).split(':')[0]
     caddyTrustedProxiesInput.value = (res.trusted_proxies || [])
       .filter(p => p !== 'private_ranges').join(' ')
     await nextTick()
@@ -1212,34 +1167,6 @@ async function copyDbPassword() {
   setTimeout(() => { dbCopyMessage.value = '' }, 2000)
 }
 
-async function regenerateAgentToken() {
-  if (!agentToken.value) return
-  if (!confirm(`Agent-Token "${agentToken.value.name}" regenerieren?`)) return
-  tokenLoading.value = true
-  tokenMessage.value = ''
-  tokenError.value = ''
-  try {
-    const updated = await authStore.api(`/api/agent-tokens/${agentToken.value.id}/regenerate`, { method: 'POST' })
-    agentToken.value = updated
-    tokenMessage.value = 'Token regeneriert'
-  } catch (e) {
-    tokenError.value = e.message || 'Fehler beim Regenerieren'
-  } finally {
-    tokenLoading.value = false
-  }
-}
-
-async function copyAgentToken() {
-  if (!agentToken.value?.token) return
-  try {
-    await navigator.clipboard.writeText(agentToken.value.token)
-    tokenMessage.value = 'Token kopiert'
-    tokenError.value = ''
-  } catch (e) {
-    tokenError.value = 'Kopieren fehlgeschlagen'
-  }
-}
-
 async function saveAllSettings() {
   saving.value = true
   saveMessage.value = ''
@@ -1402,23 +1329,12 @@ async function copyHttpLink() {
 </script>
 
 <style scoped>
-.tab-group-label {
-  min-width: 9rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-muted);
-}
-
-@media (max-width: 640px) {
-  .tab-group-label {
-    min-width: 100%;
-  }
+.settings-page {
+  max-width: 72rem;
 }
 
 .embedded-panel {
-  margin-top: 1.5rem;
+  margin-top: 0;
 }
 
 /* Die eingebetteten Ansichten bringen ihren eigenen Seitenrand mit. Innerhalb

@@ -2,7 +2,7 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - System -> Mail: Anbieter waehlen, Assistent erledigt den Rest.
+     Beschreibung: RIMPERIO - Einstellungen -> E-Mail: Anbieter waehlen, Assistent erledigt den Rest.
 
      Oben steht, was gerade gilt (mit Probemail), darunter die Empfaenger und
      dann je Anbieter eine Kachel. Ein Klick oeffnet den passenden Assistenten

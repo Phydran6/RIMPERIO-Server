@@ -294,8 +294,8 @@
                 <p class="text-sm">Oder von Hand auf dem System ausführen:</p>
                 <CopyBlock :text="linuxCommand" @copy="copy" />
                 <p class="hint">
-                  <code>EINLADUNG</code> durch eine Einladung ersetzen: Verwaltung → Zugang &amp; Sicherheit →
-                  <router-link class="link" to="/settings/agents">Agent-Token</router-link>, Art „Einladung“.
+                  <code>EINLADUNG</code> durch eine Einladung ersetzen: Geräte →
+                  <router-link class="link" to="/agent-tokens">Zugangsschlüssel</router-link>, Art „Einladung“.
                 </p>
               </template>
             </template>

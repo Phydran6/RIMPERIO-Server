@@ -48,7 +48,7 @@ curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/instal
 Danach: Oberfläche unter `https://DOMAIN` bzw. `http://SERVER-IP` (Anmeldung `admin` mit dem
 Startpasswort, das der Installer am Ende anzeigt, **sofort ändern**), API-Doku für Administratoren unter *Über RIMPERIO*, Syslog auf Port 514.
 
-**Rechner anbinden** – in der Oberfläche unter *Fernwartung → Rechner → Agent hinzufügen*
+**Rechner anbinden** – in der Oberfläche unter *Geräte → Rechner → Agent hinzufügen*
 stehen die fertigen Befehle (PowerShell, MSI, Linux) samt Server-Adresse.
 Für reine Log-Lieferung gibt es die Log-Agents: [agent/logship](agent/logship/README.md).
 

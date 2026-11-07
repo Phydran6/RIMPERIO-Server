@@ -121,7 +121,7 @@
             class="link text-sm"
             title="Auf diesem Gerät läuft der RIMPERIO-Agent"
             @click.stop
-          >Fernwartung →</router-link>
+          >Rechner →</router-link>
 
           <div class="flex items-center gap-1">
             <button

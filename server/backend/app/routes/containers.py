@@ -115,7 +115,7 @@ async def update_container(component: str, data: UpdateRequest, request: Request
         raise HTTPException(
             status_code=409,
             detail=("Dieser Container wird aus dem Quellcode gebaut — es gibt kein Image "
-                    "zu holen. Aktualisiert wird er unter System → Updates."))
+                    "zu holen. Aktualisiert wird er unter RIMPERIO-Server → Updates."))
 
     # Erst sichern, dann anfassen. Besonders bei PostgreSQL ist das keine
     # Formalie: ein Major-Upgrade ohne Sicherung ist ein Wagnis.

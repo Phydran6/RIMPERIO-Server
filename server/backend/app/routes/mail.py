@@ -5,7 +5,7 @@
 # Beschreibung: RIMPERIO - Endpunkte fuer den Mailversand (Postfix, web-konfiguriert)
 # ==============================================================================
 """
-System -> Mail. Nur fuer Administratoren - hier stehen Zugangsdaten drin.
+Einstellungen -> E-Mail. Nur fuer Administratoren - hier stehen Zugangsdaten drin.
 
 Die gesamte Postfix-Konfiguration entsteht hier: was eingetragen wird, schreibt
 das Backend nach `data/postfix/settings.env`, und der Container liest das beim
