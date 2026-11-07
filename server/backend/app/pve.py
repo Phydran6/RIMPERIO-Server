@@ -14,7 +14,7 @@ nach dem Update alles, wird der Snapshot nach der eingestellten Frist (Standard
 rollt zurueck.
 
 **Anmeldung.** Am besten mit einem API-Token (Rechenzentrum → Berechtigungen →
-API-Token), Rechte: VM.Snapshot, VM.Snapshot.Rollback, VM.Audit, VM.PowerMgmt,
+API-Token), Rechte: VM.Snapshot, VM.Snapshot.Rollback, VM.Audit, VM.PowerMgmt, VM.Backup,
 Datastore.AllocateSpace/Audit (nur fuer vzdump), Sys.Audit. Benutzername und
 Passwort gehen auch (Ticket-Anmeldung), aber nicht mit Zwei-Faktor.
 

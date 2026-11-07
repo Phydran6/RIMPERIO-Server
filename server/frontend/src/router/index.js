@@ -92,6 +92,11 @@ const routes = [
       { path: 'rmm/checks', name: 'RmmChecks', component: () => import('../views/RmmChecks.vue') },
       { path: 'rmm/patches', name: 'RmmPatches', component: () => import('../views/RmmPatches.vue') },
       { path: 'rmm/alerts', name: 'RmmAlerts', component: () => import('../views/RmmAlerts.vue') },
+      { path: 'rmm/policies', name: 'RmmPolicies', component: () => import('../views/RmmPolicies.vue') },
+      { path: 'rmm/sources', name: 'RmmSources', component: () => import('../views/RmmSources.vue') },
+      { path: 'rmm/proxmox', name: 'RmmProxmox', component: () => import('../views/RmmProxmox.vue') },
+      { path: 'rmm/snmp', name: 'RmmSnmp', component: () => import('../views/RmmSnmp.vue') },
+      { path: 'rmm/snmp/:id', name: 'RmmSnmpDevice', component: () => import('../views/RmmSnmpDevice.vue') },
 
       // --- Auswertung --------------------------------------------------------
       {

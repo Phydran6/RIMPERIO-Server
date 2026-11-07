@@ -247,6 +247,7 @@
           <span class="hidden sm:inline">{{ t('updates.updateAvailable') }}</span>
         </router-link>
 
+        <NotificationBell />
         <span class="badge badge-neutral hidden sm:inline-flex">{{ auth.user?.username }}</span>
       </header>
 
@@ -272,6 +273,7 @@ import { useThemeStore } from '../stores/themeStore'
 import { useBrandingStore } from '../stores/brandingStore'
 import { useI18n } from '../i18n'
 import AppIcon from '../components/AppIcon.vue'
+import NotificationBell from '../components/NotificationBell.vue'
 import pkg from '../../package.json'
 
 const route = useRoute()
@@ -428,6 +430,10 @@ const navGroups = computed(() => {
         { key: 'rmm-scripts', to: '/rmm/scripts', name: 'RmmScripts', icon: 'terminal', label: t('nav.rmmScripts') },
         { key: 'rmm-checks', to: '/rmm/checks', name: 'RmmChecks', icon: 'check', label: t('nav.rmmChecks') },
         { key: 'rmm-patches', to: '/rmm/patches', name: 'RmmPatches', icon: 'download', label: t('nav.rmmPatches') },
+        { key: 'rmm-policies', to: '/rmm/policies', name: 'RmmPolicies', icon: 'clock', label: t('nav.rmmPolicies') },
+        { key: 'rmm-sources', to: '/rmm/sources', name: 'RmmSources', icon: 'globe', label: t('nav.rmmSources') },
+        { key: 'rmm-proxmox', to: '/rmm/proxmox', name: 'RmmProxmox', icon: 'backup', label: t('nav.rmmProxmox') },
+        { key: 'rmm-snmp', to: '/rmm/snmp', name: 'RmmSnmp', icon: 'router', label: t('nav.rmmSnmp'), match: ['RmmSnmpDevice'] },
         { key: 'rmm-alerts', to: '/rmm/alerts', name: 'RmmAlerts', icon: 'warning', label: t('nav.rmmAlerts') },
       ],
     },

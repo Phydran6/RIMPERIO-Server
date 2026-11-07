@@ -58,3 +58,43 @@ export const SHELLS = [
 ]
 
 export const PLATFORM_LABEL = { windows: 'Windows', linux: 'Linux', darwin: 'macOS', any: 'alle' }
+
+// --- Patchmanagement -----------------------------------------------------------
+export const PATCH_STATUS = {
+  review: ['badge-primary', 'wird geprüft'], auto: ['badge-success', 'automatisch'],
+  needs_approval: ['badge-warning', 'Freigabe nötig'], approved: ['badge-success', 'freigegeben'],
+  rejected: ['badge-neutral', 'abgelehnt'], ignored: ['badge-neutral', 'ignoriert'],
+  monitor: ['badge-neutral', 'nur beobachten'], installing: ['badge-primary', 'wird installiert'],
+  installed: ['badge-success', 'installiert'], failed: ['badge-danger', 'fehlgeschlagen'],
+  superseded: ['badge-neutral', 'erledigt'], new: ['badge-neutral', 'neu'],
+}
+
+export const RUN_STATUS = {
+  pending: ['badge-neutral', 'wartet'], snapshotting: ['badge-primary', 'Sicherung'],
+  baseline: ['badge-primary', 'Zustand vorher'], installing: ['badge-primary', 'installiert'],
+  rebooting: ['badge-primary', 'Neustart'], settling: ['badge-primary', 'Wartezeit'],
+  verifying: ['badge-primary', 'Prüfung'], succeeded: ['badge-success', 'erfolgreich'],
+  failed: ['badge-danger', 'fehlgeschlagen'], rolling_back: ['badge-warning', 'rollt zurück'],
+  rolled_back: ['badge-warning', 'zurückgerollt'], cancelled: ['badge-neutral', 'abgebrochen'],
+}
+
+export const RISK = { low: ['badge-success', 'geringes Risiko'], medium: ['badge-warning', 'mittleres Risiko'], high: ['badge-danger', 'hohes Risiko'] }
+
+export const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+
+export function fmtRate(v, unit) {
+  if (v === null || v === undefined) return '–'
+  if (unit === 'bit/s') {
+    const steps = [['Gbit/s', 1e9], ['Mbit/s', 1e6], ['kbit/s', 1e3]]
+    for (const [u, f] of steps) if (Math.abs(v) >= f) return `${(v / f).toFixed(1)} ${u}`
+    return `${Math.round(v)} bit/s`
+  }
+  const n = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 100) / 100
+  return `${n.toLocaleString('de-DE')}${unit ? ' ' + unit : ''}`
+}
+
+export const SNMP_STATUS = {
+  up: ['badge-success', 'OK'], warning: ['badge-warning', 'Warnung'], critical: ['badge-danger', 'kritisch'],
+  down: ['badge-danger', 'nicht erreichbar'], unknown: ['badge-neutral', 'unbekannt'],
+  ok: ['badge-success', 'OK'],
+}
