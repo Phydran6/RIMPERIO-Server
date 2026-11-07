@@ -122,6 +122,23 @@ SCOPES: Dict[str, dict] = {
         "tables": ["scripts", "checks", "check_results", "patch_reports", "commands", "rmm_alerts"],
         "order": 55,
     },
+    "patching": {
+        "label": "Patchmanagement",
+        "label_en": "Patch management",
+        "hint": "Richtlinien, Update-Stand, Läufe, Proxmox-Anbindung, Update-Quellen und Eingang.",
+        "tables": ["patch_policies", "patch_items", "patch_runs", "patch_knowledge", "pve_hosts",
+                   "pve_links", "update_sources", "advisories", "notifications"],
+        "order": 56,
+        "sensitive": True,
+    },
+    "snmp": {
+        "label": "SNMP-Überwachung",
+        "label_en": "SNMP monitoring",
+        "hint": "Geräte, Zugangsdaten, eigene Vorlagen und letzte Messwerte (ohne Verlauf).",
+        "tables": ["snmp_credentials", "snmp_templates", "snmp_devices", "snmp_metrics"],
+        "order": 57,
+        "sensitive": True,
+    },
     "logs": {
         "label": "Logdaten",
         "label_en": "Log data",
@@ -132,7 +149,7 @@ SCOPES: Dict[str, dict] = {
 }
 
 # Bereiche, die standardmaessig angehakt sind, wenn vor einem Eingriff gefragt wird.
-DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks", "rmm"]
+DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks", "rmm", "patching", "snmp"]
 
 
 def scope_catalog() -> List[dict]:

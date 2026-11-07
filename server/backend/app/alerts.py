@@ -106,6 +106,26 @@ EVENTS: Dict[str, Dict[str, Any]] = {
         "hint": "Ein Patch-Scan hat ausstehende Updates gefunden.",
         "default": False,
     },
+    "patch_approval": {
+        "label": "Updates brauchen eine Freigabe",
+        "hint": "Ein Patch-Scan hat Updates gefunden, die nicht automatisch installiert werden.",
+        "default": True,
+    },
+    "patch_failed": {
+        "label": "Patch-Lauf fehlgeschlagen",
+        "hint": "Installation oder Prüfung danach ist schiefgegangen (Snapshot bleibt erhalten).",
+        "default": True,
+    },
+    "patch_done": {
+        "label": "Patch-Lauf erfolgreich",
+        "hint": "Updates installiert und Prüfung bestanden.",
+        "default": False,
+    },
+    "snmp_alert": {
+        "label": "SNMP-Gerät meldet ein Problem",
+        "hint": "Gerät nicht erreichbar oder ein Wert über der Schwelle (Toner, USV, RAID, Port …).",
+        "default": True,
+    },
     "update_available": {
         "label": "Neuer Stand auf GitHub",
         "hint": "Ein Update steht bereit.",

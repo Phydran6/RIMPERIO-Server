@@ -20,3 +20,5 @@ paramiko==3.4.0
 smbprotocol==1.12.0
 # Passkeys / WebAuthn (app/routes/passkey.py)
 webauthn==2.0.0
+# Zeitzonen fuer Wartungsfenster (app/patchmgmt.py), falls das Image keine mitbringt
+tzdata==2025.2
