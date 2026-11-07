@@ -1,7 +1,7 @@
 ﻿# ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.09.15.20.00.00
+# Version:     2026.11.07.23.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - FastAPI Hauptanwendung
 # ==============================================================================
@@ -33,7 +33,7 @@ from . import tokens
 from . import updater
 from . import watchdog
 from . import rmm
-from . import proxy_detect
+from . import proxy_detect, public_url
 from .config import settings, validate_security_settings
 from .database import get_db, async_session, engine
 from .limiter import limiter, agent_key, client_ip as real_client_ip
@@ -86,8 +86,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # versuchen, unverschluesselt anzuklopfen. Nur setzen, wenn die Anfrage
         # wirklich ueber HTTPS kam: sonst sperrt man sich auf einer reinen
         # HTTP-Installation selbst aus.
-        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-        if forwarded_proto == "https":
+        if public_url.effective_scheme(request) == "https":
             response.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
@@ -571,6 +570,15 @@ async def apply_saved_caddy_config():
     Backend). Wuerde der Start darauf warten, waere die API so lange tot.
     """
     async def run() -> None:
+        # Oeffentliche Adresse (Einstellungen -> HTTPS) in den Speicher holen -
+        # QR-Code, SSO und Agent-Befehle lesen sie ohne Datenbankzugriff.
+        try:
+            from . import public_url
+            from .database import async_session as _session
+            async with _session() as db:
+                await public_url.load(db)
+        except Exception as exc:
+            logging.getLogger("rimperio.startup").warning("Öffentliche Adresse nicht geladen: %s", exc)
         try:
             await caddy_router.ensure_caddy_config_on_startup()
         except Exception as exc:

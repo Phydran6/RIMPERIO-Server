@@ -76,11 +76,11 @@ class SSOConfigRequest(BaseModel):
 
 def _base_url(request: Request) -> str:
     """Unter welcher Adresse ist dieser Server von aussen zu erreichen?"""
-    if settings.site_url:
-        return settings.site_url.rstrip("/")
-    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host", request.url.netloc)
-    return f"{proto}://{host}"
+    # Zentrale Regel (SITE_URL, gespeicherte Adresse, Browser, Proxy-Erkennung):
+    # hinter einem externen HTTPS-Proxy stand hier sonst http:// - Entra lehnt
+    # eine solche Rueckadresse ab.
+    from .. import public_url
+    return public_url.base_url(request)
 
 
 # =============================================================================

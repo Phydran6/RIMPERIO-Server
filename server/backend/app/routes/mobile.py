@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import logparse
+from .. import logparse, public_url
 from ..auth import get_current_admin, get_current_user
 from ..branding import load_config as load_branding
 from ..config import settings
@@ -141,7 +141,7 @@ async def bootstrap(db: AsyncSession = Depends(get_db), user=Depends(get_current
             "version": settings.app_version,
             "api_level": API_LEVEL,
             "capabilities": CAPABILITIES,
-            "site_url": settings.site_url or None,
+            "site_url": public_url.site_url() or None,
         },
         "user": {
             "username": user.username,

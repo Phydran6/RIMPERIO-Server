@@ -95,9 +95,8 @@ def _origin_and_rp_id(request: Request) -> tuple:
 
     origin = request.headers.get("origin")
     if not origin:
-        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-        host = request.headers.get("x-forwarded-host", request.url.netloc)
-        origin = f"{proto}://{host}"
+        from .. import public_url
+        origin = public_url.base_url(request)
 
     parts = urlsplit(origin)
     return f"{parts.scheme}://{parts.netloc}", (parts.hostname or "")

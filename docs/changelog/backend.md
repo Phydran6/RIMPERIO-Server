@@ -2,6 +2,21 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.07.23.00.00
+
+### Fixed
+- **HTTPS hinter einem externen Proxy (Nginx Proxy Manager, Traefik, Firewall) wurde nicht zuverlässig erkannt.**
+  - Neue zweite Erkennung über die Adresse im Browser (`Origin`/`Referer`): steht dort https, kommt bei Caddy aber http an, beendet jemand dazwischen TLS. Das greift auch ohne `X-Forwarded-Proto` und bei handgeschriebenen Caddyfiles.
+  - Alte gespeicherte Caddyfiles bekommen die Erkennungs-Kopfzeilen jetzt in jeder Schreibweise (vorher nur bei wörtlich gleichem Text).
+  - CGNAT `100.64.0.0/10` (Tailscale, VPN) zählt als eigenes Netz, auch in der Vorgabe für vertraute Proxys.
+  - **Automatische Übernahme:** Öffnet ein Administrator die Oberfläche über den Proxy, stellt RIMPERIO Caddy auf „HTTPS über externen Proxy“ um und vertraut nur der IP dieses Proxys (`POST /api/caddy/external-proxy/auto`). Das passiert nur, solange Caddy selbst reines HTTP spricht, und nie ohne angemeldete Administrator-Sitzung. Abschalten mit `RIMPERIO_AUTO_EXTERNAL_PROXY=false`.
+- **QR-Code für die App nannte `http://`.** Die Adresse kam aus `X-Forwarded-Proto`, und das überschreibt Caddy für nicht vertraute Proxys mit `http`. Neu ist `app/public_url.py` als eine Regel für alle (SITE_URL → gespeicherte Adresse → Adresse im Browser → korrigierte Kopfzeilen). Mit `prefer_https` nimmt der QR-Code die über den Proxy bekannte https-Adresse, auch wenn das Admin-Fenster über die LAN-IP offen ist. Ist die Adresse trotzdem kein https, sagt die Antwort das (`warning`). `expires_at` trägt jetzt eine Zeitzone.
+- SSO-Rückadresse, Passkey-Herkunft (ohne `Origin`), HSTS, Agent-Befehle der Netzwerksuche, Update-Webhook und Meldungstexte nutzen dieselbe Regel.
+- `SITE_URL=https://deine-domain.de` (Platzhalter aus der Beispiel-`.env`) wird ignoriert statt in QR-Codes zu landen.
+
+### Added
+- **Öffentliche Adresse in der Oberfläche** (`PUT /api/caddy/public-url`, Einstellung `caddy_public_url`). Bisher ging das nur über `SITE_URL` in der `.env`, obwohl Meldungen auf „Einstellungen → Netzwerk“ verwiesen. `SITE_URL` behält Vorrang.
+
 ## Unveröffentlicht — Angriffsfläche, Teil 2
 
 ### Security

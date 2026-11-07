@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.11.07.21.00.00
+# Version:     2026.11.07.23.00.00
 # Beschreibung: RIMPERIO - Caddy Management API (Config Apply + Cert Upload)
 #
 # Grundsatz: Das UI darf sich NIE aussperren.
@@ -21,13 +21,14 @@ from pathlib import Path
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import caddy_admin
 from ..auth import get_current_admin
-from .. import proxy_detect
+from .. import proxy_detect, public_url
 from ..config import settings
 from ..database import get_db, async_session
 from ..models import Setting
@@ -135,7 +136,9 @@ def _clean_proxies(proxies: Optional[List[str]]) -> List[str]:
                 raise HTTPException(status_code=400, detail=f"Ungültige Proxy-Adresse: {raw}")
         if value not in cleaned:
             cleaned.append(value)
-    return cleaned or ["private_ranges"]
+    # Vorgabe: alle privaten Netze plus CGNAT (100.64.0.0/10) - dort landen
+    # Tailscale und viele VPN-Strecken zwischen Proxy und Server.
+    return cleaned or ["private_ranges", "100.64.0.0/10"]
 
 
 def detect_mode(caddyfile: Optional[str]) -> Optional[str]:
@@ -165,11 +168,37 @@ def detect_trusted_proxies(caddyfile: Optional[str]) -> List[str]:
     return match.group(1).split() if match else []
 
 
+# Jede Schreibweise des alten API-Blocks: beliebige Einrueckung, Leerzeilen,
+# Kommentare oder ein flush_interval darin. Frueher wurde nur der woertliche
+# Text ersetzt - eine von Hand angefasste Caddyfile bekam die Kopfzeilen nie,
+# und die Proxy-Erkennung blieb stumm.
+_LEGACY_API_RE = re.compile(
+    r"handle /api/\* \{\s*reverse_proxy backend:8000(?:\s*\{(?P<inner>[^{}]*)\})?\s*\}",
+    re.MULTILINE,
+)
+
+
 def _upgrade_caddyfile(caddyfile: str) -> str:
     """Ergaenzt gespeicherte Altkonfigurationen um die Erkennungs-Kopfzeilen."""
+    if "X-Rimperio-Edge-Scheme" in caddyfile:
+        return caddyfile
     if _LEGACY_API_HANDLE in caddyfile:
         return caddyfile.replace(_LEGACY_API_HANDLE, _CURRENT_API_HANDLE)
-    return caddyfile
+
+    def _replace(match: "re.Match") -> str:
+        inner = (match.group("inner") or "").strip("\n")
+        extra = "".join(f"            {line.strip()}\n" for line in inner.splitlines() if line.strip())
+        return ("handle /api/* {\n"
+                "        reverse_proxy backend:8000 {\n"
+                "            header_up X-Rimperio-Edge-Scheme {http.request.scheme}\n"
+                "            header_up X-Rimperio-Outer-Proto {http.request.header.X-Forwarded-Proto}\n"
+                "            header_up X-Rimperio-Peer {http.request.remote.host}\n"
+                "            header_up X-Rimperio-Client-IP {client_ip}\n"
+                f"{extra}"
+                "        }\n"
+                "    }")
+
+    return _LEGACY_API_RE.sub(_replace, caddyfile)
 
 
 def _build_template(
@@ -299,7 +328,7 @@ def _dns_warning(domain: str) -> Optional[str]:
         return (
             f"'{domain}' ist aus dem Backend-Container heraus nicht auflösbar. "
             "Für Let's Encrypt muss der Name öffentlich auf diesen Server zeigen. "
-            "DNS lässt sich unter Einstellungen → Netzwerk → DNS anpassen."
+            "DNS lässt sich unter Einstellungen → DNS anpassen."
         )
 
 
@@ -429,6 +458,9 @@ async def get_caddy_config(db: AsyncSession = Depends(get_db), _=Depends(get_cur
         detected_domain=detect_domain(effective),
         trusted_proxies=detect_trusted_proxies(effective),
         external_proxy=proxy_detect.status(),
+        public_url=public_url.saved(),
+        public_url_env=public_url.env_site_url(),
+        public_url_effective=public_url.site_url(),
     )
 
 
@@ -513,6 +545,139 @@ async def build_caddy_template(
         if warning:
             warnings.append(warning)
     return {"caddyfile": caddyfile, "warnings": warnings}
+
+
+# ==============================================================================
+# Oeffentliche Adresse
+# ==============================================================================
+# Unter dieser Adresse erreichen Handy-App, Agents und SSO den Server. Bisher
+# nur per SITE_URL in der .env - die Oberflaeche verwies darauf, bot aber kein
+# Feld dafuer. SITE_URL behaelt Vorrang.
+
+class PublicUrlIn(BaseModel):
+    url: str = Field(default="", max_length=300)
+
+
+@router.put("/public-url")
+async def set_public_url(data: PublicUrlIn, db: AsyncSession = Depends(get_db),
+                         admin=Depends(get_current_admin)):
+    raw = (data.url or "").strip()
+    value = public_url.normalize(raw)
+    if raw and not value:
+        raise HTTPException(status_code=400,
+                            detail="Ungültige Adresse. Beispiel: https://rimperio.example.com")
+    await _save_setting(db, public_url.SETTING_KEY, value)
+    public_url.set_saved(value)
+    logger.warning("Öffentliche Adresse gesetzt auf %r von %s", value or "(automatisch)",
+                   getattr(admin, "username", "?"))
+    return {"public_url": value, "effective": public_url.site_url(),
+            "env_override": public_url.env_site_url()}
+
+
+# ==============================================================================
+# Externer HTTPS-Proxy: automatisch uebernehmen
+# ==============================================================================
+# Ruft die Oberflaeche einmal je Sitzung auf, wenn ein Administrator sie
+# oeffnet. Kommt GENAU DIESE Anfrage ueber einen externen HTTPS-Proxy aus dem
+# eigenen Netz, und spricht Caddy selbst nur HTTP, stellt RIMPERIO auf
+# "HTTPS ueber externen Proxy" um und vertraut nur der IP dieses Proxys.
+#
+# Warum nicht still im Hintergrund bei irgendeiner Anfrage: dann koennte jeder
+# im LAN mit einer gefaelschten Kopfzeile seine IP vertrauenswuerdig machen.
+# So braucht es eine angemeldete Administrator-Sitzung, die wirklich ueber den
+# Proxy kommt. Abschalten: RIMPERIO_AUTO_EXTERNAL_PROXY=false.
+
+def _peer_network(peer: str) -> Optional[str]:
+    try:
+        return str(ipaddress.ip_network(peer.strip(), strict=False))
+    except ValueError:
+        return None
+
+
+def _covered(peer: str, proxies: List[str]) -> bool:
+    try:
+        ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    for entry in proxies:
+        if entry == "private_ranges":
+            if ip.is_private or ip.is_loopback:
+                return True
+            continue
+        try:
+            if ip in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+@router.post("/external-proxy/auto")
+async def auto_adopt_external_proxy(request: Request, db: AsyncSession = Depends(get_db),
+                                    admin=Depends(get_current_admin)):
+    import os
+    if (os.getenv("RIMPERIO_AUTO_EXTERNAL_PROXY", "true").strip().lower()
+            in ("0", "false", "no", "off")):
+        return {"adopted": False, "reason": "disabled"}
+    if settings.caddy_force_http:
+        return {"adopted": False, "reason": "force_http"}
+
+    if not proxy_detect.outer_https(request):
+        return {"adopted": False, "reason": "not_via_proxy"}
+    if (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower() == "https":
+        return {"adopted": False, "reason": "already_trusted"}
+
+    peer = (request.headers.get("x-rimperio-peer") or "").strip()
+    network = _peer_network(peer) if peer and proxy_detect.is_internal(peer) else None
+    if not network:
+        # Ohne Edge-Kopfzeilen (von Hand geschriebene Caddyfile) kennen wir die
+        # IP des Proxys nicht - dann nichts automatisch freigeben.
+        return {"adopted": False, "reason": "peer_unknown"}
+
+    saved = await _get_saved_caddyfile(db) or DEFAULT_CADDYFILE
+    mode = detect_mode(saved)
+    proxies = detect_trusted_proxies(saved)
+    if mode == "external":
+        if _covered(peer, proxies):
+            return {"adopted": False, "reason": "already_trusted"}
+        proxies = [*proxies, network]
+    elif mode == "http":
+        proxies = [network]
+    else:
+        # Caddy hat eigenes TLS (Let's Encrypt, eigenes Zertifikat ...) oder die
+        # Caddyfile ist handgeschrieben - nicht ungefragt umbauen.
+        return {"adopted": False, "reason": f"mode_{mode or 'custom'}"}
+
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "")
+    host = host.split(",")[0].strip().split(":")[0].lower()
+    origin = public_url.for_request(request)["url"]
+    if origin.startswith("https://"):
+        host = origin[len("https://"):].split(":")[0].split("/")[0]
+    domain = host if host and _HOSTNAME_RE.match(host) and "." in host else (detect_domain(saved) or None)
+
+    caddyfile = _build_template(domain, "external", trusted_proxies=proxies)
+    await _adapt_caddyfile(caddyfile)
+    previous = await _get_running_config()
+    try:
+        await _apply_caddyfile(caddyfile)
+    except HTTPException:
+        if previous:
+            try:
+                await _load_json_config(previous)
+            except Exception as exc:                                # defensiv
+                logger.error("Rollback der Caddy-Config fehlgeschlagen: %s", exc)
+        raise
+    await _save_setting(db, "caddy_caddyfile", caddyfile)
+    proxy_detect.mark_trusted()
+    logger.warning("Externer HTTPS-Proxy %s automatisch übernommen (https://%s), ausgelöst von %s",
+                   peer, domain or "?", getattr(admin, "username", "?"))
+    from .. import journal
+    journal.fire(category="network", event="caddy.external_proxy", level="notice",
+                 message=f"Externer HTTPS-Proxy {peer} automatisch übernommen"
+                         + (f" (https://{domain})" if domain else ""),
+                 actor=getattr(admin, "username", None) or "system", target=peer)
+    return {"adopted": True, "peer": peer, "trusted_proxies": proxies, "domain": domain,
+            "message": f"HTTPS über externen Proxy ({peer}) erkannt und übernommen."}
 
 
 @router.post("/certificates")
@@ -642,7 +807,7 @@ async def ensure_caddy_config_on_startup(session_factory=None):
     if not saved:
         # Erster Start mit Domain aus der Installation (install.sh --domain):
         # dieselbe Vorlage wie im Web-UI bauen, anwenden und speichern. Danach
-        # gilt nur noch, was unter Einstellungen -> Netzwerk steht.
+        # gilt nur noch, was unter Einstellungen -> HTTPS & Adresse steht.
         domain = (settings.rimperio_domain or "").strip().lower()
         if not domain:
             return
@@ -691,7 +856,7 @@ async def ensure_caddy_config_on_startup(session_factory=None):
 # Waechter: Caddy neu gestartet? Dann die gespeicherte Config wieder laden.
 # ==============================================================================
 # Caddy liest beim Start nur die statische Caddyfile (reines HTTP). Wird der
-# Container neu gestartet - Image-Update ueber System -> Container, Absturz,
+# Container neu gestartet - Image-Update ueber RIMPERIO-Server -> Container, Absturz,
 # `docker restart` -, war HTTPS bis zum naechsten Neustart des Backends weg.
 # Der Waechter vergleicht die laufende Config mit der gespeicherten und spielt
 # sie bei Abweichung wieder ein. Verglichen wird das JSON, das Caddy selbst

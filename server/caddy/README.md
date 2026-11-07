@@ -10,12 +10,12 @@ Reverse Proxy und TLS. Nimmt Port 80 und 443 an und verteilt nach hinten:
 [`Caddyfile`](Caddyfile) ist **nur der Zustand beim ersten Start**: reines HTTP
 auf Port 80, kein Zertifikat, keine Domain.
 
-Alles Weitere wird im Web-UI unter *Einstellungen → Netzwerk → Reverse Proxy*
+Alles Weitere wird im Web-UI unter *Einstellungen → HTTPS & Adresse*
 eingerichtet. Die dort erzeugte Konfiguration wird gespeichert und beim Start
 erneut geladen (`backend/app/routes/caddy.py`) — die Datei hier wird dabei nicht
 überschrieben.
 
-## Vier Betriebsarten
+## Fünf Betriebsarten
 
 | Modus | Zertifikat | Voraussetzung |
 |-------|-----------|---------------|
@@ -23,6 +23,28 @@ erneut geladen (`backend/app/routes/caddy.py`) — die Datei hier wird dabei nic
 | **Let's Encrypt** | automatisch | FQDN, Port 80+443 aus dem Internet erreichbar, E-Mail |
 | **Intern** | Caddy stellt selbst aus | nichts — der Browser warnt einmalig |
 | **Eigenes** | selbst hochgeladen | Zertifikat und Schlüssel |
+| **Externer Proxy** | beim vorgeschalteten Proxy | Nginx Proxy Manager, Traefik o. Ä. leitet per HTTP an Port 80 |
+
+## Hinter einem externen HTTPS-Proxy (Nginx Proxy Manager & Co.)
+
+Im Proxy einen Host anlegen, der auf `http://<RIMPERIO-IP>:80` zeigt
+(Schema **http**, Websockets an). Mehr ist nicht nötig:
+
+1. RIMPERIO erkennt den Proxy an zwei Stellen. Zum einen an den Kopfzeilen,
+   die Caddy durchreicht (`X-Rimperio-Edge-Scheme`, `-Outer-Proto`, `-Peer`).
+   Zum anderen daran, dass der Browser `https://` benutzt, während bei Caddy
+   `http` ankommt.
+2. Öffnet ein Administrator die Oberfläche über den Proxy, stellt RIMPERIO
+   Caddy selbst auf **„HTTPS über externen Proxy“** um. Vertraut wird dabei
+   nur der IP dieses Proxys. Das geht nur, solange Caddy selbst reines HTTP
+   spricht. Abschalten lässt es sich mit `RIMPERIO_AUTO_EXTERNAL_PROXY=false`.
+3. Unter *Einstellungen → HTTPS & Adresse* zeigt ein Kasten, was RIMPERIO über
+   den Weg weiß. Dort lässt sich auch die **öffentliche Adresse** fest
+   eintragen. Sie gilt für den QR-Code der App, die Agent-Befehle und die
+   SSO-Rückadresse. `SITE_URL` in der `.env` hat weiter Vorrang.
+
+Als „eigenes Netz“ zählen private Adressen sowie CGNAT `100.64.0.0/10`
+(Tailscale, viele VPN-Strecken).
 
 ## Zwei Vorkehrungen gegen das Aussperren
 
@@ -46,7 +68,7 @@ fehl, fährt Caddy selbsttätig auf den vorherigen Stand zurück.
 
 ## Zusätzliche Adressen
 
-Unter *Einstellungen → Netzwerk* lassen sich weitere Namen und IPs eintragen,
+Unter *Einstellungen → HTTPS & Adresse* lassen sich weitere Namen und IPs eintragen,
 die ebenfalls per HTTPS bedient werden — nützlich, wenn ein Server intern anders
 heißt als von außen.
 

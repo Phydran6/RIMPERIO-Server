@@ -192,12 +192,13 @@ services:
       # -> zurueck auf reines HTTP (Port 80), gespeicherte TLS-Config wird verworfen.
       CADDY_FORCE_HTTP: ${CADDY_FORCE_HTTP:-false}
       SITE_URL: ${SITE_URL:-}
+      RIMPERIO_AUTO_EXTERNAL_PROXY: ${RIMPERIO_AUTO_EXTERNAL_PROXY:-true}
       # HTTPS gleich bei der Installation (install.sh --domain ...)
       RIMPERIO_DOMAIN: ${RIMPERIO_DOMAIN:-}
       RIMPERIO_TLS: ${RIMPERIO_TLS:-}
       RIMPERIO_ACME_EMAIL: ${RIMPERIO_ACME_EMAIL:-}
       RIMPERIO_HTTPS_ONLY: ${RIMPERIO_HTTPS_ONLY:-false}
-      # Patchmanagement (System -> Updates): wo die Installation auf dem HOST
+      # Patchmanagement (RIMPERIO-Server -> Updates): wo die Installation auf dem HOST
       # liegt und gegen welches Repository geprueft wird. Das Update selbst
       # laeuft auf dem Host (systemd-run), nicht in diesem Container.
       RIMPERIO_INSTALL_DIR: ${RIMPERIO_INSTALL_DIR:-/opt/rimperio}
