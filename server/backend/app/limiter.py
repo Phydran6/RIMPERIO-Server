@@ -1,7 +1,7 @@
 ﻿# ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.09.15.20.00.00
+# Version:     2026.11.07.21.00.00
 # Beschreibung: RIMPERIO - Rate Limiter (slowapi) + echte Client-IP hinter Caddy
 # ==============================================================================
 
@@ -17,7 +17,15 @@ def client_ip(request: Request) -> str:
     Container-IP von Caddy (z.B. 172.18.0.3). Caddy setzt X-Forwarded-For und
     haengt den direkten Absender als LETZTEN Eintrag an - der ist nicht
     faelschbar, weiter vorne stehende Eintraege schon.
+
+    Steht ein externer Proxy davor (Modus "external"), waere der letzte Eintrag
+    nur noch der Proxy. Dann liefert Caddy die echte Adresse in
+    X-Rimperio-Client-IP - Caddy ueberschreibt diesen Header immer und wertet
+    X-Forwarded-For nur von vertrauten Proxys aus.
     """
+    resolved = (request.headers.get("x-rimperio-client-ip") or "").strip()
+    if resolved:
+        return resolved
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
         last = forwarded.split(",")[-1].strip()

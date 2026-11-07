@@ -344,21 +344,30 @@ class CaddyConfigResponse(BaseModel):
     saved_caddyfile: str = ""
     cert_present: bool = False
     last_error: Optional[str] = None
+    # Aus der gespeicherten Caddyfile abgeleitet, damit das UI den Modus anzeigt
+    detected_mode: Optional[str] = None
+    detected_domain: Optional[str] = None
+    trusted_proxies: List[str] = []
+    # Beobachteter externer HTTPS-Proxy (siehe proxy_detect.py)
+    external_proxy: Dict[str, Any] = {}
 
 class CaddyApplyRequest(BaseModel):
     caddyfile: str = ""
     save: bool = True
-    mode: Optional[str] = Field(default=None, pattern="^(http|letsencrypt|custom|internal)$")
+    mode: Optional[str] = Field(default=None, pattern="^(http|letsencrypt|custom|internal|external)$")
     domain: Optional[str] = None
     letsencrypt_email: Optional[str] = None
     # Zusaetzliche Adressen (IPs/Namen), die per HTTPS erreichbar sein sollen
     extra_hosts: List[str] = []
+    # Modus "external": IPs/Netze des vorgeschalteten Proxys (leer = private Netze)
+    trusted_proxies: List[str] = []
 
 class CaddyTemplateRequest(BaseModel):
     domain: Optional[str] = None
-    mode: str = Field(..., pattern="^(http|letsencrypt|custom|internal)$")
+    mode: str = Field(..., pattern="^(http|letsencrypt|custom|internal|external)$")
     letsencrypt_email: Optional[str] = None
     extra_hosts: List[str] = []
+    trusted_proxies: List[str] = []
 
 # Netzwerk / DNS
 class DnsConfigUpdate(BaseModel):

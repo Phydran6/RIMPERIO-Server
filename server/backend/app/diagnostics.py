@@ -46,6 +46,7 @@ from .models import Agent, Log, Setting, User
 from . import archiving as archiving_module
 from . import diskguard
 from . import hostexec
+from . import proxy_detect
 from . import ldap_auth
 from . import updater
 
@@ -528,11 +529,38 @@ async def check_https() -> Check:
     if https_ports:
         return _ok("https", "Verschluesselte Verbindung", "Sicherheit", "HTTPS ist aktiv",
                    f"Caddy nimmt Verbindungen auf {', '.join(https_ports)} an.")
+
+    # HTTPS kann auch ein vorgeschalteter Proxy beenden (Modus "external" oder
+    # automatisch an den Anfragen erkannt) - dann ist "Nur HTTP" falsch.
+    external_configured = any(
+        (server.get("trusted_proxies") or {}) for server in servers.values()
+    )
+    seen = proxy_detect.status()
+    if seen["detected"] and seen["trusted"]:
+        where = f" (https://{seen['host']})" if seen.get("host") else ""
+        return _ok("https", "Verschluesselte Verbindung", "Sicherheit",
+                   "HTTPS über externen Proxy",
+                   f"Ein vorgeschalteter Proxy ({seen['peer']}) beendet HTTPS{where} und "
+                   "reicht an Caddy weiter. Caddy vertraut ihm.")
+    if seen["detected"]:
+        return _warn("https", "Verschluesselte Verbindung", "Sicherheit",
+                     "HTTPS über externen Proxy erkannt",
+                     f"Anfragen kommen per HTTPS über den Proxy {seen['peer']}, Caddy vertraut "
+                     "ihm aber noch nicht. Passkeys, SSO und Links sehen dadurch http statt https.",
+                     "Einstellungen -> Netzwerk -> Reverse Proxy: Modus "
+                     "\"HTTPS über externen Proxy\" wählen und anwenden.",
+                     peer=seen["peer"])
+    if external_configured:
+        return _ok("https", "Verschluesselte Verbindung", "Sicherheit",
+                   "HTTPS über externen Proxy (eingestellt)",
+                   "Caddy ist für einen vorgeschalteten HTTPS-Proxy eingerichtet. In den letzten "
+                   "7 Tagen kam noch keine Anfrage darüber an - beim nächsten Aufruf über den "
+                   "Proxy wird das bestätigt.")
     return _warn("https", "Verschluesselte Verbindung", "Sicherheit", "Nur HTTP",
-                 "Caddy lauscht nicht auf Port 443. Anmeldedaten und Logs laufen im Klartext "
-                 "durchs Netz.",
+                 "Caddy lauscht nicht auf Port 443, und es wurde kein vorgeschalteter "
+                 "HTTPS-Proxy erkannt. Anmeldedaten und Logs laufen im Klartext durchs Netz.",
                  "Einstellungen -> Netzwerk -> Reverse Proxy: HTTPS einschalten "
-                 "(Let's Encrypt, eigenes Zertifikat oder selbstsigniert).")
+                 "(Let's Encrypt, eigenes Zertifikat, selbstsigniert oder über externen Proxy).")
 
 
 async def check_database_tls() -> Check:

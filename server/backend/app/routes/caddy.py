@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.10.18.22.00.00
+# Version:     2026.11.07.21.00.00
 # Beschreibung: RIMPERIO - Caddy Management API (Config Apply + Cert Upload)
 #
 # Grundsatz: Das UI darf sich NIE aussperren.
@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_admin
+from .. import proxy_detect
 from ..config import settings
 from ..database import get_db, async_session
 from ..models import Setting
@@ -48,13 +49,32 @@ ROUTES_SNIPPET = """(rimperio_routes) {
         Permissions-Policy "camera=(), microphone=(), geolocation=()"
     }
     handle /api/* {
-        reverse_proxy backend:8000
+        reverse_proxy backend:8000 {
+            # Erkennung eines externen HTTPS-Proxys + echte Client-IP.
+            # Caddy ueberschreibt diese Kopfzeilen, ein Client kann sie nicht faelschen.
+            header_up X-Rimperio-Edge-Scheme {http.request.scheme}
+            header_up X-Rimperio-Outer-Proto {http.request.header.X-Forwarded-Proto}
+            header_up X-Rimperio-Peer {http.request.remote.host}
+            header_up X-Rimperio-Client-IP {client_ip}
+        }
     }
     handle {
         reverse_proxy frontend:80
     }
 }
 """
+
+# Aeltere gespeicherte Konfigurationen kennen die Kopfzeilen oben noch nicht.
+# Beim Start wird dieser Abschnitt woertlich ersetzt (siehe _upgrade_caddyfile).
+_LEGACY_API_HANDLE = """    handle /api/* {
+        reverse_proxy backend:8000
+    }"""
+_CURRENT_API_HANDLE = ROUTES_SNIPPET[
+    ROUTES_SNIPPET.index("    handle /api/*"):ROUTES_SNIPPET.index("    handle {")
+].rstrip("\n")
+
+# Merker in der Caddyfile, an dem der Modus "externer Proxy" wiedererkannt wird.
+EXTERNAL_MARKER = "# rimperio-mode: external"
 
 ADMIN_BLOCK = "{\n    admin 0.0.0.0:2019\n}\n\n"
 
@@ -94,11 +114,65 @@ def _clean_hosts(hosts: Optional[List[str]]) -> List[str]:
     return cleaned
 
 
+def _clean_proxies(proxies: Optional[List[str]]) -> List[str]:
+    """Adressen des externen Proxys: IPs oder Netze (CIDR), sonst private_ranges."""
+    cleaned: List[str] = []
+    for raw in proxies or []:
+        value = (raw or "").strip()
+        if not value:
+            continue
+        if value.lower() == "private_ranges":
+            value = "private_ranges"
+        else:
+            try:
+                value = str(ipaddress.ip_network(value, strict=False))
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Ungültige Proxy-Adresse: {raw}")
+        if value not in cleaned:
+            cleaned.append(value)
+    return cleaned or ["private_ranges"]
+
+
+def detect_mode(caddyfile: Optional[str]) -> Optional[str]:
+    """Erkennt aus einer (von uns erzeugten) Caddyfile den Modus - fuers UI."""
+    text = caddyfile or ""
+    if EXTERNAL_MARKER in text or "trusted_proxies" in text:
+        return "external"
+    if "custom.crt" in text:
+        return "custom"
+    match = re.search(r"^https://\S+ \{\n\s+tls (\S+)", text, re.MULTILINE)
+    if match:
+        return "internal" if match.group(1) == "internal" else "letsencrypt"
+    if "https://" not in text:
+        return "http"
+    return None
+
+
+def detect_domain(caddyfile: Optional[str]) -> Optional[str]:
+    text = caddyfile or ""
+    match = (re.search(r"^https://([A-Za-z0-9.\-]+) \{", text, re.MULTILINE)
+             or re.search(r"# Oeffentlich erreichbar ueber https://([A-Za-z0-9.\-]+)", text))
+    return match.group(1) if match else None
+
+
+def detect_trusted_proxies(caddyfile: Optional[str]) -> List[str]:
+    match = re.search(r"trusted_proxies static ([^\n]+)", caddyfile or "")
+    return match.group(1).split() if match else []
+
+
+def _upgrade_caddyfile(caddyfile: str) -> str:
+    """Ergaenzt gespeicherte Altkonfigurationen um die Erkennungs-Kopfzeilen."""
+    if _LEGACY_API_HANDLE in caddyfile:
+        return caddyfile.replace(_LEGACY_API_HANDLE, _CURRENT_API_HANDLE)
+    return caddyfile
+
+
 def _build_template(
     domain: Optional[str],
     mode: str,
     letsencrypt_email: Optional[str] = None,
     extra_hosts: Optional[List[str]] = None,
+    trusted_proxies: Optional[List[str]] = None,
 ) -> str:
     """Baut eine Caddyfile.
 
@@ -107,6 +181,9 @@ def _build_template(
       letsencrypt - Zertifikat automatisch von Let's Encrypt (FQDN muss oeffentlich sein)
       custom      - hochgeladenes Zertifikat (custom.crt/custom.key)
       internal    - Caddys eigene CA (selbstsigniert, Browser warnt, funktioniert offline)
+      external    - ein anderer Server davor beendet HTTPS und reicht per HTTP an
+                    Port 80 weiter; Caddy vertraut dessen X-Forwarded-* Kopfzeilen,
+                    damit Anmeldung, Passkeys und SSO die https-Adresse kennen
 
     Port 80 bleibt in JEDEM Modus als Zugang erhalten.
     """
@@ -117,6 +194,22 @@ def _build_template(
     if mode == "http":
         blocks.append(HTTP_BLOCK)
         return "".join(blocks)
+
+    if mode == "external":
+        if domain and not _HOSTNAME_RE.match(domain):
+            raise HTTPException(status_code=400, detail=f"Ungültiger FQDN: {domain}")
+        proxies = _clean_proxies(trusted_proxies)
+        comment = f"    {EXTERNAL_MARKER}\n"
+        if domain:
+            comment += f"    # Oeffentlich erreichbar ueber https://{domain} (TLS beim externen Proxy)\n"
+        admin = (
+            "{\n    admin 0.0.0.0:2019\n" + comment
+            + "    servers {\n"
+            + f"        trusted_proxies static {' '.join(proxies)}\n"
+            + "        client_ip_headers X-Forwarded-For X-Real-IP\n"
+            + "    }\n}\n\n"
+        )
+        return admin + ROUTES_SNIPPET + "\n" + HTTP_BLOCK
 
     if mode not in ("letsencrypt", "custom", "internal"):
         raise HTTPException(status_code=400, detail=f"Unbekannter Modus: {mode}")
@@ -291,11 +384,16 @@ async def get_caddy_config(db: AsyncSession = Depends(get_db), _=Depends(get_cur
     cert_dir = Path(settings.caddy_certs_dir)
     cert_present = (cert_dir / "custom.crt").exists() and (cert_dir / "custom.key").exists()
 
+    effective = saved or DEFAULT_CADDYFILE
     return CaddyConfigResponse(
         running_config=running_config,
-        saved_caddyfile=saved or DEFAULT_CADDYFILE,
+        saved_caddyfile=effective,
         cert_present=cert_present,
         last_error=last_error,
+        detected_mode=detect_mode(effective),
+        detected_domain=detect_domain(effective),
+        trusted_proxies=detect_trusted_proxies(effective),
+        external_proxy=proxy_detect.status(),
     )
 
 
@@ -312,7 +410,8 @@ async def apply_caddy_config(
     if data.mode:
         if data.mode in ("letsencrypt", "custom", "internal") and not data.domain:
             raise HTTPException(status_code=400, detail="FQDN ist für HTTPS erforderlich")
-        effective = _build_template(data.domain, data.mode, data.letsencrypt_email, data.extra_hosts)
+        effective = _build_template(data.domain, data.mode, data.letsencrypt_email,
+                                    data.extra_hosts, data.trusted_proxies)
         if data.mode == "letsencrypt":
             warning = _dns_warning((data.domain or "").strip())
             if warning:
@@ -369,7 +468,8 @@ async def build_caddy_template(
     req: CaddyTemplateRequest,
     _=Depends(get_current_admin),
 ):
-    caddyfile = _build_template(req.domain, req.mode, req.letsencrypt_email, req.extra_hosts)
+    caddyfile = _build_template(req.domain, req.mode, req.letsencrypt_email,
+                                req.extra_hosts, req.trusted_proxies)
     warnings = []
     if req.mode == "letsencrypt":
         warning = _dns_warning((req.domain or "").strip())
@@ -515,6 +615,17 @@ async def ensure_caddy_config_on_startup(session_factory=None):
         except Exception as exc:
             logger.error("HTTPS für %s nicht eingerichtet (%s) - bleibe bei HTTP.", domain, exc)
         return
+
+    upgraded = _upgrade_caddyfile(saved)
+    if upgraded != saved:
+        try:
+            await _adapt_caddyfile(upgraded)
+            saved = upgraded
+            async with session_factory() as db:
+                await _save_setting(db, "caddy_caddyfile", saved)
+            logger.info("Gespeicherte Caddy-Konfiguration um die Proxy-Erkennung ergänzt.")
+        except Exception as exc:
+            logger.warning("Caddy-Konfiguration nicht ergänzt (%s) - nutze sie unverändert.", exc)
 
     try:
         await _apply_caddyfile(saved)

@@ -33,6 +33,7 @@ from . import tokens
 from . import updater
 from . import watchdog
 from . import rmm
+from . import proxy_detect
 from .config import settings, validate_security_settings
 from .database import get_db, async_session, engine
 from .limiter import limiter, agent_key, client_ip as real_client_ip
@@ -59,6 +60,11 @@ from . import advisories, patchmgmt, snmpmon
 # =============================================================================
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Externen HTTPS-Proxy vor Caddy bemerken (nur Speicher, kein I/O)
+        try:
+            proxy_detect.observe(request)
+        except Exception:
+            pass
         response: Response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
