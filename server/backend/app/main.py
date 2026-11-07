@@ -33,6 +33,7 @@ from . import tokens
 from . import updater
 from . import watchdog
 from . import rmm
+from . import proxy_detect
 from .config import settings, validate_security_settings
 from .database import get_db, async_session, engine
 from .limiter import limiter, agent_key, client_ip as real_client_ip
@@ -50,12 +51,20 @@ from .routes import (auth_router, mfa_router, health_router, users_router, agent
                      caddy as caddy_router, network as network_router)
 from .branding import branding_router
 from .routes.rmm import router as rmm_router, agent_router as rmm_agent_router
+from .routes.patching import router as patching_router, notifications_router
+from .routes.snmp import router as snmp_router
+from . import advisories, patchmgmt, snmpmon
 
 # =============================================================================
 # Security-Headers Middleware
 # =============================================================================
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Externen HTTPS-Proxy vor Caddy bemerken (nur Speicher, kein I/O)
+        try:
+            proxy_detect.observe(request)
+        except Exception:
+            pass
         response: Response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -163,6 +172,9 @@ app.include_router(discovery_router)
 app.include_router(alerts_router)
 app.include_router(rmm_router)
 app.include_router(rmm_agent_router)
+app.include_router(patching_router)
+app.include_router(notifications_router)
+app.include_router(snmp_router)
 app.include_router(caddy_router.router)
 app.include_router(network_router.router)
 
@@ -1150,6 +1162,13 @@ async def start_background_tasks():
     # RMM: Tabellen/Spalten anlegen, dann Offline-Waechter starten (app/rmm.py).
     await rmm.ensure_schema()
     _spawn(rmm.sweep_loop())
+    # Patchmanagement, Update-Quellen und SNMP-Ueberwachung (app/patchmgmt.py,
+    # app/advisories.py, app/snmpmon.py).
+    await patchmgmt.ensure_schema()
+    await snmpmon.ensure_schema()
+    _spawn(patchmgmt.loop())
+    _spawn(advisories.loop())
+    _spawn(snmpmon.loop())
     # Raeumt auf, BEVOR die Platte voll ist (app/diskguard.py).
     _spawn(diskguard.watch_task())
     # Merkt, wenn RIMPERIO selbst nicht mehr sammelt, und meldet es nach aussen

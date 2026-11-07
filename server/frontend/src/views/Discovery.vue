@@ -1,7 +1,7 @@
 <!-- ==============================================================================
      Name:        Phydran6
      Kontakt:     Phydran6
-     Version:     2026.10.08.22.00.00
+     Version:     2026.11.07.20.00.00
      Changelog:   docs/changelog/frontend.md
      Beschreibung: RIMPERIO - Systeme im Netz. Zeigt, was die Netzwerksuche
                    gefunden hat, ob es schon Logs liefert und wie man es
@@ -121,7 +121,8 @@
                   <span class="badge" :class="STATUS[d.status].badge">{{ STATUS[d.status].label }}</span>
                 </td>
                 <td class="min-w-0">
-                  <div class="font-medium truncate">{{ d.hostname || d.details?.snmp?.sys_name || d.ip_address }}</div>
+                  <div v-if="d.hostname" class="font-medium truncate" :title="d.hostname_source_label ? `Name über ${d.hostname_source_label}` : ''">{{ d.hostname }}</div>
+                  <div v-else class="truncate italic" style="color: var(--color-text-muted)">kein Name gefunden</div>
                   <div class="text-xs font-mono" style="color: var(--color-text-muted)">
                     {{ d.ip_address }}<template v-if="d.mac_address"> · {{ d.mac_address }}</template>
                   </div>
@@ -165,6 +166,20 @@
           <dl class="facts">
             <div><dt>Status</dt><dd><span class="badge" :class="STATUS[selected.status].badge">{{ STATUS[selected.status].label }}</span></dd></div>
             <div><dt>Art</dt><dd>{{ selected.kind_label }}<template v-if="selected.os_guess"> · {{ selected.os_guess }}</template></dd></div>
+            <div>
+              <dt>Hostname</dt>
+              <dd>
+                <template v-if="selected.hostname">
+                  <span class="font-mono">{{ selected.hostname }}</span>
+                  <span v-if="selected.hostname_source_label" style="color: var(--color-text-muted)"> · über {{ selected.hostname_source_label }}</span>
+                </template>
+                <span v-else style="color: var(--color-text-muted)">nicht ermittelbar (weder DNS, mDNS, NetBIOS noch SNMP)</span>
+              </dd>
+            </div>
+            <div v-if="otherNames(selected).length">
+              <dt>Weitere Namen</dt>
+              <dd class="font-mono">{{ otherNames(selected).join(', ') }}</dd>
+            </div>
             <div><dt>IP</dt><dd class="font-mono">{{ selected.ip_address }}</dd></div>
             <div><dt>MAC</dt><dd class="font-mono">{{ selected.mac_address || '–' }}<template v-if="selected.details?.random_mac"> (zufällig)</template></dd></div>
             <div><dt>Netz</dt><dd>{{ selected.network || '–' }}</dd></div>
@@ -496,6 +511,22 @@ const AGENT_TYPES = {
 }
 const MATCHED_BY = { mac: 'der MAC-Adresse', ip: 'der IP-Adresse', hostname: 'dem Hostnamen' }
 const FOUND_BY = { icmp: 'Ping', tcp: 'TCP', arp: 'ARP-Tabelle', router: 'Router (SNMP)' }
+const NAME_SOURCES = { dns: 'DNS', 'dns-lan': 'DNS des LANs', mdns: 'mDNS', netbios: 'NetBIOS', snmp: 'SNMP' }
+
+// Namen, die andere Wege gemeldet haben, wenn sie vom angezeigten abweichen -
+// z.B. DNS sagt "pc-12.fritz.box", NetBIOS "buchhaltung".
+function otherNames(d) {
+  const shown = (d.hostname || '').toLowerCase().split('.')[0]
+  const seen = new Set([shown])
+  const out = []
+  for (const [source, name] of Object.entries(d.details?.names || {})) {
+    const short = name.toLowerCase().split('.')[0]
+    if (seen.has(short)) continue
+    seen.add(short)
+    out.push(`${name} (${NAME_SOURCES[source] || source})`)
+  }
+  return out
+}
 
 const SYSLOG_HINTS = {
   network: 'Bei Switches und Firewalls heißt das meist „Syslog“, „Remote Logging“ oder „Log-Server“ unter System → Protokollierung.',

@@ -80,6 +80,15 @@ jobs:
           check "Patches/Alarme/Settings" 'api "$B/api/rmm/patches" | jq -e "type==\"array\"" >/dev/null && api "$B/api/rmm/alerts" | jq -e "type==\"array\"" >/dev/null && api "$B/api/rmm/settings" | jq -e ".thresholds.cpu_percent" >/dev/null'
           check "Gerät in der Geräteliste mit RMM" 'api "$B/api/agents" | jq -e "[.items[] | select(.agent_uid==\"$UID_\")] | length==1" >/dev/null'
 
+          # Patchmanagement: Patch- und Docker-Suche über das Patch-Center, echter Lauf des Agents.
+          api -X POST "$B/api/patching/agents/$UID_/scan" >/dev/null
+          sudo /tmp/rimperio-agent once   # patch_scan + docker_scan
+          check "Patch-Suche verarbeitet"  'api "$B/api/rmm/agents/$UID_/commands" | jq -e "[.[]|select(.kind==\"patch_scan\")][0].status==\"done\"" >/dev/null'
+          check "Docker-Suche verarbeitet" 'api "$B/api/patching/agents/$UID_/docker" | jq -e ".available==true and (.containers|length)>=3" >/dev/null'
+          check "Patch-Center Übersicht"   'api "$B/api/patching/overview" | jq -e ".agents|length==1" >/dev/null'
+          check "Richtlinie, Quellen, SNMP, Eingang" 'api "$B/api/patching/policies" | jq -e "length>=1" >/dev/null && api "$B/api/patching/sources" | jq -e ".sources|length>=8" >/dev/null && api "$B/api/snmp/templates" | jq -e "length>=10" >/dev/null && api "$B/api/notifications" | jq -e ".items|type==\"array\"" >/dev/null'
+          check "App-Schnittstelle Level 3" 'api "$B/api/app/patching/summary" | jq -e ".needs_approval>=0" >/dev/null && api "$B/api/app/bootstrap" | jq -e ".server.api_level>=3" >/dev/null'
+
           # --- Deinstallieren ------------------------------------------------
           # 1) Aus der Oberfläche: Auftrag einreihen, der Agent führt ihn beim
           #    nächsten Check-in aus und meldet sich dabei selbst ab.

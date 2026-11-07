@@ -33,11 +33,12 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import logparse
-from ..auth import get_current_user
+from ..auth import get_current_admin, get_current_user
 from ..branding import load_config as load_branding
 from ..config import settings
 from ..database import get_db
@@ -49,8 +50,14 @@ router = APIRouter(prefix="/api/app", tags=["Mobile App"])
 
 # Was die App an Funktionen erwarten darf. Aeltere App-Versionen koennen daran
 # ablesen, was dieser Server kann, statt es auszuprobieren.
-API_LEVEL = 2
+API_LEVEL = 3
 CAPABILITIES = [
+    "notifications",     # /api/app/notifications - Eingang (Freigaben, Fehlschlaege)
+    "patch-approvals",   # Updates freigeben/ablehnen inkl. KI-Einschaetzung
+    "patch-runs",        # Laeufe ansehen, zurueckrollen
+    "patch-install",     # sofort installieren
+    "docker-updates",    # Container-Updates wie Watchtower
+    "snmp-status",       # SNMP-Geraete und Probleme
     "cursor-paging",     # before_id / since_id statt Seitenzahlen
     "parsed-logs",       # Zusammenfassung und Abzeichen pro Zeile
     "log-tail",          # Nachlaufen ohne vollstaendiges Neuladen
@@ -375,3 +382,168 @@ async def devices(
             "online": bool(agent.last_seen and agent.last_seen >= cutoff),
         })
     return {"items": items, "offline_after_seconds": offline_timeout}
+
+
+# =============================================================================
+# Eingang, Patchmanagement, SNMP (API-Level 3)
+# =============================================================================
+# Bewusst schmal: nur, was auf ein Handy gehoert - freigeben, ablehnen, sehen,
+# was laeuft, und im Notfall zurueckrollen. Eingerichtet wird im Browser.
+
+class AppDecisionIn(BaseModel):
+    ids: List[int] = Field(min_length=1, max_length=500)
+    decision: str = Field(pattern="^(approve|reject|defer)$")
+    defer_days: int = Field(default=7, ge=1, le=90)
+
+
+class AppInstallIn(BaseModel):
+    agent_uid: str
+    item_ids: List[int] = Field(default_factory=list, max_length=500)
+    snapshot: Optional[bool] = None
+
+
+class AppReadIn(BaseModel):
+    ids: List[int] = Field(default_factory=list, max_length=500)
+
+
+def _app_item(it, agent) -> dict:
+    ai = it.ai or {}
+    return {
+        "id": it.id, "host": agent.hostname if agent else None,
+        "agent_uid": agent.agent_uid if agent else None, "kind": it.kind,
+        "platform": it.platform, "title": it.title, "kb": it.kb or None,
+        "from": it.version_from or None, "to": it.version_to or None,
+        "security": it.security, "urgent": it.urgent, "reboot": it.reboot,
+        "status": it.status, "reason": it.reason,
+        "ai": {"risk": ai.get("risk"), "recommendation": ai.get("recommendation"),
+               "summary": ai.get("summary"), "known_issues": ai.get("known_issues") or [],
+               "error": ai.get("error")} if ai else None,
+        "advisories": [{"title": a.get("title"), "link": a.get("link"), "source": a.get("source")}
+                       for a in (it.advisories or [])[:4]],
+    }
+
+
+@router.get("/notifications")
+async def app_notifications(since_id: Optional[int] = Query(None), unread: bool = Query(False),
+                            limit: int = Query(50, ge=1, le=200),
+                            db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    """Neue Meldungen seit `since_id` - die App fragt in Ruhe nach."""
+    from ..models import Notification
+    from .. import notify
+    q = select(Notification)
+    if since_id:
+        q = q.where(Notification.id > since_id)
+    if unread:
+        q = q.where(Notification.read_at.is_(None))
+    rows = (await db.execute(q.order_by(desc(Notification.id)).limit(limit))).scalars().all()
+    unread_count = (await db.execute(select(func.count()).select_from(Notification)
+                                     .where(Notification.read_at.is_(None)))).scalar_one()
+    return {"items": [notify.public(n) for n in rows], "unread": unread_count,
+            "newest_id": rows[0].id if rows else since_id}
+
+
+@router.post("/notifications/read")
+async def app_notifications_read(data: AppReadIn, db: AsyncSession = Depends(get_db),
+                                 _=Depends(get_current_user)):
+    from .. import notify
+    return {"marked": await notify.mark_read(db, data.ids or None)}
+
+
+@router.get("/patching/summary")
+async def app_patch_summary(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    from ..models import PatchItem, PatchRun
+    from .. import patchmgmt as pm
+    counts = dict((await db.execute(select(PatchItem.status, func.count())
+                                    .group_by(PatchItem.status))).all())
+    running = (await db.execute(select(func.count()).select_from(PatchRun)
+                                .where(PatchRun.status.in_(pm.ACTIVE_RUN)))).scalar_one()
+    failed = (await db.execute(select(func.count()).select_from(PatchRun).where(
+        PatchRun.status == "failed",
+        PatchRun.finished_at >= datetime.utcnow() - timedelta(days=7)))).scalar_one()
+    return {"needs_approval": counts.get("needs_approval", 0), "automatic": counts.get("auto", 0),
+            "approved": counts.get("approved", 0), "reviewing": counts.get("review", 0),
+            "failed_items": counts.get("failed", 0), "runs_active": running,
+            "runs_failed_7d": failed}
+
+
+@router.get("/patching/approvals")
+async def app_patch_approvals(limit: int = Query(100, ge=1, le=500),
+                              db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    """Was wartet auf eine Entscheidung - dringende zuerst."""
+    from ..models import PatchItem
+    rows = (await db.execute(select(PatchItem, Agent).join(Agent, Agent.id == PatchItem.agent_id)
+                             .where(PatchItem.status == "needs_approval")
+                             .order_by(desc(PatchItem.urgent), desc(PatchItem.security), Agent.hostname)
+                             .limit(limit))).all()
+    return {"items": [_app_item(i, a) for i, a in rows]}
+
+
+@router.post("/patching/decide")
+async def app_patch_decide(data: AppDecisionIn, db: AsyncSession = Depends(get_db),
+                           admin=Depends(get_current_admin)):
+    from .. import patchmgmt as pm
+    try:
+        return {"changed": await pm.decide(db, data.ids, data.decision, f"{admin.username} (App)",
+                                           data.defer_days)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/patching/install")
+async def app_patch_install(data: AppInstallIn, db: AsyncSession = Depends(get_db),
+                            admin=Depends(get_current_admin)):
+    from .. import patchmgmt as pm
+    agent = (await db.execute(select(Agent).where(Agent.agent_uid == data.agent_uid))).scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Unbekannter Rechner.")
+    try:
+        run = await pm.install_now(db, agent, data.item_ids, f"{admin.username} (App)", data.snapshot, "app")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return pm.public_run(run, agent)
+
+
+@router.get("/patching/runs")
+async def app_patch_runs(limit: int = Query(30, ge=1, le=200),
+                         db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    from ..models import PatchRun
+    rows = (await db.execute(select(PatchRun, Agent).join(Agent, Agent.id == PatchRun.agent_id)
+                             .order_by(desc(PatchRun.id)).limit(limit))).all()
+    out = []
+    for r, a in rows:
+        snap = r.snapshot or {}
+        out.append({"id": r.id, "host": a.hostname, "status": r.status, "trigger": r.trigger,
+                    "items": len(r.items or []),
+                    "started_at": r.started_at.isoformat() if r.started_at else None,
+                    "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                    "last": (r.log or [{}])[-1].get("text"),
+                    "snapshot": snap.get("name") or snap.get("volid"),
+                    "snapshot_delete_after": snap.get("delete_after"),
+                    "can_rollback": bool(snap.get("name")) and snap.get("mode") == "snapshot"
+                    and not snap.get("deleted_at") and r.status in ("failed", "succeeded")})
+    return {"items": out}
+
+
+@router.post("/patching/runs/{run_id}/rollback")
+async def app_patch_rollback(run_id: int, db: AsyncSession = Depends(get_db),
+                             admin=Depends(get_current_admin)):
+    from .. import patchmgmt as pm, pve
+    try:
+        run = await pm.rollback(db, run_id, f"{admin.username} (App)")
+    except (ValueError, pve.PveError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"id": run.id, "status": run.status}
+
+
+@router.get("/snmp")
+async def app_snmp(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    from ..models import SnmpDevice, SnmpMetric
+    devices = (await db.execute(select(SnmpDevice).order_by(SnmpDevice.name))).scalars().all()
+    problems: dict = {}
+    for m in (await db.execute(select(SnmpMetric).where(
+            SnmpMetric.status.in_(("warning", "critical"))))).scalars():
+        problems.setdefault(m.device_id, []).append(
+            {"label": m.label, "value": m.value, "text": m.text, "unit": m.unit, "status": m.status})
+    return {"items": [{"id": d.id, "name": d.name, "host": d.host, "site": d.site, "status": d.status,
+                       "last_ok_at": d.last_ok_at.isoformat() if d.last_ok_at else None,
+                       "problems": problems.get(d.id, [])[:5]} for d in devices]}

@@ -24,12 +24,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import rmm, tokens
+from .. import patchmgmt, rmm, snmpmon, tokens
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
 from ..limiter import client_ip
-from ..models import (Agent, AgentToken, Check, CheckResult, Command, Log, PatchReport,
-                      RmmAlert, Script, Telemetry, User)
+from ..models import (Agent, AgentToken, Check, CheckResult, Command, Log, PatchItem,
+                      PatchReport, PatchRun, PveLink, RmmAlert, Script, Telemetry, User)
 
 router = APIRouter(prefix="/api/rmm", tags=["RMM"])
 agent_router = APIRouter(prefix="/api/rmm/agent", tags=["RMM-Agent"])
@@ -198,7 +198,8 @@ async def _remove_rmm(db: AsyncSession, agent: Agent) -> bool:
     Patch-Stand und Alarme gehen. Gehört dem Gerät sonst nichts (keine Logs,
     kein eigener Log-Agent-Schlüssel), verschwindet es ganz; sonst bleibt es
     mit seinen Logs unter Geräte stehen. Liefert True, wenn es ganz weg ist."""
-    for model in (Telemetry, Command, CheckResult, PatchReport, RmmAlert):
+    for model in (Telemetry, Command, CheckResult, PatchReport, RmmAlert, PatchItem, PatchRun,
+                  PveLink):
         await db.execute(delete(model).where(model.agent_id == agent.id))
     has_logs = (await db.execute(
         select(Log.id).where(Log.agent_id == agent.id).limit(1))).first() is not None
@@ -359,8 +360,9 @@ async def checkin(data: CheckinIn, request: Request, agent: Agent = Depends(curr
             checks.append({"id": ck.id, "type": ck.type, "params": ck.params or {},
                            "interval": ck.interval_sec})
     await db.commit()
+    snmp_tasks = await snmpmon.tasks_for_agent(db, agent)
     return {"interval": rmm.CHECKIN_INTERVAL, "offline_after": th["offline_after"],
-            "commands": commands, "checks": checks}
+            "commands": commands, "checks": checks, "snmp": snmp_tasks}
 
 
 @agent_router.post("/inventory")
@@ -383,6 +385,7 @@ async def inventory(payload: dict = Body(...), agent: Agent = Depends(current_ag
 async def results(items: List[CommandResultIn], agent: Agent = Depends(current_agent),
                   db: AsyncSession = Depends(get_db)) -> dict:
     updated, found_patches = 0, 0
+    scans: List[Command] = []
     for item in items:
         cmd = (await db.execute(select(Command).where(
             Command.id == item.id, Command.agent_id == agent.id))).scalar_one_or_none()
@@ -390,34 +393,49 @@ async def results(items: List[CommandResultIn], agent: Agent = Depends(current_a
             continue
         cmd.status = item.status if item.status in {"done", "error", "timeout"} else "done"
         cmd.exit_code = item.exit_code
-        cmd.stdout = (item.stdout or "")[:200_000]
+        cmd.stdout = (item.stdout or "")[:2_000_000]
         cmd.stderr = (item.stderr or "")[:200_000]
         cmd.finished_at = _now()
         updated += 1
-        if cmd.kind in ("patch_scan", "patch_apply"):
+        if cmd.kind in ("patch_scan", "docker_scan") and cmd.status == "done":
+            scans.append(cmd)
+        elif cmd.kind == "patch_apply":
             report = (await db.execute(select(PatchReport).where(
                 PatchReport.agent_id == agent.id))).scalar_one_or_none()
             if report is None:
                 report = PatchReport(agent_id=agent.id, updates=[], count=0)
                 db.add(report)
-            if cmd.kind == "patch_scan":
-                try:
-                    updates = json.loads(cmd.stdout or "[]")
-                except ValueError:
-                    updates = []
-                updates = updates if isinstance(updates, list) else []
-                report.updates, report.count, report.scanned_at = updates, len(updates), _now()
-                found_patches = len(updates)
-            else:
-                report.last_apply_at = _now()
-                report.last_apply_output = ((cmd.stdout or "") + "\n" + (cmd.stderr or ""))[:200_000]
+            report.last_apply_at = _now()
+            report.last_apply_output = ((cmd.stdout or "") + "\n" + (cmd.stderr or ""))[:200_000]
     agent.rmm_last_seen = _now()
     await db.commit()
+    for cmd in scans:
+        try:
+            payload = json.loads(cmd.stdout or "{}")
+        except ValueError:
+            payload = {}
+        try:
+            if cmd.kind == "patch_scan":
+                found_patches += (await patchmgmt.ingest_os_scan(db, agent, payload))["new"]
+            else:
+                await patchmgmt.ingest_docker_scan(db, agent, payload)
+        except Exception as exc:                                    # defensiv
+            await db.rollback()
+            rmm.record("patch.ingest.failed", f"{agent.hostname}: Scan nicht übernommen: {exc}",
+                       target=agent.hostname)
     if found_patches:
         await rmm.alerts.dispatch("rmm_patches", f"RIMPERIO: {agent.hostname}",
-                                  f"{agent.hostname}: {found_patches} Updates verfügbar.",
+                                  f"{agent.hostname}: {found_patches} neue Updates gefunden.",
                                   level="info", key=f"rmm:{agent.id}:patches")
     return {"status": "ok", "updated": updated}
+
+
+@agent_router.post("/snmp-results")
+async def snmp_results(items: List[Dict[str, Any]], agent: Agent = Depends(current_agent),
+                       db: AsyncSession = Depends(get_db)) -> dict:
+    """Rohwerte der SNMP-Geräte, die dieser Agent abfragt."""
+    done = await snmpmon.ingest_agent_results(db, agent, items)
+    return {"status": "ok", "accepted": done}
 
 
 @agent_router.post("/check-results")
@@ -727,13 +745,26 @@ async def agent_patches(uid: str, db: AsyncSession = Depends(get_db),
 @router.post("/agents/{uid}/patches/{action}", status_code=201)
 async def patch_action(uid: str, action: str, db: AsyncSession = Depends(get_db),
                        user: User = Depends(get_current_admin)) -> dict:
+    """scan: sofort suchen. apply: alle offenen Updates jetzt installieren
+    (gilt als Freigabe; läuft über das Patch-Center mit Sicherung und Prüfung)."""
     if action not in ("scan", "apply"):
         raise HTTPException(status_code=404, detail="Aktion: scan oder apply.")
     agent = await _agent(db, uid)
-    kind = f"patch_{action}"
-    return await _queue(db, agent, user, shell="powershell", command=kind,
-                        timeout=600 if action == "scan" else 7200, kind=kind,
-                        source="Patch-Scan" if action == "scan" else "Updates installieren")
+    if action == "scan":
+        _, settings = await patchmgmt.policy_for(db, agent)
+        ids = await patchmgmt.queue_scan(db, agent, settings, user.username)
+        await db.commit()
+        rmm.record("command.patch_scan", f"{user.username} → {agent.hostname}: Patch-Suche",
+                   actor=user.username, target=agent.hostname)
+        return {"status": "queued", "commands": ids}
+    open_ids = [i for (i,) in (await db.execute(select(PatchItem.id).where(
+        PatchItem.agent_id == agent.id,
+        PatchItem.status.in_(("auto", "approved", "needs_approval", "review"))))).all()]
+    try:
+        run = await patchmgmt.install_now(db, agent, open_ids, user.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return patchmgmt.public_run(run, agent)
 
 
 # ==============================================================================
@@ -747,7 +778,7 @@ async def list_alerts(active: bool = True, limit: int = 200, db: AsyncSession = 
          .order_by(RmmAlert.created_at.desc()).limit(max(1, min(limit, 1000))))
     if active:
         q = q.where(RmmAlert.active.is_(True))
-    return [_alert(a, h or "") for a, h in (await db.execute(q)).all()]
+    return [_alert(a, h or a.subject or "") for a, h in (await db.execute(q)).all()]
 
 
 @router.post("/alerts/{alert_id}/resolve")

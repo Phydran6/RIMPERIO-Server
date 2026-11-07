@@ -567,6 +567,156 @@ async def test_connection(config: dict) -> dict:
     }
 
 
+# =============================================================================
+# Freie Textanfrage (z. B. Update-Einschaetzung im Patchmanagement)
+# =============================================================================
+# Modelle, die die neuere Websuche (mit dynamischer Filterung) kennen; alle
+# anderen Claude-Modelle bekommen die einfache Variante.
+_WEB_SEARCH_NEW = ("claude-opus-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8",
+                   "claude-sonnet-5", "claude-sonnet-4-6")
+# Modelle, fuer die Anthropic bei einer Ablehnung serverseitig auf ein anderes
+# Modell ausweichen kann ("fallbacks": "default").
+_FALLBACK_MODELS = ("claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1")
+TEXT_TIMEOUT = 240.0
+
+
+def supports_native_web_search(config: dict) -> bool:
+    return config.get("provider") == "anthropic"
+
+
+async def _text_anthropic(config: dict, system: str, prompt: str, web_search: bool,
+                          max_tokens: int) -> dict:
+    spec = PROVIDERS["anthropic"]
+    model = config.get("model") or spec["default_model"]
+    headers = {"x-api-key": config["api_key"], "anthropic-version": "2023-06-01",
+               "content-type": "application/json"}
+    body: Dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
+                            "messages": [{"role": "user", "content": prompt}]}
+    if model in _FALLBACK_MODELS:
+        headers["anthropic-beta"] = "server-side-fallback-2026-07-01"
+        body["fallbacks"] = "default"
+    if web_search:
+        tool_type = ("web_search_20260209" if model.startswith(_WEB_SEARCH_NEW)
+                     else "web_search_20250305")
+        body["tools"] = [{"type": tool_type, "name": "web_search", "max_uses": 5}]
+
+    texts: List[str] = []
+    sources: List[dict] = []
+    data: dict = {}
+    async with httpx.AsyncClient(timeout=TEXT_TIMEOUT) as client:
+        for _ in range(4):                       # pause_turn: Server setzt die Suche fort
+            response = await client.post(spec["endpoint"], json=body, headers=headers)
+            data = _json_or_error(response, "Anthropic")
+            if data.get("stop_reason") == "refusal":
+                raise RuntimeError("Das Modell hat die Anfrage abgelehnt.")
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+                elif block.get("type") == "web_search_tool_result" and isinstance(block.get("content"), list):
+                    for r in block["content"]:
+                        if r.get("type") == "web_search_result":
+                            sources.append({"title": r.get("title", ""), "url": r.get("url", "")})
+            if data.get("stop_reason") != "pause_turn":
+                break
+            body["messages"] = [{"role": "user", "content": prompt},
+                                {"role": "assistant", "content": data.get("content", [])}]
+            texts = []
+    return {"answer": "".join(texts).strip(), "model": data.get("model", model),
+            "usage": data.get("usage", {}), "sources": sources[:20]}
+
+
+async def _text_openai_like(config: dict, system: str, prompt: str, endpoint: str,
+                            default_model: str, who: str) -> dict:
+    model = config.get("model") or default_model
+    body = {"model": model, "messages": [{"role": "system", "content": system},
+                                         {"role": "user", "content": prompt}]}
+    if who == "Open WebUI":
+        body["stream"] = False
+    headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=TEXT_TIMEOUT) as client:
+        response = await client.post(endpoint, json=body, headers=headers)
+        data = _json_or_error(response, who)
+    choices = data.get("choices") or [{}]
+    return {"answer": ((choices[0].get("message") or {}).get("content") or "").strip(),
+            "model": data.get("model", model), "usage": data.get("usage", {}), "sources": []}
+
+
+async def ask_text(config: dict, system: str, prompt: str, web_search: bool = False,
+                   max_tokens: int = 8000) -> dict:
+    """Eine freie Frage an die eingestellte KI. `web_search` nutzt - nur bei
+    Claude - die eingebaute Websuche des Modells."""
+    provider = config.get("provider", "off")
+    if provider == "off":
+        raise ValueError("Die KI-Anbindung ist ausgeschaltet.")
+    started = time.time()
+    try:
+        if provider == "anthropic":
+            result = await _text_anthropic(config, system, prompt, web_search, max_tokens)
+        elif provider == "openai":
+            result = await _text_openai_like(config, system, prompt, PROVIDERS["openai"]["endpoint"],
+                                             PROVIDERS["openai"]["default_model"], "OpenAI")
+        elif provider == "openwebui":
+            base = (config.get("webhook_url") or "").rstrip("/")
+            endpoint = base if base.endswith("/chat/completions") else f"{base}/api/chat/completions"
+            result = await _text_openai_like(config, system, prompt, endpoint,
+                                             PROVIDERS["openwebui"]["default_model"], "Open WebUI")
+        elif provider in ("n8n_external", "n8n_local"):
+            result = await _ask_n8n(config, {"kind": "text", "system": system, "question": prompt,
+                                             "count": 0, "logs": []})
+            result.setdefault("sources", [])
+        else:
+            raise ValueError(f"Für '{provider}' gibt es keinen Weg.")
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(f"Keine Antwort innerhalb von {TEXT_TIMEOUT:.0f} Sekunden.") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Verbindung fehlgeschlagen: {exc}") from exc
+    result["provider"] = provider
+    result["duration_seconds"] = round(time.time() - started, 1)
+    return result
+
+
+def parse_json_answer(text: str) -> Optional[Any]:
+    """Holt das erste JSON-Objekt aus einer Antwort - auch aus ```json-Bloecken."""
+    if not text:
+        return None
+    fence = text.find("```")
+    if fence >= 0:
+        inner = text[fence + 3:]
+        if inner.lower().startswith("json"):
+            inner = inner[4:]
+        end = inner.find("```")
+        if end >= 0:
+            try:
+                return json.loads(inner[:end].strip())
+            except ValueError:
+                pass
+    start = text.find("{")
+    while start >= 0:
+        depth, in_str, esc = 0, False, False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except ValueError:
+                        break
+        start = text.find("{", start + 1)
+    return None
+
+
 def preview_payload(logs: List[Any], question: str, config: dict) -> dict:
     """Was ginge raus? Zum Nachsehen, bevor Daten den Server verlassen."""
     payload = build_payload(logs, question, config)

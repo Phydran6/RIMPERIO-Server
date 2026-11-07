@@ -31,7 +31,14 @@
         Permissions-Policy "camera=(), microphone=(), geolocation=()"
     }
     handle /api/* {
-        reverse_proxy backend:8000
+        reverse_proxy backend:8000 {
+            # Erkennung eines externen HTTPS-Proxys + echte Client-IP.
+            # Caddy ueberschreibt diese Kopfzeilen, ein Client kann sie nicht faelschen.
+            header_up X-Rimperio-Edge-Scheme {http.request.scheme}
+            header_up X-Rimperio-Outer-Proto {http.request.header.X-Forwarded-Proto}
+            header_up X-Rimperio-Peer {http.request.remote.host}
+            header_up X-Rimperio-Client-IP {client_ip}
+        }
     }
     handle {
         reverse_proxy frontend:80

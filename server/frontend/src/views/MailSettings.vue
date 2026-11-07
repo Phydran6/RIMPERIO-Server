@@ -2,7 +2,13 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - System -> Mail: Postfix vollstaendig aus dem Browser.
+     Beschreibung: RIMPERIO - System -> Mail: Anbieter waehlen, Assistent erledigt den Rest.
+
+     Oben steht, was gerade gilt (mit Probemail), darunter die Empfaenger und
+     dann je Anbieter eine Kachel. Ein Klick oeffnet den passenden Assistenten
+     (components/MailWizard.vue) - bei Microsoft 365 mit Admin-Anmeldung und
+     automatisch angelegter App-Registrierung, bei den anderen mit vorbelegtem
+     Server und den Schritten, die beim Anbieter vorher noetig sind.
      ============================================================================== -->
 
 <template>
@@ -17,186 +23,181 @@
     <p v-if="error" class="alert alert-danger">{{ error }}</p>
     <p v-if="message" class="alert alert-success">{{ message }}</p>
 
+    <!-- ============================================ Aktueller Stand ====== -->
     <section class="card">
       <div class="card-header">
-        <h2 class="card-title">{{ t('mail.mode') }}</h2>
+        <h2 class="card-title">Aktueller Stand</h2>
       </div>
       <div class="card-body space-y-4">
-        <div class="mode-grid">
-          <label
-            v-for="option in modes"
-            :key="option.id"
-            class="mode"
-            :class="{ 'is-picked': config.mode === option.id }"
-          >
-            <input v-model="config.mode" type="radio" :value="option.id">
-            <span>
-              <strong>{{ locale === 'en' ? option.label_en : option.label }}</strong>
-              <em>{{ option.hint }}</em>
-            </span>
-          </label>
-        </div>
+        <p v-if="config.mode === 'off'" class="text-sm">
+          Der Server verschickt derzeit <strong>keine</strong> Mails. Wähle unten deinen Anbieter —
+          der Assistent erledigt den Rest.
+        </p>
 
-        <template v-if="config.mode !== 'off'">
-          <div class="grid gap-3 sm:grid-cols-2">
+        <template v-else>
+          <dl class="status-grid">
             <div>
-              <label class="label">{{ t('mail.fromAddress') }}</label>
-              <input v-model="config.from_address" type="email" class="input" placeholder="rimperio@example.com">
+              <dt>Anbieter</dt>
+              <dd>{{ currentProvider?.name || config.provider || config.mode }}</dd>
             </div>
             <div>
-              <label class="label">{{ t('mail.fromName') }}</label>
-              <input v-model="config.from_name" type="text" class="input">
+              <dt>Absender</dt>
+              <dd>{{ config.from_name }} &lt;{{ config.from_address }}&gt;</dd>
             </div>
+            <div v-if="config.mode === 'm365'">
+              <dt>Weg</dt>
+              <dd>Microsoft Graph, App-ID {{ config.m365_client_id }}</dd>
+            </div>
+            <div v-else>
+              <dt>Mailserver</dt>
+              <dd>{{ config.smtp_host }}:{{ config.smtp_port }}</dd>
+            </div>
+            <div v-if="config.mode === 'm365' && config.m365_secret_expires">
+              <dt>Geheimnis gültig bis</dt>
+              <dd :class="secretClass">{{ config.m365_secret_expires.slice(0, 10) }}
+                <span v-if="secretDays !== null && secretDays < 30">
+                  ({{ secretDays < 0 ? 'abgelaufen' : `noch ${secretDays} Tage` }} — Assistent erneut durchlaufen)
+                </span>
+              </dd>
+            </div>
+            <div v-if="config.mode === 'm365' && config.m365_setup_by">
+              <dt>Eingerichtet von</dt>
+              <dd>{{ config.m365_setup_by }}</dd>
+            </div>
+          </dl>
+
+          <details v-if="config.mode === 'm365' && restrictCommand" class="restrict">
+            <summary>Empfohlen: die App auf das Absenderpostfach begrenzen</summary>
+            <p class="hint mt-2">Das Anwendungsrecht Mail.Send darf ab Werk von jedem Postfach im
+              Mandanten senden. Begrenzen lässt sich das nur in Exchange Online — einmal in PowerShell
+              (Modul ExchangeOnlineManagement) ausführen:</p>
+            <pre class="preview-text">{{ restrictCommand }}</pre>
+          </details>
+
+          <div class="flex flex-wrap items-end gap-2">
+            <div class="grow test-field">
+              <label class="label">Probemail an</label>
+              <input v-model.trim="testRecipient" type="email" class="input"
+                     :placeholder="recipientsText || 'du@example.com'">
+            </div>
+            <button class="btn btn-secondary" :disabled="testing" @click="test">
+              {{ testing ? t('common.loading') : t('mail.sendTest') }}
+            </button>
+            <button v-if="currentProvider" class="btn btn-ghost" @click="openWizard(currentProvider)">
+              Ändern
+            </button>
+            <button v-if="config.mode === 'container'" class="btn btn-ghost" @click="loadPreview">
+              {{ t('mail.preview') }}
+            </button>
+            <button class="btn btn-ghost" :disabled="saving" @click="turnOff">Ausschalten</button>
           </div>
 
-          <!-- Nur beim eigenen Mailserver: dort gibt es Host, Port und Anmeldung.
-               Beim Container legt das Backend diese Werte selbst fest. -->
-          <template v-if="config.mode === 'relay'">
-            <div class="grid gap-3 sm:grid-cols-3">
-              <div class="sm:col-span-2">
-                <label class="label">{{ t('mail.smtpHost') }}</label>
-                <input v-model="config.smtp_host" type="text" class="input" placeholder="mail.example.com">
-              </div>
-              <div>
-                <label class="label">{{ t('mail.smtpPort') }}</label>
-                <input v-model.number="config.smtp_port" type="number" min="1" max="65535" class="input">
-              </div>
-            </div>
-
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label class="label">{{ t('mail.smtpUser') }}</label>
-                <input v-model="config.smtp_user" type="text" class="input" autocomplete="off">
-              </div>
-              <div>
-                <label class="label">{{ t('mail.smtpPassword') }}</label>
-                <input
-                  v-model="smtpPassword"
-                  type="password"
-                  class="input"
-                  autocomplete="new-password"
-                  :placeholder="config.smtp_password_set ? '•••••••• (unverändert)' : ''"
-                >
-              </div>
-            </div>
-
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label class="label">{{ t('mail.encryption') }}</label>
-                <select v-model="config.encryption" class="select">
-                  <option v-for="option in encryptions" :key="option.id" :value="option.id">
-                    {{ option.label }}
-                  </option>
-                </select>
-              </div>
-              <div class="flex items-end">
-                <label class="toggle">
-                  <input v-model="config.verify_certificate" type="checkbox">
-                  <span>{{ t('mail.verifyCertificate') }}</span>
-                </label>
-              </div>
-            </div>
-          </template>
-
-          <!-- Nur beim Container: Smarthost. Die meisten Anschlüsse dürfen nicht
-               selbst zustellen - dann übergibt Postfix an den Provider. -->
-          <template v-if="config.mode === 'container'">
-            <div class="grid gap-3 sm:grid-cols-3">
-              <div>
-                <label class="label">Eigener Hostname</label>
-                <input v-model="config.myhostname" type="text" class="input" placeholder="rimperio.example.com">
-              </div>
-              <div>
-                <label class="label">Smarthost <span class="hint">({{ t('common.optional') }})</span></label>
-                <input v-model="config.relay_host" type="text" class="input" placeholder="smtp.provider.de">
-              </div>
-              <div>
-                <label class="label">Smarthost-Port</label>
-                <input v-model.number="config.relay_port" type="number" min="1" max="65535" class="input">
-              </div>
-            </div>
-            <div v-if="config.relay_host" class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label class="label">Smarthost-Benutzer</label>
-                <input v-model="config.relay_user" type="text" class="input" autocomplete="off">
-              </div>
-              <div>
-                <label class="label">Smarthost-Passwort</label>
-                <input
-                  v-model="relayPassword"
-                  type="password"
-                  class="input"
-                  autocomplete="new-password"
-                  :placeholder="config.relay_password_set ? '•••••••• (unverändert)' : ''"
-                >
-              </div>
-            </div>
-            <p class="hint">
-              Braucht den Zusatzdienst „Postfix“ unter
-              <router-link class="link" to="/stacks">{{ t('nav.stacks') }}</router-link>.
-            </p>
-          </template>
-
-          <div>
-            <label class="label">{{ t('mail.recipients') }}</label>
-            <input
-              v-model="recipientsText"
-              type="text"
-              class="input"
-              placeholder="admin@example.com, technik@example.com"
-            >
+          <div v-if="preview" class="preview-box">
+            <p class="hint">{{ preview.path }} — {{ preview.note }}</p>
+            <pre class="preview-text">{{ preview.content }}</pre>
           </div>
 
-          <!-- Die Haken "Benachrichtigen bei ..." standen frueher hier - und
-               bewirkten nichts (es gab keinen Aufrufer). Was wann gemeldet
-               wird, steht jetzt fuer alle Wege gemeinsam auf einer Seite. -->
-          <p class="hint">
-            Wann RIMPERIO eine Mail (oder Telegram/Webhook) schickt, stellst du unter
-            <router-link class="link" to="/alerts">{{ t('nav.alerts') }}</router-link> ein.
+          <p v-if="config.mode === 'm365'" class="hint">
+            Beim Ausschalten oder Wechseln bleibt die App-Registrierung in Entra ID bestehen. Wer sie
+            nicht mehr braucht, löscht sie dort unter App-Registrierungen.
           </p>
         </template>
+      </div>
+    </section>
 
-        <div class="flex flex-wrap gap-2">
-          <button class="btn btn-primary" :disabled="saving" @click="save">
-            {{ saving ? t('common.saving') : t('common.save') }}
-          </button>
-          <button class="btn btn-secondary" :disabled="testing || config.mode === 'off'" @click="test">
-            {{ testing ? t('common.loading') : t('mail.sendTest') }}
-          </button>
-          <button v-if="config.mode === 'container'" class="btn btn-ghost" @click="loadPreview">
-            {{ t('mail.preview') }}
-          </button>
-        </div>
+    <!-- ============================================ Empfänger ============ -->
+    <section v-if="config.mode !== 'off'" class="card">
+      <div class="card-header">
+        <h2 class="card-title">{{ t('mail.recipients') }}</h2>
+      </div>
+      <div class="card-body space-y-3">
+        <input v-model="recipientsText" type="text" class="input"
+               placeholder="admin@example.com, technik@example.com">
+        <p class="hint">
+          Wann RIMPERIO eine Mail (oder Telegram/Webhook) schickt, stellst du unter
+          <router-link class="link" to="/alerts">{{ t('nav.alerts') }}</router-link> ein.
+        </p>
+        <button class="btn btn-primary" :disabled="saving" @click="saveRecipients">
+          {{ saving ? t('common.saving') : t('common.save') }}
+        </button>
+      </div>
+    </section>
 
-        <div v-if="preview" class="preview-box">
-          <p class="hint">{{ preview.path }} — {{ preview.note }}</p>
-          <pre class="preview-text">{{ preview.content }}</pre>
+    <!-- ============================================ Anbieter ============= -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title">{{ config.mode === 'off' ? 'Einrichten' : 'Anderen Anbieter einrichten' }}</h2>
+      </div>
+      <div class="card-body">
+        <div class="provider-grid">
+          <button
+            v-for="provider in providers"
+            :key="provider.id"
+            type="button"
+            class="provider"
+            :class="{ 'is-current': config.mode !== 'off' && config.provider === provider.id,
+                      'is-featured': provider.kind === 'm365' }"
+            @click="openWizard(provider)"
+          >
+            <span class="provider-mark" aria-hidden="true">{{ monogram(provider) }}</span>
+            <span class="provider-text">
+              <strong>{{ provider.name }}</strong>
+              <em>{{ provider.hint }}</em>
+              <span class="badge-line">
+                <span class="provider-badge">{{ provider.badge }}</span>
+                <span v-if="config.mode !== 'off' && config.provider === provider.id"
+                      class="provider-badge is-active">aktiv</span>
+              </span>
+            </span>
+          </button>
         </div>
       </div>
     </section>
+
+    <MailWizard
+      v-if="wizardProvider"
+      :provider="wizardProvider"
+      :config="config"
+      :default-recipient="config.default_recipients?.[0] || ''"
+      @close="wizardProvider = null"
+      @saved="onSaved"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import MailWizard from '../components/MailWizard.vue'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from '../i18n'
 
 const auth = useAuthStore()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
-const config = ref({ mode: 'off', notify_on: {}, default_recipients: [] })
-const modes = ref([])
-const encryptions = ref([])
-const events = ref([])
-const smtpPassword = ref('')
-const relayPassword = ref('')
+const config = ref({ mode: 'off', default_recipients: [] })
+const providers = ref([])
+const restrictCommand = ref('')
 const preview = ref(null)
+const wizardProvider = ref(null)
+const testRecipient = ref('')
 
 const saving = ref(false)
 const testing = ref(false)
 const error = ref('')
 const message = ref('')
+
+const currentProvider = computed(() => providers.value.find(item => item.id === config.value.provider))
+
+const secretDays = computed(() => {
+  const expires = config.value.m365_secret_expires
+  if (!expires) return null
+  return Math.floor((new Date(expires) - new Date()) / 86400000)
+})
+const secretClass = computed(() => {
+  if (secretDays.value === null) return ''
+  if (secretDays.value < 0) return 'is-bad'
+  return secretDays.value < 30 ? 'is-warn' : ''
+})
 
 const recipientsText = computed({
   get: () => (config.value.default_recipients || []).join(', '),
@@ -208,43 +209,58 @@ const recipientsText = computed({
   },
 })
 
+function monogram(provider) {
+  const special = { m365: 'M', google: 'G', webde: 'W', tonline: 'T', mailboxorg: 'mb', smtp: '@', container: 'P' }
+  return special[provider.id] || provider.name.slice(0, 2)
+}
+
+function openWizard(provider) {
+  error.value = ''
+  message.value = ''
+  wizardProvider.value = provider
+}
+
 async function load() {
   try {
     const data = await auth.api('/api/mail/config')
     config.value = data.config
-    config.value.notify_on = config.value.notify_on || {}
-    modes.value = data.modes
-    encryptions.value = data.encryptions
-    events.value = data.events
+    providers.value = data.providers || []
+    restrictCommand.value = data.m365_restrict_command || ''
   } catch (err) {
     error.value = err.message
   }
 }
 
-async function save() {
+async function onSaved() {
+  preview.value = null
+  await load()
+}
+
+async function saveRecipients() {
   saving.value = true
   error.value = ''
   message.value = ''
   try {
-    const body = { ...config.value }
-    // Leere Passwortfelder heißen "unverändert" - nur Getipptes mitschicken.
-    if (smtpPassword.value) body.smtp_password = smtpPassword.value
-    if (relayPassword.value) body.relay_password = relayPassword.value
-    delete body.smtp_password_set
-    delete body.relay_password_set
-    delete body.postfix_file_written
-
-    const data = await auth.api('/api/mail/config', { method: 'PUT', body })
+    const data = await auth.api('/api/mail/config', {
+      method: 'PUT', body: { default_recipients: config.value.default_recipients },
+    })
     config.value = data.config
-    config.value.notify_on = config.value.notify_on || {}
-    smtpPassword.value = ''
-    relayPassword.value = ''
-    message.value = data.config.postfix_file_written?.written
-      ? `${t('common.success')} — ${data.config.postfix_file_written.note}`
-      : t('common.success')
-    if (data.config.postfix_file_written && !data.config.postfix_file_written.written) {
-      error.value = data.config.postfix_file_written.reason
-    }
+    message.value = t('common.success')
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    saving.value = false
+  }
+}
+
+async function turnOff() {
+  if (!window.confirm('Mailversand ausschalten? Die Zugangsdaten bleiben gespeichert.')) return
+  saving.value = true
+  error.value = ''
+  try {
+    const data = await auth.api('/api/mail/config', { method: 'PUT', body: { mode: 'off' } })
+    config.value = data.config
+    message.value = 'Der Mailversand ist ausgeschaltet.'
   } catch (err) {
     error.value = err.message
   } finally {
@@ -257,8 +273,10 @@ async function test() {
   error.value = ''
   message.value = ''
   try {
-    const result = await auth.api('/api/mail/test', { method: 'POST', body: { recipient: '' } })
-    message.value = `${result.recipients.join(', ')} — ${result.via}`
+    const result = await auth.api('/api/mail/test', {
+      method: 'POST', body: { recipient: testRecipient.value },
+    })
+    message.value = `Verschickt an ${result.recipients.join(', ')} über ${result.via}.`
   } catch (err) {
     error.value = err.message
   } finally {
@@ -278,78 +296,128 @@ onMounted(load)
 </script>
 
 <style scoped>
-.mode-grid {
+.status-grid {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.75rem 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  margin: 0;
 }
 
-@media (min-width: 768px) {
-  .mode-grid {
-    grid-template-columns: repeat(3, 1fr);
+.status-grid dt {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.status-grid dd {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.test-field {
+  min-width: 14rem;
+}
+
+.restrict summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--color-primary);
+}
+
+.provider-grid {
+  display: grid;
+  gap: 0.625rem;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+
+.provider {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.provider:hover {
+  background-color: var(--hover-surface);
+  border-color: var(--color-primary);
+}
+
+.provider.is-featured {
+  grid-column: span 2;
+}
+
+@media (max-width: 640px) {
+  .provider.is-featured {
+    grid-column: auto;
   }
 }
 
-.mode {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border-radius: var(--radius);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  font-size: 0.8125rem;
-}
-
-.mode:hover {
-  background-color: var(--hover-surface);
-}
-
-.mode.is-picked {
+.provider.is-current {
   border-color: var(--color-primary);
   background-color: var(--primary-soft);
 }
 
-.mode input {
-  margin-top: 0.1875rem;
+.provider-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
   flex-shrink: 0;
+  border-radius: var(--radius);
+  background-color: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--color-primary);
 }
 
-.mode span {
+.provider-text {
   display: flex;
   flex-direction: column;
   gap: 0.1875rem;
   min-width: 0;
 }
 
-.mode strong {
-  color: var(--color-text-primary);
+.provider-text strong {
+  font-size: 0.875rem;
   font-weight: 600;
+  color: var(--color-text-primary);
 }
 
-.mode em {
+.provider-text em {
   font-style: normal;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
-.toggle {
+.badge-line {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.event-grid {
-  display: grid;
   gap: 0.375rem;
+  margin-top: 0.25rem;
 }
 
-@media (min-width: 640px) {
-  .event-grid {
-    grid-template-columns: 1fr 1fr;
-  }
+.provider-badge {
+  font-size: 0.625rem;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.provider-badge.is-active {
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .preview-box {
@@ -369,6 +437,9 @@ onMounted(load)
   overflow: auto;
   color: var(--color-text-secondary);
 }
+
+.is-warn { color: var(--color-warning); }
+.is-bad { color: var(--color-danger); }
 
 .alert {
   padding: 0.625rem 0.875rem;

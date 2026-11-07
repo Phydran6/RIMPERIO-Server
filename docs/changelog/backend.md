@@ -30,6 +30,43 @@ FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 ### Changed
 - `docker-compose.yml`: `no-new-privileges` für PostgreSQL, Syslog, Frontend und Caddy; Healthcheck für das Backend. Das Backend-Image wirft `gcc` nach dem Bauen der Pakete wieder raus.
 
+## 2026.11.07.20.00.00
+
+### Changed
+- **Netzwerksuche erkennt Hostnamen** (`hostnames.py`): statt nur Rückwärts-DNS über den Docker-Resolver werden parallel gefragt: PTR beim Resolver des Containers, PTR direkt bei den Nameservern des Hosts (`/run/systemd/resolve/resolv.conf`, `/etc/resolv.conf`) und beim Standard-Gateway, mDNS-Unicast (Port 5353) und NetBIOS-Statusabfrage (Port 137). Vorrang DNS → DNS des LANs → mDNS → NetBIOS → SNMP-sysName. Automatische Provider-Namen und IPs als Name werden verworfen.
+- `discovered_devices.details` enthält `hostname_source` und `names` (alle gemeldeten Namen je Quelle); ein bekannter Name bleibt stehen, wenn eine spätere Suche keinen findet.
+- `GET /api/discovery/devices` liefert `hostname_source`/`hostname_source_label`; ohne gefundenen Namen wird der Hostname des zugeordneten Agents gezeigt. Der Abgleich mit den Agents nutzt alle gemeldeten Namen, nicht nur den angezeigten.
+- Zusammenfassung des Suchlaufs: `name_servers`, `named`.
+
+## 2026.11.07.18.00.00
+
+### Added
+- **Mail über Microsoft 365** (`mail_m365.py`): Admin meldet sich per Gerätecode an (öffentliche App „Microsoft Graph Command Line Tools“). RIMPERIO legt dann die App-Registrierung mit `Mail.Send` an, erteilt die Admin-Zustimmung und erzeugt das Client-Geheimnis. Versand über Graph `sendMail` mit Client Credentials. Eine frühere RIMPERIO-App wird gelöscht, halb angelegte Apps werden bei Fehlern wieder entfernt.
+- **Mail-Anbieter-Vorlagen** (`mail_providers.py`): Google, GMX, WEB.DE, T-Online, IONOS, STRATO, iCloud, Yahoo, Posteo, mailbox.org mit festem Server/Port/Verschlüsselung und Vorbereitungsschritten.
+- Endpunkte `POST /api/mail/verify` (Anmeldung prüfen, ohne zu speichern), `POST /api/mail/m365/start`, `GET /api/mail/m365/status/{flow}`, `DELETE /api/mail/m365/{flow}`. `GET /api/mail/config` liefert `providers` und `m365_restrict_command`.
+
+### Changed
+- `mail.py`: neue Betriebsart `m365`, Feld `provider`, `merge_config` (gemeinsame Prüfung für Speichern und Verify), `send()` wählt den Weg selbst.
+- Nach dem Speichern der Mail-Einstellung wird der Zwischenstand der Benachrichtigungen sofort erneuert, nicht erst durch den Wachhund.
+
+## 2026.11.07.12.00.00
+
+### Added
+- **Patchmanagement** (`patchmgmt.py`, `routes/patching.py`): Richtlinien (global/Standort/Rechner) mit täglichem Scan, Wartungsfenster, Freigaberegeln, Rückstellung, Neustart-Vorgabe; Updates als eigene Zeilen (`patch_items`) mit Zustand, Regel, Begründung; Läufe (`patch_runs`) mit Proxmox-Snapshot/vzdump, Gesundheitsbild vorher/nachher, Prüfung, Löschfrist, Zurückrollen.
+- **KI-Einschätzung je Update** (`ai.ask_text`): Claude mit Websuche (`web_search_20260209` bzw. `_20250305`, `pause_turn`, `fallbacks: "default"` für Modelle mit Ausweichmodell), OpenAI, Open WebUI, n8n; Ergebnis je Update zwischengespeichert (`patch_knowledge`).
+- **Update-Quellen** (`advisories.py`): MSRC, Born, BleepingComputer, USN, DSA, Proxmox, moby, CISA KEV; eigene RSS/Atom/RDF; GitHub-Releases automatisch für Container-Images; Websuche über SearXNG/Brave. Zuordnung über KB, CVE, Paketname.
+- **Proxmox VE** (`pve.py`): API-Token oder Ticket, Gäste mit MAC-Adressen, automatische Zuordnung, Snapshot/Rollback/Löschen, vzdump samt Aufräumen.
+- **Eingang** (`notify.py`, `/api/notifications`), neue Meldungsarten `patch_approval`, `patch_failed`, `patch_done`, `snmp_alert`.
+- **SNMP-Überwachung** (`snmpmon.py`, `snmp_templates.py`, `routes/snmp.py`): Geräte, Zugangsdaten, 11 Vorlagen, Probe mit Vorlagen-Vorschlag, Raten aus Zählern, Schwellen je Wert, Alarme, Verlauf (14 Tage), Agent als Poller.
+- `snmp.py`: SNMP v1 und v3 (USM: MD5/SHA/SHA-2, DES/AES-128), geprüft mit den Testvektoren aus RFC 3414 und gegen einen echten Agent.
+- App-API Level 3: Eingang, Freigaben, Sofort-Installation, Läufe, Zurückrollen, SNMP.
+- Sicherungsbereiche `patching` und `snmp`.
+
+### Changed
+- `/api/rmm/agents/{uid}/patches/apply` installiert über das Patch-Center (mit Sicherung und Prüfung) statt blind alles.
+- Offline-Wächter schweigt während eines Patch-Laufs (`agents.maintenance_until`).
+- Befehle ohne Ergebnis werden nach Zeitlimit + 20 min als `timeout` markiert.
+
 ## 2026.10.18.22.00.00
 
 ### Fixed

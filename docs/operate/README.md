@@ -267,7 +267,12 @@ ab, die schon liefern, und sagt für den Rest, wie man es einbindet.
 **Wie gesucht wird:** Ping und ein paar Verbindungsversuche auf typische Ports
 (SSH, SMB, RDP, HTTP, Druckerports …), danach die ARP-Tabelle des Hosts — dort
 erscheinen auch Geräte, die jede Anfrage verwerfen. Für jedes gefundene System
-kommen Rückwärts-DNS, SSH-Kennung und SNMP-Beschreibung dazu. Daraus wird die
+kommen Hostname, SSH-Kennung und SNMP-Beschreibung dazu. Den Namen fragt die
+Suche auf mehreren Wegen gleichzeitig: Rückwärts-DNS (auch direkt beim DNS des
+Hosts und beim Router — die FRITZ!Box kennt jeden per DHCP vergebenen Namen),
+mDNS (Macs, Linux mit Avahi, Drucker, NAS, IoT), NetBIOS (Windows, Samba) und
+SNMP. Findet keiner einen Namen, liefert das System aber schon über einen Agent,
+steht dessen Name da. Daraus wird die
 Art geraten: Linux, Windows, Netzwerkgerät, Drucker, NAS, IoT, Smartphone.
 
 **Was empfohlen wird**

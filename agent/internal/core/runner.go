@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.11.07.02.30.00
+// Version:      2026.11.07.12.00.00
 //
 // Beschreibung: Herzschlag und Dienstlogik. Als Systemdienst (Windows-Service
 //               bzw. systemd/launchd über kardianos/service): im Takt Messwerte
@@ -41,6 +41,36 @@ type program struct {
 	stop      chan struct{}
 	wg        sync.WaitGroup
 	checkLast map[int]time.Time // wann ein Check zuletzt lief
+	jobs      chan PendingCommand
+	snmp      *snmpScheduler
+}
+
+// worker arbeitet lange Aufträge (Patch-Suche, Installation, Docker) der Reihe
+// nach ab — neben dem Check-in, damit der Rechner währenddessen online bleibt.
+// Nacheinander, weil sich Windows Update und Paketmanager nicht gern teilen.
+func (p *program) worker(client *Client) {
+	for {
+		select {
+		case <-p.stop:
+			return
+		case c := <-p.jobs:
+			logf("Starte langen Auftrag #%d (%s).", c.ID, c.Kind)
+			res := HandleCommand(c, client)
+			for attempt := 0; attempt < 10; attempt++ {
+				if err := client.SendResults([]CommandResult{res}); err == nil {
+					break
+				} else {
+					logf("Ergebnis #%d senden fehlgeschlagen (%v) — neuer Versuch.", c.ID, err)
+				}
+				select {
+				case <-p.stop:
+					return
+				case <-time.After(30 * time.Second):
+				}
+			}
+			logf("Langer Auftrag #%d (%s) fertig: %s.", c.ID, c.Kind, res.Status)
+		}
+	}
 }
 
 func (p *program) Start(s service.Service) error {
@@ -103,6 +133,9 @@ func (p *program) run() {
 
 	client := NewClient(p.cfg.ServerURL, p.cfg.AgentToken, p.cfg.Insecure)
 	logf("RIMPERIO-Agent %s startet. Server: %s, Takt: %ds", Version, p.cfg.ServerURL, p.cfg.Interval)
+	p.jobs = make(chan PendingCommand, 32)
+	p.snmp = newSnmpScheduler()
+	go p.worker(client)
 
 	if err := client.SendInventory(CollectInventory()); err != nil {
 		logf("Inventur zu Beginn fehlgeschlagen: %v", err)
@@ -153,6 +186,7 @@ func (p *program) cycle(client *Client) (uninstalled bool) {
 	}
 
 	// Befehle ausführen (gewöhnliche Shell oder eingebaute Aktionen wie Patch).
+	// Lange Aufträge gehen an den Hintergrund-Arbeiter.
 	if len(resp.Commands) > 0 {
 		results := make([]CommandResult, 0, len(resp.Commands))
 		for _, c := range resp.Commands {
@@ -161,6 +195,16 @@ func (p *program) cycle(client *Client) (uninstalled bool) {
 				_ = client.SendResults(results)
 				uninstallRequested(client, true)
 				return true
+			}
+			if longRunning(c.Kind) && p.jobs != nil {
+				select {
+				case p.jobs <- c:
+					logf("Auftrag #%d (%s) eingereiht.", c.ID, c.Kind)
+				default:
+					results = append(results, CommandResult{ID: c.ID, Status: "error", ExitCode: intPtr(1),
+						Stderr: "Warteschlange des Agents ist voll — später erneut versuchen."})
+				}
+				continue
 			}
 			logf("Führe Befehl #%d aus (%s).", c.ID, c.Kind)
 			results = append(results, HandleCommand(c, client))
@@ -172,6 +216,13 @@ func (p *program) cycle(client *Client) (uninstalled bool) {
 
 	// Fällige Checks ausführen.
 	p.runDueChecks(client, resp.Checks)
+
+	// Zugewiesene SNMP-Geräte abfragen (nebenher, eine Runde zur Zeit).
+	if p.snmp != nil {
+		if due := p.snmp.due(resp.Snmp); len(due) > 0 {
+			go p.snmp.run(client, due)
+		}
+	}
 	return false
 }
 
@@ -359,5 +410,12 @@ func RunOnce() error {
 	for _, spec := range resp.Checks {
 		crs = append(crs, RunCheck(spec))
 	}
-	return client.SendCheckResults(crs)
+	if err := client.SendCheckResults(crs); err != nil {
+		return err
+	}
+	snmp := make([]SnmpResult, 0, len(resp.Snmp))
+	for _, t := range resp.Snmp {
+		snmp = append(snmp, pollSnmp(t))
+	}
+	return client.SendSnmpResults(snmp)
 }

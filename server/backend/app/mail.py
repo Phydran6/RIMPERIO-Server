@@ -7,17 +7,18 @@
 """
 Mailversand - eingestellt im Browser, nicht in `main.cf`.
 
-Zwei Betriebsarten, dieselbe Oberflaeche:
+Drei Betriebsarten, dieselbe Oberflaeche:
 
 * **container** - der mitgelieferte Postfix (`server/deploy/optional.yml`, Profil
   `postfix`) nimmt die Mails an und stellt sie zu. Was in der Oberflaeche
   eingetragen wird, landet in `data/postfix/settings.env`; der Container liest
   das beim Start. Deshalb wird er nach jeder Aenderung neu gestartet.
 * **relay** - ohne eigenen Container direkt an einen vorhandenen Mailserver
-  (Provider, Firmen-Relay). Dann redet nur das Backend per SMTP.
-
-In beiden Faellen verschickt RIMPERIO selbst ueber SMTP - der Unterschied ist
-bloss, *wohin*. Das haelt den Code klein: es gibt genau einen Sendeweg.
+  (Provider, Firmen-Relay). Dann redet nur das Backend per SMTP. Fuer die
+  gaengigen Anbieter (Gmail, GMX, WEB.DE, ...) gibt es Vorlagen mit festem
+  Server/Port, siehe ``mail_providers.py``.
+* **m365** - Microsoft 365 ueber Microsoft Graph. Die App-Registrierung legt
+  RIMPERIO nach einer Admin-Anmeldung selbst an, siehe ``mail_m365.py``.
 
 Das Passwort wird nie zurueckgegeben, nur ob eines hinterlegt ist.
 """
@@ -62,10 +63,18 @@ MODES = {
         "label_en": "Existing mail server (SMTP)",
         "hint": "Direkt an einen Mailserver, den es schon gibt. Kein Zusatzcontainer nötig.",
     },
+    "m365": {
+        "label": "Microsoft 365 (Graph)",
+        "label_en": "Microsoft 365 (Graph)",
+        "hint": "Versand über Microsoft Graph mit einer automatisch angelegten App-Registrierung.",
+    },
 }
+
+SECRET_KEYS = ("smtp_password", "relay_password", "m365_client_secret")
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "mode": "off",
+    "provider": "",                      # Vorlage aus mail_providers (Anzeige/Assistent)
     "from_address": "",
     "from_name": "RIMPERIO",
     "smtp_host": "",
@@ -79,6 +88,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "relay_port": 587,
     "relay_user": "",
     "relay_password": "",
+    "m365_tenant_id": "",
+    "m365_client_id": "",
+    "m365_client_secret": "",            # wird nie ausgeliefert
+    "m365_app_object_id": "",            # von RIMPERIO angelegte App (zum Aufraeumen)
+    "m365_secret_expires": "",
+    "m365_setup_by": "",
+    "m365_setup_at": "",
     "default_recipients": [],
     "notify_on": {
         "update_available": True,
@@ -127,22 +143,37 @@ def _deep_default() -> dict:
 
 def public_config(config: dict) -> dict:
     """Ohne Passwoerter - so geht es an die Oberflaeche."""
-    safe = {k: v for k, v in config.items()
-            if k not in ("smtp_password", "relay_password")}
-    safe["smtp_password_set"] = bool(config.get("smtp_password"))
-    safe["relay_password_set"] = bool(config.get("relay_password"))
+    safe = {k: v for k, v in config.items() if k not in SECRET_KEYS}
+    for key in SECRET_KEYS:
+        safe[f"{key}_set"] = bool(config.get(key))
     return safe
 
 
-async def save_config(db: AsyncSession, incoming: dict) -> dict:
-    """Prueft und speichert. Leere Passwortfelder lassen das alte stehen."""
-    config = await load_config(db)
+def merge_config(config: dict, incoming: dict) -> dict:
+    """Uebernimmt die Eingaben in eine Kopie der Konfiguration und prueft sie.
+
+    Dient dem Speichern *und* der Pruefung vor dem Speichern - damit beide
+    dieselben Regeln haben. Leere Passwortfelder lassen das alte stehen.
+    """
+    from . import mail_providers
+
+    config = dict(config)
+    config["notify_on"] = dict(config.get("notify_on") or {})
+    if incoming.get("provider") is not None:
+        provider = str(incoming["provider"]).strip()
+        if provider and not mail_providers.get(provider):
+            raise ValueError(f"Unbekannter Anbieter '{provider}'.")
+        config["provider"] = provider
+        incoming = mail_providers.apply_preset(provider, incoming)
+
     mode = (incoming.get("mode") or config["mode"]).strip()
     if mode not in MODES:
         raise ValueError(f"Unbekannte Betriebsart '{mode}'. Erlaubt: {', '.join(MODES)}.")
 
     for key in ("from_address", "from_name", "smtp_host", "smtp_user",
-                "myhostname", "relay_host", "relay_user", "encryption"):
+                "myhostname", "relay_host", "relay_user", "encryption",
+                "m365_tenant_id", "m365_client_id", "m365_app_object_id",
+                "m365_secret_expires", "m365_setup_by", "m365_setup_at"):
         if incoming.get(key) is not None:
             config[key] = str(incoming[key]).strip()
     for key in ("smtp_port", "relay_port"):
@@ -165,7 +196,7 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
 
     # Leeres Feld = unveraendert. Sonst waere das Passwort nach jedem Speichern
     # weg, weil die Oberflaeche es nie zurueckbekommt.
-    for key in ("smtp_password", "relay_password"):
+    for key in SECRET_KEYS:
         value = (incoming.get(key) or "").strip()
         if value:
             config[key] = value
@@ -182,6 +213,9 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
             raise ValueError("Es fehlt eine gültige Absenderadresse.")
         if mode == "relay" and not config["smtp_host"]:
             raise ValueError("Für einen vorhandenen Mailserver fehlt der Servername.")
+        if mode == "m365" and not (config["m365_tenant_id"] and config["m365_client_id"]
+                                   and config["m365_client_secret"]):
+            raise ValueError("Für Microsoft 365 fehlen Mandant, App-ID oder Client-Geheimnis.")
 
     if mode == "container":
         # Der Container spricht intern immer unverschluesselt auf 587 - er steht
@@ -191,6 +225,18 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
         config["encryption"] = "none"
         config["smtp_user"] = ""
         config["smtp_password"] = ""
+        config["provider"] = "container"
+    elif mode == "m365":
+        config["provider"] = "m365"
+    elif mode == "relay" and config.get("provider") in ("m365", "container", ""):
+        config["provider"] = "smtp"
+    return config
+
+
+async def save_config(db: AsyncSession, incoming: dict) -> dict:
+    """Prueft und speichert. Leere Passwortfelder lassen das alte stehen."""
+    config = merge_config(await load_config(db), incoming)
+    mode = config["mode"]
 
     row = (await db.execute(select(Setting).where(Setting.key == SETTING_KEY))).scalar_one_or_none()
     if row:
@@ -342,9 +388,54 @@ def send_sync(config: dict, recipients: List[str], subject: str, body: str) -> d
 
 
 async def send(config: dict, recipients: List[str], subject: str, body: str) -> dict:
-    """Wie send_sync, nur ohne die Ereignisschleife zu blockieren."""
+    """Verschickt ueber den eingestellten Weg, ohne die Ereignisschleife zu blockieren."""
     import asyncio
+    if config.get("mode") == "m365":
+        if not recipients:
+            raise ValueError("Es wurde kein Empfänger angegeben.")
+        from . import mail_m365
+        return await mail_m365.send(config, recipients, subject, body)
     return await asyncio.to_thread(send_sync, config, recipients, subject, body)
+
+
+def check_login_sync(config: dict) -> dict:
+    """Verbindet sich und meldet sich an - ohne etwas zu verschicken."""
+    try:
+        server = _connect(config)
+    except smtplib.SMTPAuthenticationError as exc:
+        raise RuntimeError(f"Anmeldung am Mailserver abgelehnt: {_smtp_text(exc)}") from exc
+    except (OSError, smtplib.SMTPException, ssl.SSLError) as exc:
+        raise RuntimeError(
+            f"Der Mailserver {config['smtp_host']}:{config['smtp_port']} war nicht "
+            f"erreichbar: {exc}") from exc
+    try:
+        server.quit()
+    except Exception:                                               # defensiv
+        pass
+    return {"ok": True,
+            "detail": (f"Verbindung zu {config['smtp_host']}:{config['smtp_port']} "
+                       "und Anmeldung klappen.")}
+
+
+def _smtp_text(exc: smtplib.SMTPResponseException) -> str:
+    text = exc.smtp_error
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    return f"{exc.smtp_code} {text}"
+
+
+async def verify(config: dict) -> dict:
+    """Prueft die Zugangsdaten ueber den eingestellten Weg, ohne zu senden."""
+    import asyncio
+    mode = config.get("mode")
+    if mode == "off":
+        raise ValueError("Der Mailversand ist ausgeschaltet.")
+    if mode == "m365":
+        from . import mail_m365
+        return await mail_m365.verify(config)
+    if mode == "container":
+        return {"ok": True, "detail": "Beim Postfix-Container gibt es keine Anmeldung zu prüfen."}
+    return await asyncio.to_thread(check_login_sync, config)
 
 
 async def send_test(config: dict, recipient: str = "") -> dict:
@@ -356,12 +447,18 @@ async def send_test(config: dict, recipient: str = "") -> dict:
     body = (
         "Das ist eine Probemail von RIMPERIO.\n\n"
         f"Betriebsart : {MODES.get(config.get('mode', 'off'), {}).get('label', '?')}\n"
-        f"Mailserver  : {config.get('smtp_host')}:{config.get('smtp_port')}\n"
+        f"Weg         : {_route(config)}\n"
         f"Absender    : {config.get('from_address')}\n"
         f"Zeitpunkt   : {datetime.utcnow().isoformat()}Z\n\n"
         "Kommt diese Mail an, funktioniert der Versand.\n"
     )
     return await send(config, targets, "RIMPERIO — Probemail", body)
+
+
+def _route(config: dict) -> str:
+    if config.get("mode") == "m365":
+        return f"Microsoft Graph (Mandant {config.get('m365_tenant_id')})"
+    return f"{config.get('smtp_host')}:{config.get('smtp_port')}"
 
 
 async def notify(db: AsyncSession, event: str, subject: str, body: str) -> Optional[dict]:

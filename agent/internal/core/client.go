@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.10.31.15.40.00
+// Version:      2026.11.07.12.00.00
 //
 // Beschreibung: Der schmale HTTP-Weg zum Server. Anmeldung (enroll), Check-in
 //               mit Messwerten, Inventur, Ergebnisse und Abmeldung. Immer HTTPS mit dem
@@ -73,7 +73,7 @@ type PendingCommand struct {
 	Shell   string `json:"shell"`
 	Command string `json:"command"`
 	Timeout int    `json:"timeout"`
-	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | software_inventory | uninstall
+	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | docker_scan | docker_update | health_snapshot | reboot | software_inventory | uninstall
 }
 
 type CheckSpec struct {
@@ -88,6 +88,7 @@ type CheckinResponse struct {
 	OfflineAfter int              `json:"offline_after"`
 	Commands     []PendingCommand `json:"commands"`
 	Checks       []CheckSpec      `json:"checks"`
+	Snmp         []SnmpTask       `json:"snmp"`
 }
 
 type CommandResult struct {
@@ -173,6 +174,13 @@ func (c *Client) SendCheckResults(results []CheckResultOut) error {
 		return nil
 	}
 	return c.doJSON(http.MethodPost, "/api/rmm/agent/check-results", c.Token, results, nil)
+}
+
+func (c *Client) SendSnmpResults(results []SnmpResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+	return c.doJSON(http.MethodPost, "/api/rmm/agent/snmp-results", c.Token, results, nil)
 }
 
 // Unregister meldet den Agent beim Server ab. Der Server löscht dann Messwerte,

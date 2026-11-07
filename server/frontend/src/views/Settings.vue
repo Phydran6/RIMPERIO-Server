@@ -237,13 +237,51 @@
               <input type="radio" value="internal" v-model="caddyMode">
               <span>HTTPS selbstsigniert (Caddy-eigene CA, ohne Internet)</span>
             </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" value="external" v-model="caddyMode">
+              <span>HTTPS über externen Proxy (z. B. Nginx Proxy Manager, Traefik, Firewall)</span>
+            </label>
+          </div>
+          <div
+            v-if="externalProxy.detected && !(caddyMode === 'external' && externalProxy.trusted)"
+            class="mt-3 p-3 rounded text-sm"
+            :style="warningBoxStyle"
+          >
+            <p :style="{ color: 'var(--color-text-primary)' }">
+              Externer HTTPS-Proxy erkannt: Anfragen kommen verschlüsselt über
+              <strong>{{ externalProxy.peer }}</strong><span v-if="externalProxy.host"> ({{ externalProxy.host }})</span>.
+              <span v-if="!externalProxy.trusted">Caddy vertraut ihm noch nicht – Passkeys, SSO und Links sehen dadurch http statt https.</span>
+            </p>
+            <button
+              v-if="caddyMode !== 'external'"
+              class="mt-2 px-3 py-1 rounded text-white hover:opacity-90"
+              :style="{ backgroundColor: 'var(--color-primary)' }"
+              @click="adoptExternalProxy"
+            >Modus „externer Proxy“ übernehmen</button>
+          </div>
+          <div v-if="caddyMode === 'external'" class="mt-3">
+            <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">
+              Adresse(n) des externen Proxys (IP oder Netz, Leerzeichen-getrennt)
+            </label>
+            <input
+              v-model="caddyTrustedProxiesInput"
+              type="text"
+              class="w-full rounded px-3 py-2"
+              :style="inputStyle"
+              placeholder="leer = alle privaten Netze (10.x, 172.16–31.x, 192.168.x)"
+            >
+            <p class="text-xs mt-1" :style="{ color: 'var(--color-text-muted)' }">
+              Der externe Proxy beendet HTTPS und leitet per HTTP an Port 80 dieses Servers weiter.
+              Nur diesen Adressen glaubt Caddy die Kopfzeilen X-Forwarded-Proto/-For – so kennt RIMPERIO
+              die echte https-Adresse und die IP der Nutzer. Das FQDN-Feld ist hier optional (nur Notiz).
+            </p>
           </div>
           <div v-if="caddyMode === 'letsencrypt'" class="mt-3">
             <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">E-Mail für Let's Encrypt</label>
             <input v-model="caddyEmail" type="email" class="w-full rounded px-3 py-2" :style="inputStyle" placeholder="admin@example.com">
           </div>
 
-          <div v-if="caddyMode !== 'http'" class="mt-3">
+          <div v-if="caddyMode !== 'http' && caddyMode !== 'external'" class="mt-3">
             <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">
               Zusätzliche Adressen für HTTPS (IP oder Name, Leerzeichen-getrennt)
             </label>
@@ -261,7 +299,7 @@
             </p>
           </div>
 
-          <div v-if="caddyMode !== 'http'" class="mt-3">
+          <div v-if="caddyMode !== 'http' && caddyMode !== 'external'" class="mt-3">
             <label class="flex items-start gap-2 text-sm" :style="{ color: 'var(--color-text-secondary)' }">
               <input v-model="caddyHttpsOnly" type="checkbox" class="mt-1">
               <span>
@@ -579,7 +617,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
@@ -703,7 +741,11 @@ const caddyMessage = ref('')
 const caddyError = ref('')
 const caddyfile = ref('')
 const caddyDomain = ref('rimperio.example.com')
-const caddyMode = ref('custom') // 'http' | 'letsencrypt' | 'custom'
+const caddyMode = ref('custom') // 'http' | 'letsencrypt' | 'custom' | 'internal' | 'external'
+const caddyTrustedProxiesInput = ref('')
+const externalProxy = ref({ detected: false, trusted: false, peer: null, host: null })
+// Beim Laden den Modus setzen, ohne dass der Watcher den Editor mit einer Vorlage ueberschreibt
+let suppressModeWatch = false
 const caddyEmail = ref('')
 const caddyCertPresent = ref(false)
 const showHttpHint = ref(false)
@@ -730,6 +772,9 @@ const caddyWarnings = ref([])
 const caddyExtraHosts = computed(() =>
   caddyExtraHostsInput.value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
 )
+const caddyTrustedProxies = computed(() =>
+  caddyTrustedProxiesInput.value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
+)
 
 const availableTabs = computed(() => tabs.filter(t => !t.adminOnly || authStore.isAdmin))
 
@@ -746,6 +791,7 @@ const tlsHint = computed(() => {
   if (caddyMode.value === 'http') return 'Nur HTTP (Port 80). Kein Zertifikat nötig.'
   if (caddyMode.value === 'letsencrypt') return 'Let’s Encrypt besorgt das Zertifikat automatisch (FQDN + 80/443 öffentlich erreichbar, E-Mail erforderlich).'
   if (caddyMode.value === 'internal') return 'Caddy stellt ein eigenes Zertifikat aus. Funktioniert ohne Internet, der Browser warnt einmalig.'
+  if (caddyMode.value === 'external') return 'Ein vorgeschalteter Server beendet HTTPS und reicht per HTTP an Port 80 weiter.'
   return caddyCertPresent.value
     ? 'Eigenes Zertifikat gefunden. Wird für HTTPS genutzt.'
     : 'Eigenes Zertifikat wählen und speichern, dann Apply.'
@@ -754,11 +800,13 @@ const fqdnRegex = /^[A-Za-z0-9]([-A-Za-z0-9]*\.)+[A-Za-z]{2,}$/
 const isFqdnValid = computed(() => {
   if (caddyMode.value === 'http') return true
   const d = (caddyDomain.value || '').trim()
+  if (caddyMode.value === 'external' && !d) return true
   return fqdnRegex.test(d)
 })
 
 // Automatisch auf sicheres Template umschalten, wenn der Modus gewechselt wird
 watch(caddyMode, async (mode) => {
+  if (suppressModeWatch) return
   // FQDN ist für HTTPS erforderlich, bei HTTP bewusst leer halten
   if (mode === 'http') {
     caddyDomain.value = ''
@@ -779,7 +827,8 @@ function scheduleTemplateRebuild() {
 }
 
 watch(caddyDomain, (val) => {
-  if (caddyMode.value !== 'http' && val) scheduleTemplateRebuild()
+  if (suppressModeWatch) return
+  if (caddyMode.value !== 'http' && (val || caddyMode.value === 'external')) scheduleTemplateRebuild()
 })
 watch(caddyEmail, () => {
   if (caddyMode.value === 'letsencrypt') scheduleTemplateRebuild()
@@ -788,7 +837,11 @@ watch(caddyExtraHostsInput, () => {
   if (caddyMode.value !== 'http') scheduleTemplateRebuild()
 })
 watch(caddyHttpsOnly, () => {
-  if (caddyMode.value !== 'http') scheduleTemplateRebuild()
+  if (!['http', 'external'].includes(caddyMode.value)) scheduleTemplateRebuild()
+})
+watch(caddyTrustedProxiesInput, () => {
+  if (suppressModeWatch) return
+  if (caddyMode.value === 'external') scheduleTemplateRebuild()
 })
 
 // Computed Styles
@@ -934,6 +987,15 @@ async function loadCaddyConfig() {
     caddyCertPresent.value = !!res.cert_present
     // Gespeicherte Config mit Weiterleitung auf HTTPS? Dann Haken setzen.
     caddyHttpsOnly.value = caddyfile.value.includes('redir @tls_host')
+    externalProxy.value = res.external_proxy || { detected: false }
+    // Modus aus der gespeicherten Konfiguration anzeigen statt einer festen Vorgabe
+    suppressModeWatch = true
+    if (res.detected_mode) caddyMode.value = res.detected_mode
+    if (res.detected_domain) caddyDomain.value = res.detected_domain
+    caddyTrustedProxiesInput.value = (res.trusted_proxies || [])
+      .filter(p => p !== 'private_ranges').join(' ')
+    await nextTick()
+    suppressModeWatch = false
   } catch (e) {
     caddyError.value = e.message || 'Caddy-Konfiguration konnte nicht geladen werden'
   } finally {
@@ -1007,11 +1069,12 @@ async function buildCaddyTemplate() {
     const res = await authStore.api('/api/caddy/template', {
       method: 'POST',
       body: {
-        domain: caddyMode.value === 'http' ? null : caddyDomain.value,
+        domain: caddyMode.value === 'http' ? null : (caddyDomain.value || null),
         mode: caddyMode.value,
         letsencrypt_email: caddyMode.value === 'letsencrypt' ? caddyEmail.value : null,
-        extra_hosts: caddyMode.value === 'http' ? [] : caddyExtraHosts.value,
-        https_only: caddyMode.value !== 'http' && caddyHttpsOnly.value,
+        extra_hosts: ['http', 'external'].includes(caddyMode.value) ? [] : caddyExtraHosts.value,
+        trusted_proxies: caddyMode.value === 'external' ? caddyTrustedProxies.value : [],
+        https_only: !['http', 'external'].includes(caddyMode.value) && caddyHttpsOnly.value,
       }
     })
     caddyfile.value = res.caddyfile
@@ -1020,6 +1083,17 @@ async function buildCaddyTemplate() {
   } catch (e) {
     caddyError.value = e.message
   }
+}
+
+/** Erkannten externen Proxy uebernehmen: Modus umstellen, dessen IP und Hostnamen eintragen. */
+function adoptExternalProxy() {
+  const { peer, host } = externalProxy.value || {}
+  if (peer && !caddyTrustedProxies.value.includes(peer)) {
+    caddyTrustedProxiesInput.value = [...caddyTrustedProxies.value, peer].join(' ')
+  }
+  const hostname = (host || '').split(':')[0]
+  if (hostname && fqdnRegex.test(hostname)) caddyDomain.value = hostname
+  caddyMode.value = 'external'
 }
 
 /** Uebernimmt die Adresse, ueber die gerade zugegriffen wird (praktisch bei IP-Zugriff). */
@@ -1072,7 +1146,7 @@ async function uploadCaddyCert() {
 }
 
 async function applyCaddy() {
-  if (caddyMode.value !== 'http' && !caddyDomain.value) {
+  if (!['http', 'external'].includes(caddyMode.value) && !caddyDomain.value) {
     caddyError.value = 'FQDN ist für HTTPS erforderlich.'
     return
   }

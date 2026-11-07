@@ -48,6 +48,9 @@ _AGENT_COLUMNS = [
     "enrolled_at TIMESTAMP", "rmm_last_seen TIMESTAMP", "boot_time TIMESTAMP",
     "last_cpu DOUBLE PRECISION", "last_mem DOUBLE PRECISION",
     "last_disk DOUBLE PRECISION", "inventory JSON",
+    # Patchmanagement (app/patchmgmt.py)
+    "patch_scan_queued_at TIMESTAMP", "maintenance_until TIMESTAMP",
+    "docker_inventory JSON", "docker_scanned_at TIMESTAMP",
 ]
 
 
@@ -58,6 +61,8 @@ async def ensure_schema() -> None:
             await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=RMM_TABLES))
             for col in _AGENT_COLUMNS:
                 await conn.exec_driver_sql(f"ALTER TABLE agents ADD COLUMN IF NOT EXISTS {col}")
+            await conn.exec_driver_sql(
+                "ALTER TABLE rmm_alerts ADD COLUMN IF NOT EXISTS subject VARCHAR(255)")
             await conn.exec_driver_sql(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_agents_agent_uid ON agents (agent_uid)")
             await conn.exec_driver_sql(
@@ -197,9 +202,12 @@ async def sweep_once() -> None:
     async with async_session() as db:
         th = await get_thresholds(db)
         rows = (await db.execute(select(Agent).where(Agent.agent_uid.is_not(None)))).scalars().all()
+        now = datetime.utcnow()
         for agent in rows:
             if is_online(agent, th["offline_after"]):
                 await resolve_alert(db, agent, "offline")
+            elif agent.maintenance_until and agent.maintenance_until > now:
+                continue                     # Patch-Lauf mit Neustart: kein Offline-Alarm
             else:
                 await raise_alert(db, agent, "offline", "critical",
                                   f"{agent.hostname}: seit über {th['offline_after']} s kein Lebenszeichen.")
