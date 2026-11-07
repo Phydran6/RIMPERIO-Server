@@ -137,9 +137,9 @@
               </td>
               <td>
                 <div class="flex gap-1">
-                  <a class="btn btn-ghost btn-sm" :href="downloadUrl(item.name)" :title="t('common.download')">
+                  <button class="btn btn-ghost btn-sm" :title="t('common.download')" @click="download(item.name)">
                     <AppIcon name="download" :size="15" />
-                  </a>
+                  </button>
                   <button class="btn btn-ghost btn-sm" :disabled="!!item.error" :title="t('backup.restore')" @click="openRestore(item)">
                     <AppIcon name="restore" :size="15" />
                   </button>
@@ -320,10 +320,16 @@ function compatLabel(level) {
   return { ok: '=', info: 'älter', warn: '?', blocking: 'neuer!' }[level] || level
 }
 
-function downloadUrl(name) {
+async function download(name) {
   // Der Download läuft über einen normalen Link - der Browser schickt dabei
-  // keinen Authorization-Kopf mit, deshalb der Token in der Adresse.
-  return `/api/backup/${encodeURIComponent(name)}/download?token=${encodeURIComponent(auth.token)}`
+  // keinen Authorization-Kopf mit. In die Adresse kommt deshalb ein Ticket,
+  // das 60 Sekunden gilt und nur Downloads erlaubt - nicht der Sitzungs-Token.
+  try {
+    const ticket = await auth.ticket('backup-download')
+    window.location.href = `/api/backup/${encodeURIComponent(name)}/download?token=${encodeURIComponent(ticket)}`
+  } catch (err) {
+    error.value = err.message
+  }
 }
 
 const canRestore = computed(() => {

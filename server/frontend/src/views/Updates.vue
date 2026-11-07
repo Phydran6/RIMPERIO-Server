@@ -893,40 +893,41 @@ async function loadBackupScopes() {
  */
 function startOutputStream() {
   if (outputStream || typeof EventSource === 'undefined') return
-  outputStream = new EventSource(
-    `/api/updates/log/stream?token=${encodeURIComponent(auth.token)}`)
+  // Ticket statt Sitzungs-Token in der Adresse. Waehrend des Updates wird der
+  // Container neu gebaut - eventStream verbindet danach mit frischem Ticket neu.
+  outputStream = auth.eventStream('/api/updates/log/stream', 'update-log', (source) => {
+    source.addEventListener('update.output', (event) => {
+      liveConnected.value = true
+      try {
+        const data = JSON.parse(event.data)
+        if (data.initial) liveLines.value = []
+        liveLines.value = [...liveLines.value, ...(data.lines || [])].slice(-MAX_LIVE_LINES)
+        scrollToEnd()
+      } catch {
+        // Eine unlesbare Zeile ist kein Grund, den Strom aufzugeben.
+      }
+    })
 
-  outputStream.addEventListener('update.output', (event) => {
-    liveConnected.value = true
-    try {
-      const data = JSON.parse(event.data)
-      if (data.initial) liveLines.value = []
-      liveLines.value = [...liveLines.value, ...(data.lines || [])].slice(-MAX_LIVE_LINES)
-      scrollToEnd()
-    } catch {
-      // Eine unlesbare Zeile ist kein Grund, den Strom aufzugeben.
-    }
+    source.addEventListener('update.state', (event) => {
+      try {
+        const state = JSON.parse(event.data)
+        if (status.value) status.value.run = state
+      } catch {
+        // Zustand kommt beim naechsten Takt ohnehin wieder.
+      }
+    })
+
+    source.addEventListener('update.done', () => {
+      liveConnected.value = false
+      stopOutputStream()
+      load()
+    })
+
+    source.onopen = () => { liveConnected.value = true }
+    // Bricht die Verbindung ab (der Container wird gerade neu gebaut - genau
+    // das ist ja der Vorgang), versucht der Browser es von selbst erneut.
+    source.onerror = () => { liveConnected.value = false }
   })
-
-  outputStream.addEventListener('update.state', (event) => {
-    try {
-      const state = JSON.parse(event.data)
-      if (status.value) status.value.run = state
-    } catch {
-      // Zustand kommt beim naechsten Takt ohnehin wieder.
-    }
-  })
-
-  outputStream.addEventListener('update.done', () => {
-    liveConnected.value = false
-    stopOutputStream()
-    load()
-  })
-
-  outputStream.onopen = () => { liveConnected.value = true }
-  // Bricht die Verbindung ab (der Container wird gerade neu gebaut - genau
-  // das ist ja der Vorgang), versucht der Browser es von selbst erneut.
-  outputStream.onerror = () => { liveConnected.value = false }
 }
 
 function stopOutputStream() {

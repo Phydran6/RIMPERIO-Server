@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import logging
 import secrets
 import time
@@ -62,6 +63,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Setting, User
+
+# Zugelassene Verfahren fuer ID-Tokens: nur asymmetrisch (Anbieter signiert,
+# wir pruefen mit dem oeffentlichen Schluessel).
+ALLOWED_ID_TOKEN_ALGS = ("RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512")
 
 logger = logging.getLogger("rimperio.sso")
 
@@ -394,11 +399,21 @@ async def verify_id_token(config: dict, id_token: str, nonce: str) -> dict:
     if key is None:
         raise RuntimeError("Der Unterschrift-Schlüssel des Anbieters ist unbekannt.")
 
+    # Den Algorithmus bestimmt NICHT das Token. Frueher wurde der Wert aus dem
+    # (unsignierten) Kopf uebernommen - das ist die klassische Einladung zur
+    # Algorithmus-Verwechslung ("none", HS256 mit dem oeffentlichen Schluessel).
+    # Erlaubt sind nur asymmetrische Verfahren, und wenn der Schluessel selbst
+    # ein Verfahren nennt, nur dieses.
+    alg = header.get("alg", "")
+    allowed = [key["alg"]] if key.get("alg") in ALLOWED_ID_TOKEN_ALGS else list(ALLOWED_ID_TOKEN_ALGS)
+    if alg not in allowed:
+        raise RuntimeError(f"Das ID-Token nutzt ein nicht zugelassenes Verfahren ({alg or 'keins'}).")
+
     issuer = meta["issuer"]
     try:
         claims = jwt.decode(
             id_token, key,
-            algorithms=[header.get("alg", "RS256")],
+            algorithms=allowed,
             audience=config["client_id"],
             issuer=issuer,
             options={"verify_at_hash": False},
@@ -409,16 +424,24 @@ async def verify_id_token(config: dict, id_token: str, nonce: str) -> dict:
         if "{tenantid}" in issuer:
             try:
                 claims = jwt.decode(
-                    id_token, key, algorithms=[header.get("alg", "RS256")],
+                    id_token, key, algorithms=allowed,
                     audience=config["client_id"],
                     options={"verify_iss": False, "verify_at_hash": False},
                 )
             except JWTError as inner:
                 raise RuntimeError(f"Das ID-Token wurde abgelehnt: {inner}") from inner
+            # Der Aussteller wird trotzdem geprueft - nur eben mit dem Mandanten
+            # aus dem Token eingesetzt. Ohne diese Pruefung haette jedes Token
+            # irgendeines Entra-Mandanten gepasst.
+            tid = str(claims.get("tid") or "")
+            if not tid or claims.get("iss") != issuer.replace("{tenantid}", tid):
+                raise RuntimeError("Das ID-Token stammt von einem fremden Aussteller.")
         else:
             raise RuntimeError(f"Das ID-Token wurde abgelehnt: {exc}") from exc
 
-    if nonce and claims.get("nonce") and claims["nonce"] != nonce:
+    # Die nonce MUSS passen. Vorher wurde die Pruefung uebersprungen, wenn das
+    # Token gar keine nonce trug - genau der Fall, den sie abfangen soll.
+    if not nonce or not hmac.compare_digest(str(claims.get("nonce") or ""), nonce):
         raise RuntimeError("Das ID-Token gehört nicht zu dieser Anmeldung (nonce).")
 
     return claims

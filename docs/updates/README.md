@@ -408,7 +408,7 @@ der Webhook weist sich per HMAC-Signatur aus.
 | `GET /api/updates/log?lines=200` | die letzten Zeilen des Wartungsprotokolls |
 | `GET /api/updates/releases` | Releases bzw. Tags samt Kanal-Auswahl |
 | `PUT /api/updates/channel` | Kanal setzen (`stable` \| `edge` \| `pinned`) |
-| `GET /api/updates/stream?token=…` | Server-Sent Events für die Sofortmeldung |
+| `GET /api/updates/stream?token=<Ticket>` | Server-Sent Events für die Sofortmeldung |
 | `POST /api/updates/webhook` | Push-Meldung von GitHub (HMAC-signiert) |
 | `POST /api/updates/apply` | Update starten — `confirm: "UPDATE"` und beantwortete Sicherungsfrage |
 | `POST /api/updates/rollback` | Rückfall starten — `confirm: "ROLLBACK"` und beantwortete Sicherungsfrage |

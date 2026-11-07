@@ -58,6 +58,11 @@ services:
     hostname: postgres
     restart: unless-stopped
     logging: *default-logging
+    # Kein Prozess im Container darf sich ueber setuid-Programme mehr Rechte
+    # holen, als er beim Start hat. Kostet nichts, schliesst eine ganze
+    # Klasse von Ausbruechen. (Das Backend braucht bewusst mehr, siehe dort.)
+    security_opt:
+      - no-new-privileges:true
     labels:
       de.rimperio.stack: "core"
       de.rimperio.origin: "upstream"          # fremdes Image
@@ -99,6 +104,8 @@ services:
     hostname: syslog
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
     labels:
       de.rimperio.stack: "core"
       de.rimperio.origin: "rimperio"            # aus diesem Quellcode gebaut
@@ -173,6 +180,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:-}
       DB_SSLMODE: ${DB_SSLMODE:-}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET muss gesetzt sein}
+      # Startpasswort fuer das Konto 'admin' (von install.sh erzeugt). Ersetzt
+      # nur das bekannte Standardpasswort 'admin' - ein geaendertes bleibt.
+      RIMPERIO_ADMIN_INITIAL_PASSWORD: ${RIMPERIO_ADMIN_INITIAL_PASSWORD:-}
       CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
       CADDY_CERTS_DIR: ${CADDY_CERTS_DIR:-/caddy-certs}
       # Notausstieg: CADDY_FORCE_HTTP=true in der .env setzen, Backend neu starten
@@ -235,6 +245,14 @@ services:
       RIMPERIO_DEFAULT_LANGUAGE: ${RIMPERIO_DEFAULT_LANGUAGE:-de}
     expose:
       - "8000"
+    # Lebt die API wirklich - nicht nur der Prozess? Caddy wartet darauf,
+    # bevor er Anfragen durchreicht, und `docker ps` zeigt es an.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 60s
     volumes:
       - caddy_certs:/caddy-certs
       # Sicherungen liegen in einem eigenen Volume: so ueberstehen sie einen
@@ -261,6 +279,8 @@ services:
     hostname: frontend
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
     labels:
       de.rimperio.stack: "core"
       de.rimperio.origin: "rimperio"
@@ -287,6 +307,8 @@ services:
     hostname: caddy
     restart: unless-stopped
     logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
     labels:
       de.rimperio.stack: "core"
       de.rimperio.origin: "upstream"

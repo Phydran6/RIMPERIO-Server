@@ -62,6 +62,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # API-Antworten sind Daten, keine Seiten. Eine strenge CSP sorgt dafuer,
+        # dass ein direkt aufgerufener Endpunkt nie als Dokument mit Skripten
+        # laeuft. Ausgenommen: die Swagger-Oberflaeche (laedt ihre Skripte vom CDN)
+        # und Antworten, die selbst schon eine CSP setzen (Branding-Assets).
+        path = request.url.path
+        if not path.startswith(("/api/docs", "/api/redoc")):
+            response.headers.setdefault(
+                "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+        # Antworten mit Anmeldung haben in keinem Zwischenspeicher etwas verloren.
+        if "authorization" in request.headers or "token=" in (request.url.query or ""):
+            response.headers.setdefault("Cache-Control", "no-store")
         # Ein Reverse Proxy mit TLS davor - dann soll der Browser gar nicht erst
         # versuchen, unverschluesselt anzuklopfen. Nur setzen, wenn die Anfrage
         # wirklich ueber HTTPS kam: sonst sperrt man sich auf einer reinen
@@ -154,6 +165,44 @@ app.include_router(network_router.router)
 @app.on_event("startup")
 async def startup_security_check():
     validate_security_settings()
+
+
+@app.on_event("startup")
+async def replace_default_admin_password():
+    """Ersetzt das bekannte Startpasswort admin/admin.
+
+    Jede Neuinstallation hatte dasselbe Admin-Passwort - und dieses Konto darf
+    eine Root-Shell auf dem Host oeffnen. Zwischen Installation und erster
+    Anmeldung (oder fuer immer, wenn es niemand aendert) stand damit der
+    Server jedem im Netz offen.
+
+    Jetzt erzeugt install.sh ein Zufallspasswort (RIMPERIO_ADMIN_INITIAL_PASSWORD
+    in der .env, am Ende der Installation angezeigt). Hat das Konto `admin`
+    noch das Standardpasswort, wird es hier durch diesen Wert ersetzt. Ein
+    bereits geaendertes Passwort bleibt unberuehrt.
+    """
+    logger = logging.getLogger("rimperio.startup")
+    initial = os.getenv("RIMPERIO_ADMIN_INITIAL_PASSWORD", "").strip()
+    try:
+        from .auth import get_password_hash, verify_password
+        from .models import User
+        async with async_session() as session:
+            admin = (await session.execute(
+                select(User).where(User.username == "admin"))).scalar_one_or_none()
+            if admin is None or not verify_password("admin", admin.password_hash or ""):
+                return
+            if len(initial) >= 12:
+                admin.password_hash = get_password_hash(initial)
+                await session.commit()
+                logger.warning("Standardpasswort des Kontos 'admin' durch "
+                               "RIMPERIO_ADMIN_INITIAL_PASSWORD ersetzt.")
+            else:
+                logger.critical(
+                    "Das Konto 'admin' hat noch das Standardpasswort 'admin'. Sofort ändern – "
+                    "oder RIMPERIO_ADMIN_INITIAL_PASSWORD (mind. 12 Zeichen) in der .env setzen "
+                    "und das Backend neu starten.")
+    except Exception as exc:                                        # DB noch nicht bereit
+        logger.warning("Prüfung des Startpassworts übersprungen: %s", exc)
 
 
 @app.on_event("startup")

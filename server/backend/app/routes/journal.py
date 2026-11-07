@@ -71,7 +71,7 @@ async def stream_events(token: str = Query(..., description="Access-Token eines 
     Der Token kommt als Abfrageparameter, weil `EventSource` im Browser keine
     eigenen Kopfzeilen mitschicken kann. Geprüft wird er genauso streng.
     """
-    if not await admin_from_token(token):
+    if not await admin_from_token(token, purpose="journal"):
         raise HTTPException(status_code=401,
                             detail="Nicht angemeldet oder keine Administratorrechte.")
 
