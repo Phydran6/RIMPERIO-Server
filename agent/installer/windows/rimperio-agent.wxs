@@ -3,19 +3,28 @@
   Datei:        rimperio-agent.wxs
   Projekt:      RIMPERIO — Agent-Installer (MSI)
   Autor:        Phydran6
-  Version:      2026.10.31.15.40.00
+  Version:      2026.11.07.02.30.00
 
   Beschreibung: WiX-v4-Quelle für das MSI-Paket des Agents. Bewusst ohne eigene
                 Custom-Action-DLL — nur Bordmittel von WiX:
                   * legt rimperio-agent.exe nach "Program Files\RIMPERIO Agent",
                   * schreibt Server/Geheimnis/Standort nach HKLM\SOFTWARE\RIMPERIO\Agent,
-                  * registriert und startet den Dienst "rimperio-agent".
+                  * registriert und startet den Dienst "rimperio-agent",
+                  * meldet die Ereignisquelle "rimperio-agent" an (lesbare Einträge
+                    im Ereignisprotokoll).
                 Der Dienst liest beim ersten Start die Registry-Eckdaten, legt
                 seine Konfiguration an und meldet sich selbst am Server an.
                 Darum braucht die Installation selbst keine Netzverbindung.
+                Danach löscht er das Geheimnis aus der Registry.
+
+                Beim Deinstallieren (nicht beim Update) ruft das MSI
+                "rimperio-agent.exe cleanup": Der Agent meldet sich am Server ab
+                und löscht C:\ProgramData\RIMPERIO\agent.json. Mit KEEP_RECORD=1
+                bleibt der Eintrag auf dem Server stehen.
 
   Bauen:        wix build rimperio-agent.wxs -d Version=26.10.31 -o rimperio-agent.msi
   Verteilen:    msiexec /i rimperio-agent.msi SERVER=https://rmm.example.de SECRET=... SITE=Buero /qn
+  Entfernen:    msiexec /x rimperio-agent.msi /qn /norestart [KEEP_RECORD=1]
 -->
 <!-- Version kommt per  -d Version=YY.MM.DD  aus build-msi.ps1; sonst dieser Wert. -->
 <?ifndef Version ?>
@@ -41,6 +50,8 @@
     <Property Id="SECRET" Secure="yes" Hidden="yes" />
     <Property Id="SITE" Secure="yes" Value="Standard" />
     <Property Id="INSECURE" Secure="yes" Value="0" />
+    <!-- Beim Deinstallieren: 1 = Eintrag auf dem Server behalten. -->
+    <Property Id="KEEP_RECORD" Secure="yes" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Phydran6/RIMPERIO-Server" />
     <Property Id="ARPNOMODIFY" Value="1" />
@@ -70,30 +81,65 @@
                           Account="LocalSystem"
                           Arguments="run"
                           Vital="yes" />
-          <ServiceControl Id="AgentServiceControl"
+          <!-- Starten ohne zu warten (der Dienst meldet sich im Hintergrund an);
+               Stoppen MIT Warten, damit beim Entfernen die exe nicht mehr läuft
+               und die Aufräum-Aktion nicht gegen den laufenden Dienst arbeitet. -->
+          <ServiceControl Id="AgentServiceStart"
                           Name="rimperio-agent"
                           Start="install"
+                          Wait="no" />
+          <ServiceControl Id="AgentServiceStop"
+                          Name="rimperio-agent"
                           Stop="both"
                           Remove="uninstall"
-                          Wait="no" />
+                          Wait="yes" />
         </Component>
 
-        <!-- Eckdaten für den Selbst-Bootstrap des Dienstes. -->
+        <!-- Eckdaten für den Selbst-Bootstrap des Dienstes. Den ProductCode
+             braucht der Agent, um sich auf Wunsch des Servers per MSI zu entfernen. -->
         <Component Id="AgentRegistry" Bitness="always64">
           <RegistryKey Root="HKLM" Key="SOFTWARE\RIMPERIO\Agent">
             <RegistryValue Name="Server" Type="string" Value="[SERVER]" KeyPath="yes" />
             <RegistryValue Name="Secret" Type="string" Value="[SECRET]" />
             <RegistryValue Name="Site" Type="string" Value="[SITE]" />
             <RegistryValue Name="Insecure" Type="string" Value="[INSECURE]" />
+            <RegistryValue Name="ProductCode" Type="string" Value="[ProductCode]" />
+          </RegistryKey>
+        </Component>
+
+        <!-- Ereignisquelle: ohne sie zeigt die Ereignisanzeige nur „Beschreibung
+             nicht gefunden“. EventCreate.exe bringt die passenden Meldungstexte mit. -->
+        <Component Id="AgentEventSource" Bitness="always64">
+          <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\rimperio-agent">
+            <RegistryValue Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" KeyPath="yes" />
+            <RegistryValue Name="TypesSupported" Type="integer" Value="7" />
+            <RegistryValue Name="CustomSource" Type="integer" Value="1" />
           </RegistryKey>
         </Component>
 
       </Directory>
     </StandardDirectory>
 
+    <!-- Aufräumen beim Deinstallieren: nach dem Dienststopp, solange die exe
+         noch da ist. Als SYSTEM (Impersonate=no), weil nur SYSTEM die
+         Konfiguration lesen darf. Return=ignore: ist der Server nicht
+         erreichbar, läuft die Deinstallation trotzdem durch. Bei einem Update
+         (UPGRADINGPRODUCTCODE) bleibt alles, wie es ist. -->
+    <CustomAction Id="AgentCleanup" FileRef="rimperio_agent.exe" ExeCommand="cleanup"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="AgentCleanupKeepRecord" FileRef="rimperio_agent.exe" ExeCommand="cleanup -keep-record"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="AgentCleanup" After="StopServices"
+              Condition='REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND (NOT KEEP_RECORD OR KEEP_RECORD="0")' />
+      <Custom Action="AgentCleanupKeepRecord" After="AgentCleanup"
+              Condition='REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND KEEP_RECORD AND KEEP_RECORD&lt;&gt;"0"' />
+    </InstallExecuteSequence>
+
     <Feature Id="Main" Title="RIMPERIO Agent" Level="1">
       <ComponentRef Id="AgentExe" />
       <ComponentRef Id="AgentRegistry" />
+      <ComponentRef Id="AgentEventSource" />
     </Feature>
   </Package>
 </Wix>

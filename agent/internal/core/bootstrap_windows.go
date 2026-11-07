@@ -5,12 +5,13 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.10.31.15.40.00
+// Version:      2026.11.07.02.30.00
 //
 // Beschreibung: Wenn der MSI-Installer die Eckdaten (Server, Geheimnis, Standort)
 //               in der Registry hinterlegt hat, baut der Dienst daraus beim
 //               ersten Start seine Konfiguration — ohne dass zur Installations-
-//               zeit eine Verbindung nötig war.
+//               zeit eine Verbindung nötig war. Nach der Anmeldung verschwindet
+//               das Geheimnis aus der Registry (die darf jeder Benutzer lesen).
 // ---------------------------------------------------------------------------
 
 package core
@@ -21,8 +22,10 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+const registryKey = `SOFTWARE\RIMPERIO\Agent`
+
 func bootstrapFromSystem() (*Config, error) {
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\RIMPERIO\Agent`, registry.QUERY_VALUE)
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, registryKey, registry.QUERY_VALUE)
 	if err != nil {
 		return nil, fmt.Errorf("keine Bootstrap-Daten in der Registry: %w", err)
 	}
@@ -50,4 +53,17 @@ func bootstrapFromSystem() (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// clearBootstrapSecret löscht das Geheimnis aus der Registry, sobald der Agent
+// sein Token hat. Server, Standort und ProductCode bleiben stehen.
+func clearBootstrapSecret() {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, registryKey, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	if _, _, err := k.GetStringValue("Secret"); err == nil {
+		_ = k.DeleteValue("Secret")
+	}
 }

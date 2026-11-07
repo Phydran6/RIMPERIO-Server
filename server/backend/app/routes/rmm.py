@@ -28,8 +28,8 @@ from .. import rmm, tokens
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
 from ..limiter import client_ip
-from ..models import (Agent, Check, CheckResult, Command, PatchReport, RmmAlert,
-                      Script, Telemetry, User)
+from ..models import (Agent, AgentToken, Check, CheckResult, Command, Log, PatchReport,
+                      RmmAlert, Script, Telemetry, User)
 
 router = APIRouter(prefix="/api/rmm", tags=["RMM"])
 agent_router = APIRouter(prefix="/api/rmm/agent", tags=["RMM-Agent"])
@@ -182,6 +182,40 @@ def _alert(a: RmmAlert, hostname: str = "") -> dict:
 
 
 # ==============================================================================
+# Entfernen
+# ==============================================================================
+
+_RMM_COLUMNS = ("agent_uid", "rmm_token_hash", "enrolled_at", "rmm_last_seen", "boot_time",
+                "last_cpu", "last_mem", "last_disk", "inventory", "agent_version")
+
+
+async def _remove_rmm(db: AsyncSession, agent: Agent) -> bool:
+    """Nimmt den RMM-Agent vom Gerät: Messwerte, Befehle, Check-Ergebnisse,
+    Patch-Stand und Alarme gehen. Gehört dem Gerät sonst nichts (keine Logs,
+    kein eigener Log-Agent-Schlüssel), verschwindet es ganz; sonst bleibt es
+    mit seinen Logs unter Geräte stehen. Liefert True, wenn es ganz weg ist."""
+    for model in (Telemetry, Command, CheckResult, PatchReport, RmmAlert):
+        await db.execute(delete(model).where(model.agent_id == agent.id))
+    has_logs = (await db.execute(
+        select(Log.id).where(Log.agent_id == agent.id).limit(1))).first() is not None
+    has_key = (await db.execute(
+        select(AgentToken.id).where(AgentToken.agent_id == agent.id).limit(1))).first() is not None
+    if has_logs or has_key:
+        for col in _RMM_COLUMNS:
+            setattr(agent, col, None)
+    else:
+        await db.delete(agent)
+    await db.commit()
+    return not (has_logs or has_key)
+
+
+async def _uninstall_pending(db: AsyncSession) -> set:
+    """Geräte, bei denen eine Deinstallation eingereiht ist oder gerade läuft."""
+    return set((await db.execute(select(Command.agent_id).where(
+        Command.kind == "uninstall", Command.status.in_(("pending", "running"))))).scalars())
+
+
+# ==============================================================================
 # Agent-Schnittstelle
 # ==============================================================================
 
@@ -238,6 +272,20 @@ async def enroll(data: EnrollIn, request: Request, db: AsyncSession = Depends(ge
                target=hostname, source_ip=ip)
     return {"agent_uid": agent.agent_uid, "agent_token": token,
             "checkin_interval": rmm.CHECKIN_INTERVAL}
+
+
+@agent_router.post("/unregister")
+async def unregister(request: Request, agent: Agent = Depends(current_agent),
+                     db: AsyncSession = Depends(get_db)) -> dict:
+    """Abmeldung durch den Agent selbst — beim Deinstallieren am Rechner oder
+    nach einem „Entfernen und deinstallieren“ aus der Oberfläche."""
+    hostname = agent.hostname
+    deleted = await _remove_rmm(db, agent)
+    rmm.record("agent.unregistered",
+               f"RMM-Agent auf {hostname} hat sich abgemeldet"
+               + (" – Gerät gelöscht." if deleted else " – das Gerät bleibt mit seinen Logs."),
+               actor=hostname, target=hostname, source_ip=client_ip(request))
+    return {"status": "ok", "device_deleted": deleted}
 
 
 @agent_router.post("/checkin")
@@ -402,14 +450,18 @@ async def list_agents(site: Optional[str] = None, db: AsyncSession = Depends(get
     q = select(Agent).where(Agent.agent_uid.is_not(None)).order_by(Agent.hostname)
     if site:
         q = q.where(Agent.site == site)
-    return [rmm.agent_public(a, th["offline_after"]) for a in (await db.execute(q)).scalars()]
+    pending = await _uninstall_pending(db)
+    return [{**rmm.agent_public(a, th["offline_after"]), "uninstall_pending": a.id in pending}
+            for a in (await db.execute(q)).scalars()]
 
 
 @router.get("/agents/{uid}")
 async def get_agent(uid: str, db: AsyncSession = Depends(get_db),
                     _: User = Depends(get_current_user)) -> dict:
     th = await rmm.get_thresholds(db)
-    return rmm.agent_public(await _agent(db, uid), th["offline_after"], detail=True)
+    agent = await _agent(db, uid)
+    return {**rmm.agent_public(agent, th["offline_after"], detail=True),
+            "uninstall_pending": agent.id in await _uninstall_pending(db)}
 
 
 @router.patch("/agents/{uid}")
@@ -426,20 +478,31 @@ async def update_agent(uid: str, data: AgentUpdate, db: AsyncSession = Depends(g
 
 
 @router.delete("/agents/{uid}")
-async def detach_agent(uid: str, db: AsyncSession = Depends(get_db),
+async def detach_agent(uid: str, uninstall: bool = False, db: AsyncSession = Depends(get_db),
                        user: User = Depends(get_current_admin)) -> dict:
-    """Trennt den RMM-Agent vom Gerät. Logs des Geräts bleiben erhalten; das
-    Gerät selbst löscht man unter Geräte."""
+    """Entfernt den RMM-Agent.
+
+    * ``uninstall=true``: Der Agent bekommt beim nächsten Check-in den Auftrag,
+      sich vom Rechner zu deinstallieren, und meldet sich dabei selbst ab. Erst
+      dann verschwindet er hier. Ist der Rechner aus, wartet der Auftrag.
+    * sonst sofort: nur der Eintrag geht, der Agent auf dem Rechner bleibt
+      (und wird abgewiesen, bis man ihn dort deinstalliert).
+
+    Ein Gerät mit Logs bleibt in beiden Fällen unter Geräte stehen."""
     agent = await _agent(db, uid)
-    for model in (Telemetry, Command, CheckResult, PatchReport, RmmAlert):
-        await db.execute(delete(model).where(model.agent_id == agent.id))
-    for col in ("agent_uid", "rmm_token_hash", "enrolled_at", "rmm_last_seen", "boot_time",
-                "last_cpu", "last_mem", "last_disk", "inventory", "agent_version"):
-        setattr(agent, col, None)
-    await db.commit()
-    rmm.record("agent.detached", f"RMM-Agent von {agent.hostname} entfernt.",
-               actor=user.username, target=agent.hostname)
-    return {"status": "ok"}
+    hostname = agent.hostname
+    if uninstall:
+        if agent.id in await _uninstall_pending(db):
+            return {"status": "uninstall_queued"}
+        await _queue(db, agent, user, shell="", command="Agent deinstallieren", timeout=300,
+                     kind="uninstall", source="Agent deinstallieren")
+        return {"status": "uninstall_queued"}
+    deleted = await _remove_rmm(db, agent)
+    rmm.record("agent.detached",
+               f"RMM-Agent von {hostname} entfernt"
+               + (" – Gerät gelöscht." if deleted else " – das Gerät bleibt mit seinen Logs."),
+               actor=user.username, target=hostname)
+    return {"status": "ok", "device_deleted": deleted}
 
 
 @router.get("/agents/{uid}/telemetry")

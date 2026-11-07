@@ -23,12 +23,46 @@
         <router-link v-if="agent.hostname" :to="`/devices/${encodeURIComponent(agent.hostname)}`" class="btn btn-secondary btn-sm">
           <AppIcon name="logs" :size="16" /> Logs
         </router-link>
-        <button v-if="auth.isAdmin" class="btn btn-danger btn-sm" @click="detach">Agent entfernen</button>
+        <button v-if="auth.isAdmin" class="btn btn-danger btn-sm" @click="showRemove = !showRemove">Agent entfernen</button>
       </div>
     </div>
 
     <p v-if="error" class="rmm-note is-error">{{ error }}</p>
     <p v-if="notice" class="rmm-note is-ok">{{ notice }}</p>
+    <p v-if="agent.uninstall_pending" class="rmm-note is-info">
+      Deinstallation angefordert.
+      {{ agent.online
+        ? 'Der Agent führt sie beim nächsten Check-in aus (spätestens in einer Minute) und verschwindet dann aus der Liste.'
+        : 'Der Rechner ist offline – der Agent deinstalliert sich, sobald er sich wieder meldet.' }}
+      Kommt er nicht wieder, löscht „Agent entfernen“ ohne Häkchen den Eintrag sofort.
+    </p>
+
+    <section v-if="showRemove && auth.isAdmin" class="card mb-4">
+      <div class="card-header"><h2 class="card-title">Agent entfernen</h2></div>
+      <div class="card-body">
+        <label class="rmm-remove-option">
+          <input v-model="removeUninstall" type="checkbox">
+          <span>Agent auch auf dem Rechner deinstallieren</span>
+        </label>
+        <p class="rmm-muted rmm-remove-text">
+          <template v-if="removeUninstall">
+            Der Agent bekommt beim nächsten Check-in den Auftrag, sich zu deinstallieren, und meldet sich dabei hier ab.
+            Ist der Rechner aus, passiert das, sobald er wieder läuft.
+          </template>
+          <template v-else>
+            Nur der Eintrag hier wird gelöscht. Der Agent bleibt auf dem Rechner installiert und wird abgewiesen,
+            bis man ihn dort deinstalliert.
+          </template>
+          Befehlsverlauf, Messwerte und Patch-Stand gehen verloren. Hat das Gerät Logs, bleibt es mit ihnen unter Geräte stehen.
+        </p>
+        <div class="rmm-actions">
+          <button class="btn btn-danger btn-sm" :disabled="busy" @click="remove">
+            {{ removeUninstall ? 'Deinstallieren und entfernen' : 'Nur Eintrag entfernen' }}
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="showRemove = false">Abbrechen</button>
+        </div>
+      </div>
+    </section>
 
     <section class="card mb-4">
       <div class="card-body">
@@ -203,6 +237,8 @@ const notice = ref('')
 const busy = ref(false)
 const tab = ref('run')
 const cmd = reactive({ shell: 'powershell', command: '', timeout: 300 })
+const showRemove = ref(false)
+const removeUninstall = ref(true)
 let timer = null
 
 const tabs = [
@@ -236,8 +272,17 @@ async function guard(fn, ok = '') {
 
 async function load() {
   await guard(async () => {
-    const [a, c, p, r, t] = await Promise.all([
-      auth.api(base), auth.api(`${base}/commands`), auth.api(`${base}/patches`),
+    let a
+    try {
+      a = await auth.api(base)
+    } catch (e) {
+      // Nach einer angeforderten Deinstallation meldet sich der Agent ab und
+      // verschwindet — dann zurück zur Liste statt einer Fehlermeldung.
+      if (agent.value.uninstall_pending) { router.push('/rmm'); return }
+      throw e
+    }
+    const [c, p, r, t] = await Promise.all([
+      auth.api(`${base}/commands`), auth.api(`${base}/patches`),
       auth.api(`/api/rmm/checks/results?uid=${uid}`), auth.api(`${base}/telemetry?hours=1`),
     ])
     agent.value = a
@@ -268,11 +313,17 @@ const patch = (action) => guard(async () => {
   await load()
 }, action === 'scan' ? 'Suche nach Updates eingereiht.' : 'Installation eingereiht.')
 
-const detach = () => guard(async () => {
-  if (!confirm(`RMM-Agent von ${agent.value.hostname} entfernen? Befehlsverlauf, Messwerte und Patch-Stand werden gelöscht, die Logs des Geräts bleiben.`)) return
+const remove = () => guard(async () => {
+  if (removeUninstall.value) {
+    await auth.api(`${base}?uninstall=true`, { method: 'DELETE' })
+    showRemove.value = false
+    await load()
+    return
+  }
+  if (!confirm(`Eintrag von ${agent.value.hostname} entfernen? Der Agent auf dem Rechner bleibt installiert.`)) return
   await auth.api(base, { method: 'DELETE' })
   router.push('/rmm')
-})
+}, removeUninstall.value ? 'Deinstallation eingereiht.' : '')
 
 onMounted(async () => {
   await load()

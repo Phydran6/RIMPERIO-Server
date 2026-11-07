@@ -21,7 +21,7 @@ import (
 )
 
 // Version des Agents — wandert in jeden Check-in und in die Inventur.
-const Version = "2026.11.05.12.00.00"
+const Version = "2026.11.07.02.30.00"
 
 // Config ist der dauerhafte Zustand des Agents auf der Platte.
 type Config struct {

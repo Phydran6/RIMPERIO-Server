@@ -50,7 +50,11 @@ rimperio-agent bootstrap  -server URL -secret SCHLÜSSEL [...]
                       Nur Konfiguration anlegen (für den MSI-Installer).
 rimperio-agent install    Dienst registrieren und starten.
 rimperio-agent enroll     -server URL -secret SCHLÜSSEL [...]   Nur anmelden.
-rimperio-agent start | stop | restart | uninstall
+rimperio-agent uninstall  [-keep-record]
+                      Vom Rechner entfernen und am Server abmelden.
+rimperio-agent cleanup    [-keep-record]
+                      Nur abmelden + Konfiguration löschen (ruft das MSI).
+rimperio-agent start | stop | restart
 rimperio-agent once       Ein Testdurchlauf (ohne Dienst) — gut zum Prüfen.
 rimperio-agent status
 rimperio-agent version
@@ -75,11 +79,33 @@ gleichem Hostnamen (etwa eines, das schon Logs schickt) wird dabei weiterverwend
   Zugangsschlüssel an und bekommt sein persönliches Token.
 - **Über die Registry** (MSI): Der Installer legt Server + Schlüssel nach
   `HKLM\SOFTWARE\RIMPERIO\Agent`. Beim **ersten Dienststart** meldet der Agent sich
-  selbst an und löscht den Schlüssel danach aus der Konfiguration. So braucht die
-  MSI-Installation keine Netzverbindung.
+  selbst an und löscht den Schlüssel danach aus Konfiguration **und** Registry
+  (die darf jeder Benutzer lesen). So braucht die MSI-Installation keine
+  Netzverbindung. Solange der Agent noch nicht angemeldet ist, gelten die Werte aus
+  der Registry — eine Neuinstallation mit korrigierter Adresse greift also sofort.
 
 Das Token wird serverseitig nur als SHA-256 gespeichert — den Klartext sieht der
 Server genau einmal, bei der Anmeldung.
+
+---
+
+## Deinstallieren
+
+Standard ist **alles weg**: Agent vom Rechner, Eintrag vom Server. Ein Gerät, das
+außerdem Logs schickt, bleibt mit seinen Logs unter *Geräte* stehen.
+
+| Wo | Wie | Eintrag auf dem Server behalten |
+|---|---|---|
+| Oberfläche | Rechner → *Agent entfernen* → Häkchen „auch auf dem Rechner deinstallieren“ | Häkchen weg = nur der Eintrag geht, der Agent bleibt installiert |
+| Windows, MSI | *Einstellungen → Apps* oder `msiexec /x rimperio-agent.msi /qn /norestart` | `KEEP_RECORD=1` |
+| Windows/Linux, ohne MSI | `rimperio-agent uninstall` (als Administrator/root) | `-keep-record` |
+
+Aus der Oberfläche läuft das so: Der Server reiht den Befehl `uninstall` ein; beim
+nächsten Check-in meldet der Agent sich ab (`POST /api/rmm/agent/unregister`) und
+entfernt sich — per MSI installiert über den Windows Installer, sonst selbst. Ist der
+Rechner aus, wartet der Auftrag, bis er wieder läuft. Ist der Server beim Deinstallieren
+am Rechner nicht erreichbar, läuft die Deinstallation trotzdem durch; den Eintrag
+entfernt man dann in der Oberfläche.
 
 ---
 

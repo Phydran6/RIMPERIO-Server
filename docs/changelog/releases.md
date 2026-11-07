@@ -11,6 +11,22 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.07.02.30.00 (2026-11-07) – Agent sauber deinstallieren
+
+- **Deinstallieren heißt jetzt: alles weg.** Am Rechner (MSI oder
+  `rimperio-agent uninstall`) meldet sich der Agent am Server ab, Dienst, Programm und
+  Konfiguration verschwinden. Wer den Eintrag behalten will: `KEEP_RECORD=1` bzw.
+  `-keep-record`. Ein Gerät mit Logs bleibt mit ihnen unter *Geräte* stehen.
+- **Aus der Oberfläche deinstallieren:** *Agent entfernen* fragt, ob der Agent auch
+  auf dem Rechner deinstalliert werden soll (Standard). Er erledigt das beim nächsten
+  Check-in selbst; die Liste zeigt bis dahin „wird deinstalliert“.
+- **MSI:** Der Zugangsschlüssel verschwindet nach der Anmeldung aus der Registry, eine
+  Neuinstallation mit korrigierter Adresse greift auch vor der ersten Anmeldung, die
+  Ereignisanzeige zeigt lesbare Meldungen, und `C:\ProgramData\RIMPERIO` bleibt nach
+  dem Deinstallieren nicht mehr liegen.
+- **CI:** Das MSI wird bei jedem Push gebaut, auf Windows installiert und wieder
+  entfernt; der Smoke-Test spielt alle drei Deinstallationswege durch.
+
 ## v2026.11.06.23.28.43 (2026-11-06) – LogBot und RIMPERIO werden eins
 
 - **Ein System statt zwei.** Der Log-Server LogBot ist in RIMPERIO aufgegangen; alles,
