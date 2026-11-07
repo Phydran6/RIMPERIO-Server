@@ -2,6 +2,16 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## Unveröffentlicht — Angriffsfläche, Teil 2
+
+### Security
+- **Content-Security-Policy** für die Oberfläche (nginx): Skripte nur von diesem Server, kein Inline-Skript, kein `eval`, Verbindungen nur zurück zu diesem Server. Ziel: Eine eingeschleuste Zeile kann den Anmelde-Token aus dem `localStorage` nicht lesen und nicht wegschicken. `index.html` kommt mit `Cache-Control: no-cache`, damit nach einem Update keine alte Kopie auf verschwundene Dateien zeigt.
+- **Vite 6** (vorher 5): behebt die esbuild-Lücke im Dev-Server (GHSA-67mh-4wv8-2f99). `npm audit`: 0 Lücken.
+
+### Added
+- „Über RIMPERIO“ → **API-Dokumentation** (nur Administratoren, öffnet Swagger mit Ticket).
+- Reverse Proxy → Haken **„Nur HTTPS“**.
+
 ## 2026.11.07.20.00.00
 
 ### Changed

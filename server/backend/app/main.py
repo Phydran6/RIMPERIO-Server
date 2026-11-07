@@ -96,14 +96,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # =============================================================================
 # App-Instanz
 # =============================================================================
+# API-Dokumentation: Frueher offen fuer jeden im Netz - ein vollstaendiger
+# Lageplan aller Endpunkte samt Parametern, noch bevor sich jemand anmeldet.
+# Jetzt nur fuer Administratoren (Ticket aus der Oberflaeche, siehe
+# api_docs unten). RIMPERIO_API_DOCS=public stellt das alte Verhalten her,
+# =off schaltet die Doku ganz ab.
+API_DOCS_MODE = (os.getenv("RIMPERIO_API_DOCS", "admin").strip().lower() or "admin")
+if API_DOCS_MODE not in ("admin", "public", "off"):
+    API_DOCS_MODE = "admin"
+
 app = FastAPI(
     title="RIMPERIO",
     description="Zentraler Log-Server",
     version=settings.app_version,
-    docs_url="/api/docs",
-    openapi_url="/api/openapi.json",
-    # Swagger/ReDoc nur mit Auth erreichbar machen würde redoc_url/docs_url=None erfordern
-    # Für interne Tools lassen wir es offen, aber per Caddy-Auth absicherbar
+    docs_url="/api/docs" if API_DOCS_MODE == "public" else None,
+    openapi_url="/api/openapi.json" if API_DOCS_MODE == "public" else None,
+    redoc_url=None,
 )
 
 # Rate-Limiter am App registrieren
@@ -557,11 +565,20 @@ async def ensure_discovery_table():
 
 @app.on_event("startup")
 async def apply_saved_caddy_config():
-    """Laedt eine gespeicherte Caddyfile (falls vorhanden) nach dem Start."""
-    try:
-        await caddy_router.ensure_caddy_config_on_startup()
-    except Exception as exc:
-        logging.getLogger("rimperio.startup").warning("Caddy-Config beim Start nicht geladen: %s", exc)
+    """Laedt eine gespeicherte Caddyfile (falls vorhanden) nach dem Start.
+
+    Im Hintergrund: das Laden wartet, bis Caddy da ist (Caddy startet nach dem
+    Backend). Wuerde der Start darauf warten, waere die API so lange tot.
+    """
+    async def run() -> None:
+        try:
+            await caddy_router.ensure_caddy_config_on_startup()
+        except Exception as exc:
+            logging.getLogger("rimperio.startup").warning("Caddy-Config beim Start nicht geladen: %s", exc)
+        # Danach dauerhaft: startet Caddy neu, kommt die gespeicherte Config zurueck.
+        await caddy_router.watch_caddy()
+
+    _spawn(run())
 
 
 @app.on_event("startup")
@@ -930,7 +947,40 @@ async def ingest_logs(
 
 @app.get("/api")
 async def root():
-    return {"name": "RIMPERIO", "version": settings.app_version, "docs": "/api/docs"}
+    return {"name": "RIMPERIO", "version": settings.app_version}
+
+
+# =============================================================================
+# API-Dokumentation (nur fuer Administratoren)
+# =============================================================================
+# Ein Link in der Oberflaeche (Ueber RIMPERIO) holt ein Ticket und oeffnet
+# /api/docs?token=... Die Seite laedt das Schema mit demselben Ticket nach.
+# Das Ticket gilt 60 Sekunden; danach einfach neu aus der Oberflaeche oeffnen.
+_DOCS_HINT = (
+    "<!doctype html><meta charset='utf-8'><title>RIMPERIO API</title>"
+    "<body style='font-family:sans-serif;max-width:40em;margin:3em auto'>"
+    "<h1>API-Dokumentation</h1><p>Die Dokumentation ist nur für Administratoren "
+    "sichtbar. Bitte in der Oberfläche unter <b>Über RIMPERIO → API-Dokumentation</b> "
+    "öffnen (der Link gilt eine Minute).</p></body>")
+
+if API_DOCS_MODE == "admin":
+    from fastapi.openapi.docs import get_swagger_ui_html
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from urllib.parse import quote as _quote
+    from .auth import admin_from_token as _admin_from_token
+
+    @app.get("/api/openapi.json", include_in_schema=False)
+    async def openapi_schema(token: str = Query("")):
+        if not await _admin_from_token(token, purpose="api-docs"):
+            raise HTTPException(status_code=401, detail="Nur für Administratoren (Ticket fehlt oder abgelaufen).")
+        return JSONResponse(app.openapi())
+
+    @app.get("/api/docs", include_in_schema=False)
+    async def api_docs(token: str = Query("")):
+        if not token or not await _admin_from_token(token, purpose="api-docs"):
+            return HTMLResponse(_DOCS_HINT, status_code=401)
+        return get_swagger_ui_html(openapi_url=f"/api/openapi.json?token={_quote(token)}",
+                                   title="RIMPERIO API")
 
 
 # =============================================================================

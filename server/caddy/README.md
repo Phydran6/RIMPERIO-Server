@@ -52,5 +52,22 @@ heißt als von außen.
 
 ## Admin-API
 
-Caddy lauscht intern auf `:2019`. Nur im Docker-Netz erreichbar; das Backend
-spielt darüber neue Konfigurationen ein.
+Die Admin-API lauscht **nicht im Netz**, sondern auf einem Unix-Socket
+(`/caddy-admin/admin.sock` im Volume `caddy_admin`). Eingehängt haben das Volume
+nur Caddy und das Backend. Früher lauschte sie auf `0.0.0.0:2019` im Docker-Netz,
+und damit war sie ohne Anmeldung für jeden Container dort erreichbar, auch für n8n,
+Open WebUI und Portainer.
+
+Das Backend setzt die Admin-Adresse in jeder Caddyfile, die es lädt, selbst auf den
+Socket (`app/caddy_admin.py`). Eine Zeile `admin 0.0.0.0:2019` aus einer alten
+gespeicherten Konfiguration öffnet den Port also nicht wieder.
+
+**Wächter:** Caddy liest beim Start nur die statische `Caddyfile` (HTTP). Startet der
+Container neu, merkt das Backend binnen 30 Sekunden, dass die laufende Konfiguration
+von der gespeicherten abweicht, und spielt die gespeicherte (z. B. HTTPS) wieder ein.
+
+Von Hand am Server:
+
+```bash
+docker compose exec backend python -c "import httpx;print(httpx.get('http://127.0.0.1/config/',transport=httpx.HTTPTransport(uds='/caddy-admin/admin.sock')).text)"
+```

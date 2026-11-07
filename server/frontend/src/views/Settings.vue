@@ -298,6 +298,21 @@
               <button class="underline ml-1" @click="useCurrentAddress">Aktuelle Adresse übernehmen</button>
             </p>
           </div>
+
+          <div v-if="caddyMode !== 'http' && caddyMode !== 'external'" class="mt-3">
+            <label class="flex items-start gap-2 text-sm" :style="{ color: 'var(--color-text-secondary)' }">
+              <input v-model="caddyHttpsOnly" type="checkbox" class="mt-1">
+              <span>
+                <span class="font-medium">Nur HTTPS:</span> Port 80 leitet auf HTTPS weiter, statt die Oberfläche
+                auszuliefern. So gehen Passwörter und Schlüssel nie im Klartext durchs Netz.
+              </span>
+            </label>
+            <p v-if="caddyHttpsOnly" class="text-xs mt-1" :style="{ color: 'var(--color-warning)' }">
+              Vorher prüfen: HTTPS muss funktionieren, und Agents sollten mit einer <code>https://</code>-Adresse
+              liefern (ältere Windows-PowerShell folgt keiner Weiterleitung bei POST). Rettungsweg, falls nichts mehr
+              geht: <code>CADDY_FORCE_HTTP=true</code> in der <code>.env</code> und das Backend neu starten.
+            </p>
+          </div>
         </div>
         <div>
           <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">Zertifikat (.crt / fullchain)</label>
@@ -751,6 +766,7 @@ const dnsTestResult = ref(null)
 let certUpload = { cert: null, key: null }
 // Zusaetzliche HTTPS-Adressen (IPs/Namen) als Eingabefeld, Leerzeichen-getrennt
 const caddyExtraHostsInput = ref('')
+const caddyHttpsOnly = ref(false)
 const caddyWarnings = ref([])
 
 const caddyExtraHosts = computed(() =>
@@ -819,6 +835,9 @@ watch(caddyEmail, () => {
 })
 watch(caddyExtraHostsInput, () => {
   if (caddyMode.value !== 'http') scheduleTemplateRebuild()
+})
+watch(caddyHttpsOnly, () => {
+  if (!['http', 'external'].includes(caddyMode.value)) scheduleTemplateRebuild()
 })
 watch(caddyTrustedProxiesInput, () => {
   if (suppressModeWatch) return
@@ -966,6 +985,8 @@ async function loadCaddyConfig() {
     const res = await authStore.api('/api/caddy/config')
     caddyfile.value = res.saved_caddyfile || ''
     caddyCertPresent.value = !!res.cert_present
+    // Gespeicherte Config mit Weiterleitung auf HTTPS? Dann Haken setzen.
+    caddyHttpsOnly.value = caddyfile.value.includes('redir @tls_host')
     externalProxy.value = res.external_proxy || { detected: false }
     // Modus aus der gespeicherten Konfiguration anzeigen statt einer festen Vorgabe
     suppressModeWatch = true
@@ -1053,6 +1074,7 @@ async function buildCaddyTemplate() {
         letsencrypt_email: caddyMode.value === 'letsencrypt' ? caddyEmail.value : null,
         extra_hosts: ['http', 'external'].includes(caddyMode.value) ? [] : caddyExtraHosts.value,
         trusted_proxies: caddyMode.value === 'external' ? caddyTrustedProxies.value : [],
+        https_only: !['http', 'external'].includes(caddyMode.value) && caddyHttpsOnly.value,
       }
     })
     caddyfile.value = res.caddyfile

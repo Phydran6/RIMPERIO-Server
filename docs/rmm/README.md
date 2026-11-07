@@ -58,7 +58,7 @@ gesichert.
 ## API
 
 Die Oberfläche spricht `/api/rmm/…` (Anmeldung wie überall), der Agent `/api/rmm/agent/…`
-(Bearer-Token). Vollständig und ausprobierbar unter `/api/docs`.
+(Bearer-Token). Vollständig und ausprobierbar in der API-Dokumentation (Über RIMPERIO, nur Administratoren).
 
 | Pfad | Zweck |
 |---|---|

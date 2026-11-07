@@ -14,7 +14,10 @@
 # ==============================================================================
 
 {
-    admin 0.0.0.0:2019
+    # Admin-API nur ueber einen Unix-Socket im Volume caddy_admin, das allein
+    # Caddy und das Backend eingehaengt haben. Frueher: 0.0.0.0:2019 - offen
+    # fuer jeden Container im Docker-Netz, auch fuer n8n & Co.
+    admin unix//caddy-admin/admin.sock
 }
 
 (rimperio_routes) {

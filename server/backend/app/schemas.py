@@ -359,6 +359,8 @@ class CaddyApplyRequest(BaseModel):
     letsencrypt_email: Optional[str] = None
     # Zusaetzliche Adressen (IPs/Namen), die per HTTPS erreichbar sein sollen
     extra_hosts: List[str] = []
+    # Port 80 nur noch als Weiterleitung auf HTTPS (Passwoerter nie im Klartext)
+    https_only: bool = False
     # Modus "external": IPs/Netze des vorgeschalteten Proxys (leer = private Netze)
     trusted_proxies: List[str] = []
 
@@ -367,6 +369,7 @@ class CaddyTemplateRequest(BaseModel):
     mode: str = Field(..., pattern="^(http|letsencrypt|custom|internal|external)$")
     letsencrypt_email: Optional[str] = None
     extra_hosts: List[str] = []
+    https_only: bool = False
     trusted_proxies: List[str] = []
 
 # Netzwerk / DNS
