@@ -65,7 +65,7 @@ curl -sSL … /install.sh | sudo bash -s -- --domain rmm.firma.lan --tls interna
 
 Die Werte landen in der `.env` (`RIMPERIO_DOMAIN`, `RIMPERIO_TLS`, `RIMPERIO_ACME_EMAIL`);
 beim ersten Start richtet das Backend daraus den Reverse Proxy ein. Danach gilt, was im
-Browser unter *Einstellungen → Netzwerk → Reverse Proxy* steht – dort lässt sich alles
+Browser unter *Einstellungen → HTTPS & Adresse* steht – dort lässt sich alles
 ändern, ohne eine Datei anzufassen. Port 80 bleibt immer als Rettungsweg offen.
 
 Aus einem geklonten Repository:
@@ -161,7 +161,7 @@ sind fremde Images und laufen als `rimperio-ext-*`.
 > **Watchtower ist raus.** Es hat Images geholt *und* Container eigenmächtig
 > ausgetauscht — nachts, ohne Ansage, hinterher schwer zuzuordnen. Tugtainer
 > nimmt seinen Platz ein und macht nur eines: nachsehen und melden. Eingespielt
-> wird bewusst, unter *System → Container*.
+> wird bewusst, unter *RIMPERIO-Server → Container*.
 
 Bei der Installation mit Zusatzdiensten:
 
@@ -175,7 +175,7 @@ Ausdrücklich ohne:
 sudo bash install.sh --no-addons
 ```
 
-Nachträglich jederzeit im Web-UI unter **System → Zusatzdienste** —
+Nachträglich jederzeit im Web-UI unter **RIMPERIO-Server → Zusatzdienste** —
 ein Schalter je Dienst, mit Sicherungsfrage davor.
 
 > **Zum Docker-Socket, offen gesagt:** Wer darauf schreiben kann, ist faktisch
@@ -188,7 +188,7 @@ ein Schalter je Dienst, mit Sicherungsfrage davor.
 ### Zugangsdaten
 
 Der Installer würfelt sie aus und legt sie in der `.env` ab. Einsehbar sind sie
-jederzeit im Web-UI unter **System → Zusatzdienste** — für Administratoren, auf
+jederzeit im Web-UI unter **RIMPERIO-Server → Zusatzdienste** — für Administratoren, auf
 Klick. Genau dafür ist das gedacht: Ein Passwort, das man nur einmal beim
 Installieren sieht, ist zwei Wochen später verloren.
 
@@ -255,12 +255,12 @@ COMPOSE_PROFILES=portainer,tugtainer
 ## Nach der Installation
 
 1. **Passwort ändern** — das Startpasswort für `admin` zeigt der Installer am Ende an (es steht auch als `RIMPERIO_ADMIN_INITIAL_PASSWORD` in der `.env`). Ältere Installationen ohne diesen Wert starten mit `admin`/`admin`.
-2. **HTTPS einschalten** — Einstellungen → Netzwerk → Reverse Proxy.
+2. **HTTPS einschalten** — Einstellungen → HTTPS & Adresse.
    Let's Encrypt, eigenes Zertifikat oder selbstsigniert.
 3. **Systemcheck laufen lassen** — System → Systemzustand.
-4. **Zugangsschlüssel holen** — Verwaltung → Zugang & Sicherheit → Zugangsschlüssel (am besten eine „Einladung“), dann
+4. **Zugangsschlüssel holen** — Geräte → Zugangsschlüssel (am besten eine „Einladung“), dann
    [Rechner anbinden](../../agent/logship/README.md).
-5. **Sicherung einrichten** — [System → Sicherung](../backup/README.md).
+5. **Sicherung einrichten** — [RIMPERIO-Server → Sicherung](../backup/README.md).
 
 ---
 
@@ -272,7 +272,7 @@ COMPOSE_PROFILES=portainer,tugtainer
 | Backend startet nicht, alles 502 | `docker compose logs backend` ansehen. Meist die Datenbank. |
 | Port 80 belegt | Ein anderer Webserver läuft. Die Systemprüfung sagt das vorher. |
 | PostgreSQL startet nicht nach Update | Major-Upgrade nötig — siehe [Datenbank](../../server/db/README.md). |
-| Zusatzdienst startet nicht | `docker compose logs <name>`, oder im Web-UI unter System → Zusatzdienste das Protokoll ansehen. |
+| Zusatzdienst startet nicht | `docker compose logs <name>`, oder im Web-UI unter RIMPERIO-Server → Zusatzdienste das Protokoll ansehen. |
 
 ---
 

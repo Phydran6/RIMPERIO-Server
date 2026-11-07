@@ -2,7 +2,7 @@
 
 Windows, Linux und Docker patchen: täglich suchen, nur im Wartungsfenster installieren,
 vorher per Proxmox sichern, danach prüfen. Freigeben muss man nur, was wirklich eine
-Freigabe braucht. In der Oberfläche unter **Fernwartung → Patch-Center**, in der App unter
+Freigabe braucht. In der Oberfläche unter **Patchmanagement → Patch-Center**, in der App unter
 *Freigaben*.
 
 ← [Fernwartung](README.md) · [SNMP](snmp.md) · [Dokumentation](../README.md)
@@ -147,7 +147,7 @@ Labels am Container:
 
 Dazu je Richtlinie Ein- und Ausschlusslisten (Muster wie `*-db`). Auf dem RIMPERIO-Server
 selbst: Agent installieren — die RIMPERIO-eigenen Container werden dabei automatisch
-übersprungen, sie aktualisiert *System → Updates*.
+übersprungen, sie aktualisiert *RIMPERIO-Server → Updates*.
 
 ## Freigeben in der App
 

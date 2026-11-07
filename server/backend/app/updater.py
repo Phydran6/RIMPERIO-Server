@@ -893,7 +893,8 @@ _last_announced_commit: Optional[str] = None
 def webhook_info() -> dict:
     """Wie der GitHub-Webhook einzurichten ist (das Secret selbst bleibt geheim)."""
     secret = os.getenv("RIMPERIO_WEBHOOK_SECRET", "").strip()
-    base = (settings.site_url or "").rstrip("/")
+    from . import public_url
+    base = public_url.site_url().rstrip("/")
     return {
         "configured": bool(secret),
         "path": "/api/updates/webhook",
@@ -948,7 +949,7 @@ async def announce_if_new(reason: str = "watcher", force_check: bool = True) -> 
         (f"Installiert: {payload['installed_version'] or '?'}\n"
          f"Verfügbar:   {payload['available_version'] or payload['commit'] or '?'}\n"
          f"{payload['commit_message'] or ''}\n\n"
-         f"Einspielen unter System → Updates."),
+         f"Einspielen unter RIMPERIO-Server → Updates."),
         level="info", key=f"update:{commit}", detail=payload)
     return {"announced": True, **payload}
 

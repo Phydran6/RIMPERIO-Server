@@ -1,93 +1,98 @@
 ﻿<!-- ==============================================================================
      Name:        Phydran6
      Kontakt:     Phydran6
-     Version:     2026.05.13.20.58.33
-     Beschreibung: RIMPERIO - App-Login via QR-Code
+     Version:     2026.11.07.23.00.00
+     Changelog:   docs/changelog/frontend.md
+     Beschreibung: RIMPERIO - Mein Konto -> App verbinden (QR-Code-Anmeldung)
+
+     Was hier kaputt war:
+     * Im QR-Code stand hinter einem externen HTTPS-Proxy (Nginx Proxy Manager)
+       "http://...". Die App verbindet nur ueber https und lehnte den Code ab.
+       Jetzt schickt die Seite mit, unter welcher Adresse sie selbst offen ist,
+       und der Server nimmt die (bzw. eine fest eingestellte, siehe
+       Einstellungen -> HTTPS & Adresse).
+     * Der Countdown las die Ablaufzeit (UTC, ohne Zeitzone) als Ortszeit - in
+       Deutschland stand der Code beim Erscheinen schon auf "abgelaufen". Jetzt
+       zaehlt er ab der vom Server genannten Gueltigkeitsdauer.
      ============================================================================== -->
 
 <template>
-  <div class="p-6 max-w-lg mx-auto">
-    <h1 class="text-2xl font-bold mb-2" :style="{ color: 'var(--color-text-primary)' }">
-      App-Anmeldung
-    </h1>
-    <p class="mb-6 text-sm" :style="{ color: 'var(--color-text-muted)' }">
-      Scanne den QR-Code mit der RIMPERIO Android-App oder gib die API-URL manuell ein.
-    </p>
-
-    <!-- Fehler -->
-    <div v-if="error" class="px-4 py-3 rounded mb-4 text-sm" :style="errorStyle">
-      {{ error }}
-    </div>
-
-    <!-- Loading -->
-    <div v-if="loading" class="flex items-center justify-center py-16">
-      <span :style="{ color: 'var(--color-text-muted)' }">QR-Code wird generiert...</span>
-    </div>
-
-    <!-- QR-Code -->
-    <div v-else-if="qrData" class="rounded-lg p-6 text-center" :style="cardStyle">
-      <img
-        :src="qrData.qr_image"
-        alt="App-Login QR-Code"
-        class="mx-auto rounded"
-        style="max-width: 280px; image-rendering: pixelated;"
-      />
-
-      <!-- Ablaufzeit -->
-      <div class="mt-4 text-sm" :style="{ color: 'var(--color-text-muted)' }">
-        <span v-if="secondsLeft > 0">
-          Gültig noch <strong :style="{ color: secondsLeft < 60 ? 'var(--color-danger)' : 'var(--color-text-primary)' }">{{ formatCountdown(secondsLeft) }}</strong>
-        </span>
-        <span v-else class="font-semibold" :style="{ color: 'var(--color-danger)' }">
-          Abgelaufen – bitte neu generieren
-        </span>
+  <div class="page app-page">
+    <div class="page-header">
+      <div>
+        <p class="page-subtitle">
+          Mit der RIMPERIO-App auf dem Handy scannen – die App meldet sich dann als
+          <strong>{{ auth.user?.username }}</strong> an.
+        </p>
       </div>
-
-      <!-- API-URL -->
-      <div class="mt-4 p-3 rounded text-left" :style="urlBoxStyle">
-        <p class="text-xs font-semibold mb-1" :style="{ color: 'var(--color-text-muted)' }">API-URL (für manuelle Eingabe in der App)</p>
-        <code class="text-sm break-all" :style="{ color: 'var(--color-text-primary)' }">{{ qrData.api_url }}</code>
-        <button @click="copyUrl" class="mt-2 text-xs px-2 py-1 rounded" :style="copyBtnStyle">
-          {{ copied ? 'Kopiert!' : 'Kopieren' }}
-        </button>
-      </div>
-
-      <!-- Methoden-Erklärung -->
-      <div class="mt-4 text-left text-sm space-y-2" :style="{ color: 'var(--color-text-secondary)' }">
-        <div class="flex gap-2">
-          <span class="font-bold">Methode 1 – QR-Code:</span>
-          <span>QR-Code mit der App scannen. Die App meldet sich automatisch an.</span>
-        </div>
-        <div class="flex gap-2">
-          <span class="font-bold">Methode 2 – URL:</span>
-          <span>API-URL in der App als Server-URL eingeben und mit Benutzername + Passwort einloggen.</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Aktions-Buttons -->
-    <div class="mt-4 flex gap-3">
-      <button
-        @click="generateQR"
-        :disabled="loading"
-        class="flex-1 py-2 px-4 rounded font-semibold text-white disabled:opacity-50"
-        :style="{ backgroundColor: 'var(--color-primary)' }"
-      >
-        {{ qrData ? 'Neu generieren' : 'QR-Code generieren' }}
+      <button class="btn btn-secondary btn-sm" :disabled="loading" @click="generateQR">
+        <AppIcon name="refresh" :size="16" /> {{ qrData ? 'Neuen Code erzeugen' : 'Code erzeugen' }}
       </button>
     </div>
 
-    <!-- Sicherheitshinweis -->
-    <p class="mt-4 text-xs" :style="{ color: 'var(--color-text-muted)' }">
-      Der QR-Code ist 15 Minuten gültig und kann nur einmal verwendet werden.
-      Nach dem Scannen wird er sofort ungültig.
-    </p>
+    <div v-if="error" class="card mb-4 notice is-error">{{ error }}</div>
+
+    <div class="app-grid">
+      <!-- QR-Code -->
+      <section class="card">
+        <div class="card-body qr-body">
+          <div v-if="loading" class="qr-placeholder">QR-Code wird erzeugt …</div>
+          <template v-else-if="qrData">
+            <img
+              :src="qrData.qr_image"
+              alt="QR-Code für die App-Anmeldung"
+              class="qr-image"
+              :class="{ 'is-expired': secondsLeft === 0 }"
+            >
+            <p class="qr-timer">
+              <template v-if="secondsLeft > 0">
+                Gültig noch <strong :class="{ 'is-urgent': secondsLeft < 60 }">{{ formatCountdown(secondsLeft) }}</strong>
+              </template>
+              <template v-else>
+                <strong class="is-urgent">Abgelaufen</strong> –
+                <button class="link" @click="generateQR">neuen Code erzeugen</button>
+              </template>
+            </p>
+          </template>
+        </div>
+      </section>
+
+      <!-- Adresse und Anleitung -->
+      <section class="card">
+        <div class="card-header"><h2 class="card-title">Adresse im Code</h2></div>
+        <div class="card-body space-y-3">
+          <div v-if="qrData" class="url-box">
+            <code class="url-text">{{ qrData.api_url }}</code>
+            <button class="btn btn-secondary btn-sm" @click="copyUrl">{{ copied ? 'Kopiert' : 'Kopieren' }}</button>
+          </div>
+          <p v-if="qrData" class="hint">{{ sourceText }}</p>
+
+          <div v-if="qrData?.warning" class="notice is-warning">
+            <strong>Die App wird diesen Code ablehnen.</strong> {{ qrData.warning }}
+            <router-link v-if="auth.isAdmin" to="/settings/network" class="link block mt-1">
+              → Einstellungen · HTTPS &amp; Adresse
+            </router-link>
+          </div>
+
+          <ol class="steps">
+            <li>App öffnen und <strong>„QR-Code scannen“</strong> wählen.</li>
+            <li>Diesen Code scannen. Die App meldet sich sofort an.</li>
+            <li>Ohne Kamera: in der App die Adresse oben eintragen und mit Benutzername und Passwort anmelden.</li>
+          </ol>
+
+          <p class="hint">
+            Der Code gilt 15 Minuten und nur einmal. Jedes neue Erzeugen macht den vorigen ungültig.
+          </p>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import AppIcon from '../components/AppIcon.vue'
 
 const auth = useAuthStore()
 
@@ -98,29 +103,14 @@ const secondsLeft = ref(0)
 const copied = ref(false)
 let countdownTimer = null
 
-// Computed Styles
-const cardStyle = computed(() => ({
-  backgroundColor: 'var(--color-surface)',
-  border: '1px solid var(--color-border)',
-}))
-
-const urlBoxStyle = computed(() => ({
-  backgroundColor: 'var(--color-surface-elevated)',
-  border: '1px solid var(--color-border)',
-}))
-
-const errorStyle = computed(() => ({
-  backgroundColor: 'var(--color-surface-elevated)',
-  border: '1px solid var(--color-danger)',
-  color: 'var(--color-danger)',
-}))
-
-const copyBtnStyle = computed(() => ({
-  backgroundColor: 'var(--color-surface)',
-  border: '1px solid var(--color-border)',
-  color: 'var(--color-text-secondary)',
-  display: 'block',
-}))
+const SOURCE_TEXT = {
+  site_url: 'Fest eingestellt über SITE_URL in der .env.',
+  saved: 'Fest eingestellt unter Einstellungen · HTTPS & Adresse.',
+  browser: 'Die Adresse, unter der diese Seite gerade offen ist.',
+  detected: 'Die https-Adresse, unter der RIMPERIO über den externen Proxy erreichbar ist.',
+  headers: 'Aus der Anfrage ermittelt.',
+}
+const sourceText = computed(() => SOURCE_TEXT[qrData.value?.url_source] || '')
 
 function formatCountdown(secs) {
   const m = Math.floor(secs / 60)
@@ -128,11 +118,13 @@ function formatCountdown(secs) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-function startCountdown(expiresAt) {
+// Ab der Gueltigkeitsdauer zaehlen statt ab der Uhrzeit: so spielen weder
+// Zeitzone noch eine falsch gehende Uhr im Browser eine Rolle.
+function startCountdown(seconds) {
   if (countdownTimer) clearInterval(countdownTimer)
-  const expiryMs = new Date(expiresAt).getTime()
+  const end = Date.now() + Math.max(0, Number(seconds) || 0) * 1000
   const update = () => {
-    const diff = Math.max(0, Math.floor((expiryMs - Date.now()) / 1000))
+    const diff = Math.max(0, Math.round((end - Date.now()) / 1000))
     secondsLeft.value = diff
     if (diff === 0) clearInterval(countdownTimer)
   }
@@ -146,11 +138,12 @@ async function generateQR() {
   qrData.value = null
   if (countdownTimer) clearInterval(countdownTimer)
   try {
-    const data = await auth.api('/api/auth/app-qr')
+    const origin = encodeURIComponent(window.location.origin)
+    const data = await auth.api(`/api/auth/app-qr?origin=${origin}`, { cache: 'no-store' })
     qrData.value = data
-    startCountdown(data.expires_at)
+    startCountdown(data.expires_in_seconds || 900)
   } catch (e) {
-    error.value = e.message || 'QR-Code konnte nicht generiert werden'
+    error.value = e.message || 'QR-Code konnte nicht erzeugt werden'
   } finally {
     loading.value = false
   }
@@ -160,21 +153,123 @@ async function copyUrl() {
   if (!qrData.value?.api_url) return
   try {
     await navigator.clipboard.writeText(qrData.value.api_url)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
   } catch {
-    // Fallback für Browser ohne Clipboard-API
     const el = document.createElement('textarea')
     el.value = qrData.value.api_url
     document.body.appendChild(el)
     el.select()
     document.execCommand('copy')
     document.body.removeChild(el)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
   }
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
 }
 
 onMounted(() => generateQR())
 onUnmounted(() => { if (countdownTimer) clearInterval(countdownTimer) })
 </script>
+
+<style scoped>
+.app-page {
+  max-width: 64rem;
+}
+
+.app-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .app-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.qr-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.qr-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.qr-image {
+  width: 100%;
+  max-width: 17rem;
+  border-radius: var(--radius);
+  image-rendering: pixelated;
+  background: #fff;
+}
+
+.qr-image.is-expired {
+  opacity: 0.2;
+  filter: grayscale(1);
+}
+
+.qr-timer {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.is-urgent {
+  color: var(--color-danger);
+}
+
+.url-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background-color: var(--color-surface-elevated);
+}
+
+.url-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+
+.notice {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.notice.is-warning {
+  border: 1px solid var(--color-warning);
+  background-color: var(--warning-soft);
+  color: var(--color-text-primary);
+}
+
+.notice.is-error {
+  border: 1px solid var(--color-danger);
+  background-color: var(--danger-soft);
+  color: var(--color-danger);
+}
+
+.steps {
+  padding-left: 1.25rem;
+  list-style: decimal;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+</style>

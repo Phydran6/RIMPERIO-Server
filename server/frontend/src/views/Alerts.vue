@@ -2,7 +2,7 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - System -> Benachrichtigungen: Mail, Telegram oder
+     Beschreibung: RIMPERIO - Einstellungen -> Benachrichtigungen: Mail, Telegram oder
                    Webhook (n8n), wenn RIMPERIO selbst nicht mehr sammelt.
      ============================================================================== -->
 
@@ -87,7 +87,7 @@
         <div class="card-body space-y-3">
           <p class="hint">
             Geht über den Mailversand unter
-            <router-link class="link" to="/mail">System → Mail</router-link>.
+            <router-link class="link" to="/mail">Einstellungen → E-Mail</router-link>.
           </p>
           <div>
             <label class="label">Empfänger (leer = Standard-Empfänger)</label>

@@ -2,6 +2,20 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.07.23.00.00
+
+### Changed
+- **Oberfläche neu gegliedert, als RMM statt Log-Server.** Das linke Menü (`src/navigation.js`, eine Quelle für Menü, Seitentitel und Pfad) ist nach Arbeitsbereichen aufgeteilt: *Übersicht*, *Geräte* (Rechner, Netzwerkgeräte, Log-Quellen, Netzwerksuche, Zugangsschlüssel), *Überwachung* (Alarme, Checks, Logs), *Patchmanagement*, *Automatisierung* (Skripte, Webhooks, KI), *Benutzer & Zugang*, *Mein Konto* (Passwort, Anmeldesicherheit, App verbinden), *RIMPERIO-Server* (Zustand, Updates, Sicherung, Container, Konsole …) und *Einstellungen*. „Geräte“ gibt es nicht mehr doppelt, und das Menü hat nur noch zwei Ebenen.
+- **Jeder Menüpunkt ist eine Seite.** Die Reiterleisten oben auf der Einstellungsseite und die Unter-Reiter bei „Netzwerk“ sind weg. *HTTPS & Adresse* und *DNS* sind eigene Menüpunkte. Reiter innerhalb eines Werkzeugs (Patch-Center, Rechner-Detail, SNMP) bleiben.
+- **Menü:** Suchfeld (Strg+K oder `/`, Enter öffnet den ersten Treffer). Bereiche lassen sich einzeln zuklappen und bleiben so; der Bereich der offenen Seite geht von selbst auf. Zähler am Menüpunkt für aktive Alarme, Updates zur Freigabe und Rechner offline. Eingeklappt bleibt eine Icon-Leiste mit allen Seiten.
+- **Übersicht** neu: Rechner online, aktive Alarme, Updates zur Freigabe, Netzwerkgeräte und Fehler-Logs als Kacheln. Darunter „Aktive Alarme“, „Rechner offline“ und der Patchstand, ganz unten die Logs. Lädt jede Minute neu.
+- **Zugangsschlüssel** (Einladungen, Geräteschlüssel) sind wieder erreichbar: Die Seite gab es, sie war aber nirgends eingehängt. *Einstellungen → Agent-Token* zeigte stattdessen den alten Generalschlüssel und legte ihn bei jedem Öffnen der Einstellungen notfalls neu an. `/settings/agents` leitet jetzt auf `/agent-tokens`.
+- Texte und Links in den Seiten verweisen auf die neuen Menüpfade.
+
+### Fixed
+- **App verbinden:** Der QR-Code nannte hinter einem externen HTTPS-Proxy `http://…`, und die App lehnte ihn ab, weil sie nur über https verbindet. Die Seite schickt jetzt ihre eigene Adresse mit und warnt deutlich, wenn die Adresse im Code kein https ist. Der Countdown zeigte in Deutschland sofort „abgelaufen“, weil er die UTC-Zeit als Ortszeit las. Er zählt jetzt ab der Gültigkeitsdauer.
+- **HTTPS & Adresse:** neues Feld *Öffentliche Adresse* und ein Kasten, der in Klartext sagt, was RIMPERIO über den Weg vom Browser zum Server weiß. Das FQDN-Feld zeigt nicht mehr `rimperio.example.com` als Wert.
+
 ## Unveröffentlicht — Angriffsfläche, Teil 2
 
 ### Security

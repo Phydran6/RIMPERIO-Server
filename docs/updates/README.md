@@ -43,13 +43,13 @@ Alle Befehle laufen **auf dem Server**, als root. `RAW` steht dabei für
 
 | | Oberfläche | Wartungsskript | Installer | Rohe Gewalt |
 |---|---|---|---|---|
-| Aufruf | *System → Updates* | `rimperio-update.sh apply` | `install.sh update` | `git reset --hard` + `compose up` |
+| Aufruf | *RIMPERIO-Server → Updates* | `rimperio-update.sh apply` | `install.sh update` | `git reset --hard` + `compose up` |
 | Sicherung vorher | ja, samt Rückfrage | ja (Dateien + `pg_dump`) | **nein** | **nein** |
 | Rückfall bei Fehlschlag | selbsttätig | selbsttätig | nein | nein |
 | Gesundheitsprüfung danach | ja | ja | nur „Container laufen“ | nein |
 | Bestimmtes Release | ja (Kanal *Festgelegt*) | `--ref` | `--ref` | selbst auschecken |
 | Ergänzt fehlende `.env`-Schlüssel | nein | nein | **ja** | nein |
-| Zusatzdienste zuschalten | *System → Zusatzdienste* | nein | `--with …` | nein |
+| Zusatzdienste zuschalten | *RIMPERIO-Server → Zusatzdienste* | nein | `--with …` | nein |
 | Braucht Host-Zugriff des Backends | **ja** | nein | nein | nein |
 
 **Kurz:** Im Regelbetrieb die Oberfläche oder das Wartungsskript. Der Installer
@@ -90,7 +90,7 @@ Git-Verzeichnis), klont er frisch und kopiert die Dateien darüber. `.env` und
 dazu. Danach `docker compose build` und `up -d --remove-orphans`.
 
 Er sichert **nicht** und fällt **nicht** zurück. Wer das will, nimmt das
-Wartungsskript oder sichert vorher selbst unter *System → Sicherung*.
+Wartungsskript oder sichert vorher selbst unter *RIMPERIO-Server → Sicherung*.
 
 Zusatzdienste bleiben beim Update unberührt, solange man sie nicht ausdrücklich
 nennt (`--with portainer,n8n`) — sonst schaltete ein Update stillschweigend
@@ -204,7 +204,7 @@ Kontingent nicht reicht, setzt `GITHUB_TOKEN` in der `.env`.
 ## Welchen Stand soll der Server fahren?
 
 Nicht jeder will immer den letzten Commit. Drei Möglichkeiten, einzustellen
-unter *System → Updates*:
+unter *RIMPERIO-Server → Updates*:
 
 | Kanal | Bedeutung | Für wen | Ziel auf der Kommandozeile |
 |-------|-----------|---------|----------------------------|
@@ -273,7 +273,7 @@ offenen Fenster, ohne Neuladen.
 
 ## Update über die Oberfläche
 
-*System → Updates → **Update einspielen***
+*RIMPERIO-Server → Updates → **Update einspielen***
 
 Davor stehen zwei Sperren:
 
@@ -370,7 +370,7 @@ sudo RIMPERIO_HEALTH_TIMEOUT=900 bash /opt/rimperio/server/backend/scripts/rimpe
 > Diese drei kommen aus der **Umgebung des Laufs**, nicht aus der `.env`. Beim
 > Update über die Oberfläche gelten daher die Vorgaben. Und Achtung:
 > `RIMPERIO_KEEP_BACKUPS` in der `.env` steuert etwas anderes — die Anzahl der
-> [ZIP-Sicherungen](../backup/README.md) unter *System → Sicherung*.
+> [ZIP-Sicherungen](../backup/README.md) unter *RIMPERIO-Server → Sicherung*.
 
 ---
 
@@ -425,7 +425,7 @@ Einzelheiten: [API](../api/README.md) und die API-Dokumentation am laufenden Ser
 
 ## Zurückfallen
 
-*System → Updates → **Auf vorherigen Stand zurück***
+*RIMPERIO-Server → Updates → **Auf vorherigen Stand zurück***
 
 Zeigt die Sicherungen des Wartungsskripts (Dateien, optional Datenbankabzug).
 Auch hier läuft vorher die Sicherungsfrage. Auf der Kommandozeile:
@@ -537,7 +537,7 @@ neu zu konfigurieren. Der bestehende Token steht in
 Nur die Container, die aus diesem Quellcode gebaut werden: `rimperio-app-backend`,
 `-frontend` und `-syslog`. Die fremden Images — PostgreSQL, Caddy, n8n,
 Portainer, Open WebUI, Postfix — brauchen ihre eigenen Updates. Die laufen
-unter *System → Container*; dort steht auch, für welches gerade etwas
+unter *RIMPERIO-Server → Container*; dort steht auch, für welches gerade etwas
 bereitliegt.
 
 Das ist bewusst getrennt: Ein Update von RIMPERIO holt neuen Quellcode und baut

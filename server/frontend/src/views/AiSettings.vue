@@ -2,7 +2,7 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - System -> KI-Auswertung: Weg waehlen, testen, fragen.
+     Beschreibung: RIMPERIO - Automatisierung -> KI-Auswertung: Weg waehlen, testen, fragen.
      ============================================================================== -->
 
 <template>

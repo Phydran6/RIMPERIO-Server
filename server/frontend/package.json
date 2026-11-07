@@ -1,6 +1,6 @@
 {
   "name": "rimperio-frontend",
-  "version": "2026.10.18.22.00.00",
+  "version": "2026.11.07.23.00.00",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -5,7 +5,7 @@
 # Beschreibung: RIMPERIO - Endpunkte fuer Sicherung und Wiederherstellung
 # ==============================================================================
 """
-Alles unter *System -> Sicherung*. Nur fuer Administratoren.
+Alles unter *RIMPERIO-Server -> Sicherung*. Nur fuer Administratoren.
 
 Bewusst zweistufig beim Zurueckspielen: erst `/inspect` (was steckt drin, passt
 die Version?), dann `/restore` mit dem, was man davon wirklich will. So sieht

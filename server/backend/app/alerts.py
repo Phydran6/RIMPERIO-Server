@@ -15,7 +15,7 @@ etwas nicht stimmt.
 
 **Drei Wege, je nachdem was der Betreiber hat:**
 
-* **mail**     - ueber den Mailversand, der unter System -> Mail eingestellt ist
+* **mail**     - ueber den Mailversand, der unter Einstellungen -> E-Mail eingestellt ist
 * **telegram** - direkt an einen Telegram-Bot (Bot-Token + Chat-ID), ohne
                  Zusatzdienst
 * **webhook**  - ein JSON-POST an eine beliebige Adresse. Gedacht fuer n8n:
@@ -140,7 +140,7 @@ EVENTS: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "channels": {
-        # Empfaenger leer = die Standard-Empfaenger aus System -> Mail.
+        # Empfaenger leer = die Standard-Empfaenger aus Einstellungen -> E-Mail.
         "mail": {"enabled": False, "recipients": []},
         "telegram": {"enabled": False, "bot_token": "", "chat_id": ""},
         "webhook": {"enabled": False, "url": "", "secret": ""},
@@ -347,7 +347,8 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
 # Senden
 # =============================================================================
 def _server_name() -> str:
-    site = (os.getenv("SITE_URL") or "").strip().rstrip("/")
+    from . import public_url
+    site = public_url.site_url()
     if site:
         return site.split("://", 1)[-1]
     return os.getenv("RIMPERIO_SERVER_NAME", "") or socket.gethostname()
@@ -384,7 +385,7 @@ async def _send_webhook(cfg: dict, payload: dict) -> None:
 async def _send_mail(cfg: dict, subject: str, text: str) -> None:
     mail_config = _current_mail()
     if not mail_config or mail_config.get("mode") == "off":
-        raise RuntimeError("Der Mailversand ist nicht eingerichtet (System → Mail).")
+        raise RuntimeError("Der Mailversand ist nicht eingerichtet (Einstellungen → E-Mail).")
     recipients = cfg.get("recipients") or mail_config.get("default_recipients") or []
     if not recipients:
         raise RuntimeError("Es ist kein Empfänger hinterlegt.")

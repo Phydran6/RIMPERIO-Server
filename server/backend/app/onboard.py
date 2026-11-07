@@ -492,11 +492,12 @@ async def _prepare(session: AsyncSession, device_id: int, actor: str):
     if device is None:
         raise OnboardError("System nicht gefunden.")
 
-    server = resolve_server_address(device, site_url=settings.site_url or None, nets=nets)
+    from . import public_url
+    server = resolve_server_address(device, site_url=public_url.site_url() or None, nets=nets)
     if not server["fqdn"]:
         raise OnboardError(
             "Es ließ sich keine Serveradresse bestimmen, unter der der Agent RIMPERIO erreicht. "
-            "Bitte unter Einstellungen → Netzwerk eine Adresse (SITE_URL) hinterlegen.")
+            "Bitte unter Einstellungen → HTTPS & Adresse die öffentliche Adresse hinterlegen.")
 
     row, plain = await tokens.create(
         session, name=f"onboard:{device['ip_address']}"[:100], kind="enroll",

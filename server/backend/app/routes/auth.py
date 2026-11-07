@@ -1,7 +1,7 @@
 ﻿# ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.05.30.17.22.26
+# Version:     2026.11.07.23.00.00
 # Beschreibung: RIMPERIO - Auth API Endpoints + App-Login (QR-Code) + MFA-Login
 # ==============================================================================
 
@@ -10,9 +10,9 @@ import json
 import base64
 import logging
 import secrets
-from datetime import datetime, timedelta
-from typing import Union
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Union
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select, delete
@@ -261,7 +261,7 @@ async def create_app_token(
 
     return AppTokenResponse(
         token=token,
-        expires_at=expires_at,
+        expires_at=expires_at.replace(tzinfo=timezone.utc),
         expires_in_seconds=_APP_TOKEN_TTL_MINUTES * 60,
     )
 
@@ -304,6 +304,8 @@ async def exchange_app_token(
 @router.get("/app-qr", response_model=AppQRResponse)
 async def get_app_qr(
     request: Request,
+    origin: Optional[str] = Query(None, max_length=300,
+                                  description="Adresse, die der Browser gerade benutzt (window.location.origin)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -331,12 +333,19 @@ async def get_app_qr(
     db.add(app_token)
     await db.commit()
 
-    # API-URL ermitteln: SITE_URL hat Vorrang, sonst aus Request ableiten
-    api_url = settings.site_url
-    if not api_url:
-        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-        forwarded_host = request.headers.get("x-forwarded-host", request.url.netloc)
-        api_url = f"{forwarded_proto}://{forwarded_host}"
+    # API-URL: SITE_URL bzw. gespeicherte Adresse, sonst die Adresse, die der
+    # Browser gerade benutzt. Frueher kam sie aus X-Forwarded-Proto - hinter
+    # einem externen HTTPS-Proxy (Nginx Proxy Manager) stand dort "http", und
+    # die App lehnte den Code ab: sie verbindet nur ueber https.
+    from .. import public_url
+    chosen = public_url.for_request(request, origin, prefer_https=True)
+    api_url = chosen["url"]
+    warning = None
+    if not api_url.startswith("https://"):
+        warning = ("Die App verbindet sich nur über https. Dieser Code nennt "
+                   f"{api_url or 'keine Adresse'} - unter Einstellungen → HTTPS & Adresse die "
+                   "öffentliche https-Adresse eintragen (oder die Seite über https öffnen) "
+                   "und den Code neu erzeugen.")
 
     # QR-Code-Payload (JSON, damit die App es parsen kann)
     qr_payload = json.dumps({
@@ -364,7 +373,11 @@ async def get_app_qr(
     return AppQRResponse(
         qr_image=f"data:image/png;base64,{qr_b64}",
         token=token,
-        expires_at=expires_at,
+        # Mit Zeitzone: ohne "Z" las der Browser die UTC-Zeit als Ortszeit, und
+        # der Code galt in Deutschland schon beim Erscheinen als abgelaufen.
+        expires_at=expires_at.replace(tzinfo=timezone.utc),
         expires_in_seconds=_APP_TOKEN_TTL_MINUTES * 60,
         api_url=api_url,
+        url_source=chosen["source"],
+        warning=warning,
     )

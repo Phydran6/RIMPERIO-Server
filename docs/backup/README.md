@@ -1,6 +1,6 @@
 # Sicherung und Wiederherstellung
 
-*System → Sicherung* — nur für Administratoren.
+*RIMPERIO-Server → Sicherung* — nur für Administratoren.
 
 ← [Übersicht](../../README.md) · [Alle Dokumente](../README.md)
 

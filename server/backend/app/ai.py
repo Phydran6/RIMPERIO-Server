@@ -492,7 +492,7 @@ async def ask(config: dict, logs: List[Any], question: str = "") -> dict:
     provider = config.get("provider", "off")
     if provider == "off":
         raise ValueError("Die KI-Anbindung ist ausgeschaltet. "
-                         "Einzurichten unter System → KI-Auswertung.")
+                         "Einzurichten unter Automatisierung → KI-Auswertung.")
     if not logs:
         raise ValueError("Es wurden keine Logzeilen ausgewählt.")
 

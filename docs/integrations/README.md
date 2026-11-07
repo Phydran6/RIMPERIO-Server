@@ -27,7 +27,7 @@ jemand mit geratenen Tokens anrichten kann.
 
 ## KI-Auswertung
 
-*System → KI-Auswertung* — einrichten dürfen nur Administratoren.
+*Automatisierung → KI-Auswertung* — einrichten dürfen nur Administratoren.
 
 Vier Wege, keiner davon voreingestellt:
 
@@ -78,7 +78,7 @@ Webhook holt, von Claude auswerten lässt und die Antwort in den Chat schickt.
 
 ## Mail
 
-*System → Mail* — nur für Administratoren.
+*Einstellungen → E-Mail* — nur für Administratoren.
 
 **Anbieter anklicken, der Assistent erledigt den Rest.** Für jeden gängigen
 Anbieter gibt es eine Kachel mit eigenem Assistenten. Gespeichert wird erst,
@@ -150,7 +150,7 @@ PTR-Eintrag). Dann übergibt Postfix an den Provider.
 Der Container nimmt nur aus dem Docker-Netz an. Ein offenes Relay im Internet
 ist binnen Stunden als Spamschleuder in Benutzung.
 
-Braucht das Profil `postfix` unter *System → Zusatzdienste*.
+Braucht das Profil `postfix` unter *RIMPERIO-Server → Zusatzdienste*.
 
 **Benachrichtigungen:** Wann eine Mail verschickt wird, steht für alle Wege
 gemeinsam unter *Benachrichtigungen*.
@@ -165,7 +165,7 @@ Standardmäßig nur vom Server selbst erreichbar (`127.0.0.1:9000`). Wer aus dem
 Netz herankommen will, setzt `PORTAINER_BIND=0.0.0.0` — und sollte vorher HTTPS
 einrichten.
 
-Zugangsdaten: *System → Zusatzdienste → Zugangsdaten anzeigen*. Dort lässt sich
+Zugangsdaten: *RIMPERIO-Server → Zusatzdienste → Zugangsdaten anzeigen*. Dort lässt sich
 auch ein neues Passwort setzen.
 
 > Portainer bekommt den Docker-Socket **nur lesend**. Die Oberfläche zeigt damit
@@ -188,13 +188,13 @@ Nachvollziehbarkeit verspricht, ist das der falsche Mechanismus.
 
 Tugtainer bekommt den Docker-Socket deshalb nur **lesend**: es *kann* gar
 nichts austauschen, selbst wenn jemand die Automatik einschaltet. Eingespielt
-wird bewusst — in RIMPERIOs Oberfläche unter *System → Container*, in Tugtainers
+wird bewusst — in RIMPERIOs Oberfläche unter *RIMPERIO-Server → Container*, in Tugtainers
 eigener Oberfläche oder auf der Kommandozeile.
 
 **Zum Zusammenspiel mit dem Patchmanagement:** RIMPERIOs eigene Container
 (`rimperio-app-*`) werden aus dem Quellcode gebaut, es gibt für sie gar kein
 Image in einer Registry. Tugtainer kann dort also nichts finden; zuständig ist
-*System → Updates*. Tugtainer kümmert sich um die fertigen Images:
+*RIMPERIO-Server → Updates*. Tugtainer kümmert sich um die fertigen Images:
 PostgreSQL, Caddy, n8n, Portainer, Open WebUI, Postfix.
 
 Oberfläche unter `127.0.0.1:9412`. In die `.env`, falls man den Socket doch
@@ -204,7 +204,7 @@ schreibbar machen will:
 TUGTAINER_SOCKET_MODE=rw
 ```
 
-> RIMPERIO prüft Image-Updates auch **ohne** Tugtainer: *System → Container →
+> RIMPERIO prüft Image-Updates auch **ohne** Tugtainer: *RIMPERIO-Server → Container →
 > Auf Updates prüfen* fragt die Registry direkt nach dem Abdruck des benutzten
 > Tags. Tugtainer bringt Zeitplan, eigene Oberfläche und mehrere Hosts dazu.
 
@@ -243,7 +243,7 @@ Läuft neben RIMPERIO, erreichbar unter `127.0.0.1:5678`. Anmeldung ist Pflicht 
 ohne stünde die Oberfläche offen, und mit ihr jeder hinterlegte Zugang zu
 Telegram, Mail oder KI-Anbietern.
 
-Zugangsdaten wie bei Portainer unter *System → Zusatzdienste*.
+Zugangsdaten wie bei Portainer unter *RIMPERIO-Server → Zusatzdienste*.
 
 Für die KI-Auswertung ist die interne Adresse
 `http://rimperio-n8n:5678/webhook/rimperio` einzutragen — dann bleiben die Daten im

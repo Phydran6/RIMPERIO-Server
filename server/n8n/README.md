@@ -14,9 +14,9 @@ Fertige Abläufe für n8n. Importieren, Zugangsdaten zuweisen, aktivieren.
 Zwei Wege:
 
 * **Vorhandenes n8n** — irgendwo im Netz. Für die KI-Auswertung im Web-UI unter
-  *System → KI-Auswertung* den Weg **„n8n extern"** wählen und die Webhook-Adresse
+  *Automatisierung → KI-Auswertung* den Weg **„n8n extern"** wählen und die Webhook-Adresse
   eintragen.
-* **Als Container neben RIMPERIO** — unter *System → Zusatzdienste* einschalten.
+* **Als Container neben RIMPERIO** — unter *RIMPERIO-Server → Zusatzdienste* einschalten.
   Die Adresse ist dann `http://rimperio-n8n:5678/webhook/rimperio`, und die Daten
   bleiben im Docker-Netz.
 

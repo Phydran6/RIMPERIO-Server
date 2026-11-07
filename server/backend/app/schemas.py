@@ -350,6 +350,10 @@ class CaddyConfigResponse(BaseModel):
     trusted_proxies: List[str] = []
     # Beobachteter externer HTTPS-Proxy (siehe proxy_detect.py)
     external_proxy: Dict[str, Any] = {}
+    # Oeffentliche Adresse (siehe public_url.py): gespeichert, aus SITE_URL, wirksam
+    public_url: str = ""
+    public_url_env: str = ""
+    public_url_effective: str = ""
 
 class CaddyApplyRequest(BaseModel):
     caddyfile: str = ""
@@ -422,3 +426,7 @@ class AppQRResponse(BaseModel):
     expires_at: datetime
     expires_in_seconds: int
     api_url: str
+    # Woher die Adresse stammt: site_url | saved | browser | headers | detected
+    url_source: str = ""
+    # Gefuellt, wenn die App mit dieser Adresse nicht verbinden wird (kein https)
+    warning: Optional[str] = None

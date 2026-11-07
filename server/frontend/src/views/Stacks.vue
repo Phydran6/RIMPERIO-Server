@@ -2,7 +2,7 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - System -> Zusatzdienste: Portainer, Watchtower, n8n, Postfix.
+     Beschreibung: RIMPERIO - RIMPERIO-Server -> Zusatzdienste: Portainer, Watchtower, n8n, Postfix.
 
      Die Zugangsdaten holt die Seite bewusst erst auf Klick nach: sonst stuende
      bei jedem Seitenaufruf ein Passwort in der Antwort - auch dann, wenn es

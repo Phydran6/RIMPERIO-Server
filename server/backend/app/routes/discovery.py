@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import discovery, journal, onboard
+from .. import discovery, journal, onboard, public_url
 from ..auth import get_current_admin
 from ..config import settings
 from ..database import get_db
@@ -88,7 +88,7 @@ async def status(db: AsyncSession = Depends(get_db), _=Depends(get_current_admin
         },
         # Fuer die Anleitungen in der Oberflaeche: unter welchem Namen die
         # Agents den Server erreichen.
-        "site_url": settings.site_url or None,
+        "site_url": public_url.site_url() or None,
         "kinds": discovery.KIND_LABELS,
     }
 

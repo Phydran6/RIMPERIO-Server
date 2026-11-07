@@ -119,12 +119,12 @@ FAQ: List[dict] = [
         "answer": (
             "Drei Container werden aus diesem Quellcode gebaut und heißen deshalb "
             "`rimperio-app-*`: Backend, Frontend und der Syslog-Empfänger. Sie werden "
-            "über System → Updates aktualisiert; ein fertiges Image gibt es für sie "
+            "über RIMPERIO-Server → Updates aktualisiert; ein fertiges Image gibt es für sie "
             "nirgends.\n\n"
             "Alles andere sind fremde, ganz normale Images und heißt `rimperio-ext-*`: "
             "PostgreSQL, Caddy und, falls eingeschaltet, n8n, Portainer, Open WebUI, "
             "Postfix und Tugtainer. Die gehören nicht zu RIMPERIO und brauchen ihre "
-            "eigenen, regelmäßigen Updates — zu finden unter System → Container.\n\n"
+            "eigenen, regelmäßigen Updates — zu finden unter RIMPERIO-Server → Container.\n\n"
             "Früher hießen alle `rimperio-…`, und damit sah es so aus, als gehörte "
             "PostgreSQL irgendwie dazu. Tut es nicht."
         ),
@@ -167,7 +167,7 @@ FAQ: List[dict] = [
         "category": "Betrieb",
         "question": "Wie sehe ich, was auf dem System passiert ist?",
         "answer": (
-            "System → Systemtagebuch. Dort steht jeder Eingriff: Updates, Sicherungen, "
+            "RIMPERIO-Server → Systemtagebuch. Dort steht jeder Eingriff: Updates, Sicherungen, "
             "Aufräumläufe, Container-Aktionen, geöffnete Terminal-Sitzungen, "
             "Anmeldungen und abgewiesene Anmeldungen, geänderte Einstellungen, "
             "erzeugte und zurückgezogene Schlüssel.\n\n"
@@ -246,7 +246,7 @@ FAQ: List[dict] = [
         "category": "Betrieb",
         "question": "Wie sichere ich, und wie komme ich zurück?",
         "answer": (
-            "System → Sicherung. Eine Sicherung ist eine ZIP-Datei, optional mit "
+            "RIMPERIO-Server → Sicherung. Eine Sicherung ist eine ZIP-Datei, optional mit "
             "AES-256 verschlüsselt; der Umfang ist wählbar, und beim Zurückspielen "
             "ebenso.\n\n"
             "Vor jedem Eingriff — Update, Rückfall, Container-Update, Neustart — fragt "
@@ -260,7 +260,7 @@ FAQ: List[dict] = [
         "category": "Grundsätzliches",
         "question": "Wie prüfe ich, dass hier wirklich das läuft, was auf GitHub steht?",
         "answer": (
-            "Unter System → Updates steht die installierte Version, der Git-Commit "
+            "Unter RIMPERIO-Server → Updates steht die installierte Version, der Git-Commit "
             "dieser Installation und der Stand auf GitHub. Beide Commit-Nummern lassen "
             "sich im Repository direkt nachschlagen.\n\n"
             "Auf dem Server selbst: `git -C /opt/rimperio log -1` zeigt denselben "

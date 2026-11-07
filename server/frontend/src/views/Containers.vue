@@ -7,7 +7,7 @@
      Die Seite beantwortet eine einzige Frage, und zwar fuer jeden Container
      einzeln: WIE aktualisiere ich das Ding?
 
-       RIMPERIO selbst   aus dem Quellcode gebaut -> System -> Updates
+       RIMPERIO selbst   aus dem Quellcode gebaut -> RIMPERIO-Server -> Updates
        Fremde Dienste  fertiges Image aus einer Registry -> hier, auf Knopfdruck
        Andere          laeuft daneben, gehoert nicht dazu -> nur zur Kenntnis
 
@@ -106,7 +106,7 @@
                 <dt class="w-24 shrink-0" style="color: var(--color-text-muted)">Update über</dt>
                 <dd style="color: var(--color-text-secondary)">
                   <template v-if="item.update_path === 'source'">
-                    <router-link to="/updates" class="link">System → Updates</router-link>
+                    <router-link to="/updates" class="link">RIMPERIO-Server → Updates</router-link>
                     <span class="hint"> (aus dem Quellcode gebaut)</span>
                   </template>
                   <template v-else>Image aus der Registry</template>

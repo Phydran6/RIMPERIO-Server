@@ -90,7 +90,7 @@ def _write_resolv_conf(servers: List[str], search_domains: List[str]) -> None:
     if not servers:
         # Nichts ueberschreiben -> Docker-Default bleibt aktiv (kein Totalausfall).
         return
-    lines = ["# Verwaltet von RIMPERIO (Einstellungen -> Netzwerk -> DNS)"]
+    lines = ["# Verwaltet von RIMPERIO (Einstellungen -> DNS)"]
     if search_domains:
         lines.append("search " + " ".join(search_domains))
     lines.extend(f"nameserver {ns}" for ns in servers)

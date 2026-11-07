@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     site_url: str = ""
     # HTTPS gleich bei der Installation (install.sh --domain/--tls/--email).
     # Greift nur, solange noch keine Reverse-Proxy-Konfiguration gespeichert ist;
-    # danach gilt, was unter Einstellungen -> Netzwerk eingestellt wird.
+    # danach gilt, was unter Einstellungen -> HTTPS & Adresse eingestellt wird.
     rimperio_domain: str = ""
     rimperio_tls: str = ""          # letsencrypt | internal
     rimperio_acme_email: str = ""

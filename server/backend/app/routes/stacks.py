@@ -5,7 +5,7 @@
 # Beschreibung: RIMPERIO - Endpunkte fuer die Zusatzdienste
 # ==============================================================================
 """
-System -> Zusatzdienste. Ausschliesslich fuer Administratoren.
+RIMPERIO-Server -> Zusatzdienste. Ausschliesslich fuer Administratoren.
 
 Ein Dienst ein- oder auszuschalten aendert die laufende Installation. Deshalb
 gilt hier dieselbe Regel wie beim Update: vorher wird die Sicherungsfrage

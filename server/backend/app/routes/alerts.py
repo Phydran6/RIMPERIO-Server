@@ -5,7 +5,7 @@
 # Beschreibung: RIMPERIO - Endpunkte fuer Meldungen (Mail, Telegram, Webhook/n8n)
 # ==============================================================================
 """
-System -> Benachrichtigungen. Nur fuer Administratoren - hier stehen
+Einstellungen -> Benachrichtigungen. Nur fuer Administratoren - hier stehen
 Bot-Token und Webhook-Geheimnis.
 """
 

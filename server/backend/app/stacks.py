@@ -10,7 +10,7 @@ Zugangsdaten anzeigen.
 
 Alle fuenf sind **fremde** Images und heissen deshalb `rimperio-ext-*`. Ihre
 Updates laufen nicht ueber RIMPERIOs Patchmanagement, sondern unter
-*System -> Container*.
+*RIMPERIO-Server -> Container*.
 
 Wie das laeuft: In der `.env` auf dem Host steht `COMPOSE_PROFILES`. Wird dort
 ein Profil ergaenzt oder gestrichen und danach `docker compose up -d` gestartet,
@@ -19,7 +19,7 @@ kommt der Dienst dazu bzw. verschwindet. Genau das macht dieses Modul - ueber
 
 Zugangsdaten: Portainer und n8n brauchen ein Passwort. Es steht in der `.env`,
 wird beim Installieren ausgewuerfelt und ist in der Oberflaeche unter
-*System -> Zusatzdienste* fuer Administratoren einsehbar. Das ist der ganze
+*RIMPERIO-Server -> Zusatzdienste* fuer Administratoren einsehbar. Das ist der ganze
 Zweck der Uebung: Passwoerter, die man nur beim Installieren einmal sieht, sind
 zwei Wochen spaeter verloren.
 
@@ -62,7 +62,7 @@ STACKS: Dict[str, dict] = {
         "label": "Tugtainer (Image-Update-Prüfer)",
         "hint": ("Sieht nach, ob für die fremden Images Updates bereitliegen, und "
                  "meldet sie. Eingespielt wird auf Ansage — hier oder unter "
-                 "System → Container."),
+                 "RIMPERIO-Server → Container."),
         "container": "rimperio-ext-tugtainer",
         "default_port": 9412,
         "url_template": "http://{host}:{port}",
@@ -97,7 +97,7 @@ STACKS: Dict[str, dict] = {
         "label": "Open WebUI (KI-Oberfläche)",
         "hint": ("Spricht dieselbe Sprache wie OpenAI, hat dahinter aber das Modell, "
                  "das man selbst wählt — auch ein lokales über Ollama. Als Anbieter "
-                 "unter System → KI-Auswertung auswählbar."),
+                 "unter Automatisierung → KI-Auswertung auswählbar."),
         "container": "rimperio-ext-openwebui",
         "default_port": 3000,
         "url_template": "http://{host}:{port}",
@@ -111,7 +111,7 @@ STACKS: Dict[str, dict] = {
     },
     "postfix": {
         "label": "Postfix (Mailversand)",
-        "hint": "Damit der Server Mails verschicken kann. Eingestellt unter System → Mail.",
+        "hint": "Damit der Server Mails verschicken kann. Eingestellt unter Einstellungen → E-Mail.",
         "container": "rimperio-ext-postfix",
         "legacy_container": "rimperio-postfix",
         "default_port": 1587,
@@ -182,7 +182,7 @@ async def write_env_values(updates: Dict[str, str]) -> bool:
     if remaining:
         if lines and lines[-1].strip():
             lines.append("")
-        lines.append("# --- Zusatzdienste (System -> Zusatzdienste) ---")
+        lines.append("# --- Zusatzdienste (RIMPERIO-Server -> Zusatzdienste) ---")
         for key, value in remaining.items():
             lines.append(f"{key}={value}")
 

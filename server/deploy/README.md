@@ -39,7 +39,7 @@ COMPOSE_PROFILES=portainer,tugtainer
 ```
 
 Genau das schreibt der Installer, wenn man dort Zusatzdienste auswählt, und die
-Oberfläche unter *System → Zusatzdienste*.
+Oberfläche unter *RIMPERIO-Server → Zusatzdienste*.
 
 ## Externe Datenbank
 

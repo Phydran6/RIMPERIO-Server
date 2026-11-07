@@ -2,7 +2,7 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - System -> Terminal: Root-Shell auf dem Server im Browser.
+     Beschreibung: RIMPERIO - RIMPERIO-Server -> Konsole: Root-Shell auf dem Server im Browser.
 
      Bewusst ohne xterm.js: das waere eine weitere Abhaengigkeit (rund 300 kB)
      plus Build-Schritt, nur damit hier ein Terminal steht. Stattdessen ein
@@ -109,7 +109,7 @@
           <p class="hint mt-1" style="color: var(--color-warning)">
             RIMPERIO-Updates bitte nicht hier starten: das Update baut den Container neu, über
             den diese Konsole läuft, und bräche dabei ab. Dafür
-            <router-link to="/updates" style="text-decoration: underline">System → Updates</router-link>
+            <router-link to="/updates" style="text-decoration: underline">RIMPERIO-Server → Updates</router-link>
             oder SSH nutzen.
           </p>
         </div>

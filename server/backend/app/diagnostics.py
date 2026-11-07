@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.08.14.12.00.00
+# Version:     2026.11.07.23.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Selbstdiagnose: prueft das komplette System durch
 # ==============================================================================
@@ -302,7 +302,7 @@ async def check_disk() -> Check:
     hint = (f"Der Plattenwächter räumt ab {diskguard.THRESHOLD_WARN:.0f} % von selbst auf "
             f"und hält die Belegung Richtung {diskguard.TARGET_USAGE:.0f} %. Die letzten "
             f"{diskguard.MIN_KEEP_HOURS} h Logs bleiben dabei immer stehen. Wer mehr Luft "
-            f"will: Aufbewahrung verkürzen (Einstellungen → Aufbewahrung) oder "
+            f"will: Aufbewahrung verkürzen (Einstellungen → Log-Aufbewahrung) oder "
             f"Archivierung einschalten.")
     if percent >= DISK_FAIL:
         return _fail("disk", "Speicherplatz", "Kern", f"Kritisch voll ({percent:.1f} %)",
@@ -501,7 +501,7 @@ async def check_admin_password() -> Check:
         return _fail("admin_password", "Administrator-Konten", "Sicherheit",
                      "Standardpasswort noch aktiv",
                      f"Betroffen: {', '.join(weak)}. Diese Zugangsdaten stehen in jeder Anleitung.",
-                     "Passwort sofort aendern: Einstellungen -> Passwort. "
+                     "Passwort sofort aendern: Mein Konto -> Passwort. "
                      "Zusaetzlich Zwei-Faktor oder einen Passkey einrichten.",
                      users=weak)
     return _ok("admin_password", "Administrator-Konten", "Sicherheit",
@@ -549,8 +549,9 @@ async def check_https() -> Check:
                      "HTTPS über externen Proxy erkannt",
                      f"Anfragen kommen per HTTPS über den Proxy {seen['peer']}, Caddy vertraut "
                      "ihm aber noch nicht. Passkeys, SSO und Links sehen dadurch http statt https.",
-                     "Einstellungen -> Netzwerk -> Reverse Proxy: Modus "
-                     "\"HTTPS über externen Proxy\" wählen und anwenden.",
+                     "Die Oberfläche einmal als Administrator über den Proxy öffnen - "
+                     "RIMPERIO übernimmt ihn dann automatisch. Sonst: Einstellungen -> "
+                     "HTTPS & Adresse: Modus \"HTTPS über externen Proxy\" wählen und anwenden.",
                      peer=seen["peer"])
     if external_configured:
         return _ok("https", "Verschluesselte Verbindung", "Sicherheit",
@@ -561,7 +562,7 @@ async def check_https() -> Check:
     return _warn("https", "Verschluesselte Verbindung", "Sicherheit", "Nur HTTP",
                  "Caddy lauscht nicht auf Port 443, und es wurde kein vorgeschalteter "
                  "HTTPS-Proxy erkannt. Anmeldedaten und Logs laufen im Klartext durchs Netz.",
-                 "Einstellungen -> Netzwerk -> Reverse Proxy: HTTPS einschalten "
+                 "Einstellungen -> HTTPS & Adresse: HTTPS einschalten "
                  "(Let's Encrypt, eigenes Zertifikat, selbstsigniert oder über externen Proxy).")
 
 
@@ -599,7 +600,7 @@ async def check_log_flow() -> Check:
     if newest is None:
         return _warn("log_flow", "Logeingang", "Betrieb", "Noch kein einziger Log",
                      "Die Tabelle logs ist leer.",
-                     "Sendet schon ein Geraet? Agent installieren (Bereich Geraete) oder ein "
+                     "Sendet schon ein Geraet? Agent installieren (Geraete -> Rechner) oder ein "
                      "Geraet auf Syslog-Ziel Port 514 einstellen.")
 
     age = datetime.utcnow() - newest
@@ -609,7 +610,7 @@ async def check_log_flow() -> Check:
         return _warn("log_flow", "Logeingang", "Betrieb",
                      f"Seit {_human_delta(age)} nichts angekommen", detail,
                      "Entweder sendet gerade niemand, oder der Empfang haengt. Syslog-Port 514 "
-                     "und die Agenten-Token pruefen (Bereich Geraete).",
+                     "und die Zugangsschluessel pruefen (Geraete -> Zugangsschluessel).",
                      last_hour=last_hour)
     return _ok("log_flow", "Logeingang", "Betrieb", f"Zuletzt vor {_human_delta(age)}", detail,
                last_hour=last_hour)
@@ -640,7 +641,7 @@ async def check_agents() -> Check:
                      f"{len(stale)} Geraet(e) seit ueber einer Woche still",
                      detail + " Lange still: " + ", ".join(stale),
                      "Entweder sind die Geraete aus, oder der Agent laeuft nicht mehr. "
-                     "Nicht mehr genutzte Geraete koennen im Bereich Geraete entfernt werden.",
+                     "Nicht mehr genutzte Geraete koennen unter Geraete -> Log-Quellen entfernt werden.",
                      total=total, online=online)
     return _ok("agents", "Geraete", "Betrieb", f"{online} von {total} online", detail,
                total=total, online=online)
@@ -662,7 +663,7 @@ async def check_retention() -> Check:
         return _warn("retention", "Aufbewahrung", "Betrieb", "Keine Aufbewahrung eingestellt",
                      f"Aktuell liegen etwa {_num(rows)} Zeilen in der Tabelle logs. "
                      f"Ohne Grenze waechst sie, bis die Platte voll ist.",
-                     "Einstellungen -> Aufbewahrung: eine Anzahl Tage setzen. "
+                     "Einstellungen -> Log-Aufbewahrung: eine Anzahl Tage setzen. "
                      "Alternativ die Archivierung einschalten.")
     return _ok("retention", "Aufbewahrung", "Betrieb", f"{setting.value} Tage",
                f"Etwa {_num(rows)} Zeilen in der Tabelle logs.",
@@ -710,7 +711,7 @@ async def check_ldap() -> Check:
     if not uri:
         return _fail("ldap", "Verzeichnis (LDAP)", "Betrieb", "Eingeschaltet, aber ohne Server",
                      "In den Einstellungen ist keine Server-Adresse hinterlegt.",
-                     "Einstellungen -> Verzeichnis: Server-Adresse eintragen oder die "
+                     "Benutzer & Zugang -> LDAP / Active Directory: Server-Adresse eintragen oder die "
                      "Anmeldung ueber das Verzeichnis ausschalten.")
 
     host, port = _split_ldap_uri(uri)
@@ -744,7 +745,7 @@ async def check_dns() -> Check:
         return _fail("dns", "Namensaufloesung", "Netz & Updates", "DNS antwortet nicht",
                      "; ".join(errors),
                      "Ohne DNS gibt es keine Update-Pruefung und keine Zertifikate von "
-                     "Let's Encrypt. Einstellungen -> Netzwerk -> DNS pruefen.")
+                     "Let's Encrypt. Einstellungen -> DNS pruefen.")
     return _ok("dns", "Namensaufloesung", "Netz & Updates", "Funktioniert", "; ".join(results))
 
 
@@ -784,7 +785,7 @@ async def check_update() -> Check:
                      f"Installiert: {local.get('version')} ({local.get('commit_short') or 'ohne Git'}), "
                      f"auf GitHub: {remote.get('version') or remote.get('commit_short')} "
                      f"vom {_short_date(remote.get('commit_date'))}.",
-                     "Bereich System -> Updates: dort das Update einspielen. Vorher die "
+                     "Bereich RIMPERIO-Server -> Updates: dort das Update einspielen. Vorher die "
                      "Hinweise zum Datenbestand lesen.",
                      update_available=True)
     return _ok("update", "Aktualitaet", "Netz & Updates", "Aktueller Stand",

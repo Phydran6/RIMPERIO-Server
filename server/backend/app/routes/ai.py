@@ -93,7 +93,7 @@ async def _require_usage_permission(db: AsyncSession, user) -> dict:
         raise HTTPException(
             status_code=409,
             detail=("Die KI-Auswertung ist nicht eingerichtet. "
-                    "Ein Administrator richtet sie unter System → KI-Auswertung ein."))
+                    "Ein Administrator richtet sie unter Automatisierung → KI-Auswertung ein."))
     if user.role != "admin" and not config.get("enabled_for_users"):
         raise HTTPException(
             status_code=403,

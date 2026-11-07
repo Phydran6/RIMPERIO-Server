@@ -128,7 +128,7 @@ Docker-Netz steht.
 
 ## Sichern
 
-- **Im Web-UI:** [System → Sicherung](../../docs/backup/README.md) — granular, als
+- **Im Web-UI:** [RIMPERIO-Server → Sicherung](../../docs/backup/README.md) — granular, als
   ZIP, optional verschlüsselt.
 - **Klassisch:**
 
