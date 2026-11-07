@@ -1,28 +1,34 @@
 # Marke / Icons
 
-Hier liegt das Markenzeichen von RIMPERIO.
+Hier liegt das Markenzeichen von RIMPERIO: dunkelblaues Feld, goldene
+Wortmarke mit Blitz, Monitor mit Zahnrad. Die Vorlagen in voller Größe liegen in
+der [App](https://github.com/Phydran6/RIMPERIO-App/tree/main/assets/icon)
+(`rimperio_logo.png` mit Rahmen, `icon.png` vollflächig) — Server, Agent und App
+tragen dasselbe Zeichen.
 
 | Datei | Wofür |
 |---|---|
-| [`../frontend/public/favicon.svg`](../../server/frontend/public/favicon.svg) | Favicon + Logo in der Oberfläche (SVG, skaliert überall) |
-| [`../docs/assets/rimperio-icon.svg`](../assets/rimperio-icon.svg) | Logo im README (Kopie von `favicon.svg`; auch im Übersichts-Repo `Phydran6/RIMPERIO` unter demselben Pfad) |
-| `rimperio-icon.png` | Logo als PNG, 256×256. **Derzeit aus `favicon.svg` gerendert**; zum Austauschen einfach durch das echte Logo ersetzen |
-| `../installer/windows/rimperio.ico` *(erzeugt)* | Symbol der `.exe` und `.msi` |
+| `rimperio-icon.png` | Logo mit Goldrahmen, 256×256, transparente Ecken — Quelle für das Windows-Symbol |
+| [`../assets/rimperio-icon.png`](../assets/rimperio-icon.png) | dasselbe in 512×512 für das README (auch im Übersichts-Repo `Phydran6/RIMPERIO` unter demselben Pfad) |
+| [`../../server/frontend/public/favicon.png`](../../server/frontend/public/favicon.png) | Favicon der Oberfläche (Logo mit Rahmen, 256×256) |
+| [`../../server/frontend/public/rimperio-icon.png`](../../server/frontend/public/rimperio-icon.png) | `apple-touch-icon`, vollflächig ohne Rahmen — iOS rundet selbst ab |
+| [`../../agent/installer/windows/rimperio.ico`](../../agent/installer/windows/rimperio.ico) | Symbol der Agent-`.exe` und `.msi` |
 
-## Dein Logo überall einsetzen
+## Logo austauschen
 
-1. Lege dein Logo als **`brand/rimperio-icon.png`** ab (quadratisch, 256×256; größer geht nicht, das ICO-Format endet bei 256).
-2. Erzeuge daraus das Windows-Symbol:
+1. Neues Logo als **`docs/brand/rimperio-icon.png`** ablegen (quadratisch,
+   256×256; größer geht nicht, das ICO-Format endet bei 256).
+2. Windows-Symbol daraus erzeugen:
 
    ```bash
-   node scripts/make-ico.mjs brand/rimperio-icon.png installer/windows/rimperio.ico
+   node docs/brand/make-ico.mjs docs/brand/rimperio-icon.png agent/installer/windows/rimperio.ico
    ```
 
-3. Baue den Agent neu — `build-agent.ps1` bindet das Symbol automatisch ein, wenn
-   `installer/windows/rimperio.ico` vorhanden ist.
-4. Für das Favicon kannst du das SVG behalten (empfohlen) oder dein PNG als
-   `frontend/public/favicon.png` zusätzlich hinterlegen.
+3. Agent neu bauen — `build-agent.ps1` bettet das Symbol ein, die MSI nimmt es
+   für „Apps & Features“.
+4. `favicon.png`, `rimperio-icon.png` (Oberfläche) und `docs/assets/rimperio-icon.png`
+   (README) ebenfalls ersetzen.
 
-Das SVG unter `frontend/public/favicon.svg` ist eine saubere Nachbildung des
-Markenzeichens (dunkelblaues Feld, goldene Wortmarke, Monitor + Zahnrad) und wird
-sofort überall in der Oberfläche verwendet.
+Ein unter *Einstellungen → Erscheinungsbild* hochgeladenes Logo oder Favicon
+überschreibt die Dateien der Oberfläche zur Laufzeit; sie bleiben die
+Rückfallebene.

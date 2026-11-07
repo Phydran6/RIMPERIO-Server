@@ -2,15 +2,15 @@
 
 | Datei | Wofür |
 |-------|-------|
-| `rimperio-icon.png` | Das RIMPERIO-Zeichen, 192×192. Steht in der Haupt-README und als `apple-touch-icon`. |
-| `rimperio-icon-round.png` | Runde Fassung, 192×192. Dient als Standard-Favicon. |
+| `rimperio-icon.png` | Das RIMPERIO-Zeichen mit Goldrahmen, 512×512, transparente Ecken. Steht in der Haupt-README. |
 
-Beide stammen aus der [Android-App](https://github.com/Phydran6/RIMPERIO-App)
-(`app/src/main/res/mipmap-xxxhdpi/`) — Server und App tragen damit dasselbe
-Zeichen.
+Es stammt aus der [App](https://github.com/Phydran6/RIMPERIO-App)
+(`assets/icon/rimperio_logo.png`) — Server und App tragen damit dasselbe
+Zeichen. Favicon und `apple-touch-icon` der Oberfläche liegen unter
+`server/frontend/public/`; welche Datei wofür da ist, steht in
+[`../brand/README.md`](../brand/README.md).
 
-Eingebunden sind sie über `frontend/public/`. Wer ein eigenes Logo oder Favicon
-unter *Einstellungen → Erscheinungsbild* hochlädt, überschreibt sie zur
-Laufzeit; die Dateien hier bleiben die Rückfallebene.
+Wer ein eigenes Logo oder Favicon unter *Einstellungen → Erscheinungsbild*
+hochlädt, überschreibt sie zur Laufzeit; die Dateien bleiben die Rückfallebene.
 
 ← [Alle Dokumente](../README.md)

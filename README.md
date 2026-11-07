@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/rimperio-icon.svg" alt="RIMPERIO" width="140">
+<img src="docs/assets/rimperio-icon.png" alt="RIMPERIO" width="140">
 
 # RIMPERIO
 

@@ -45,7 +45,7 @@
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Phydran6/RIMPERIO-Server" />
     <Property Id="ARPNOMODIFY" Value="1" />
 
-    <!-- Symbol in "Apps & Features" (aus brand/rimperio-icon.png, siehe brand/README.md). -->
+    <!-- Symbol in "Apps & Features" (aus docs/brand/rimperio-icon.png, siehe docs/brand/README.md). -->
     <Icon Id="rimperio.ico" SourceFile="rimperio.ico" />
     <Property Id="ARPPRODUCTICON" Value="rimperio.ico" />
 
