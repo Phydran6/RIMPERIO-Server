@@ -4,6 +4,7 @@ Rechner mit RIMPERIO-Agent aus der Ferne überwachen und steuern. In der Oberfl�
 **Fernwartung**.
 
 ← [Dokumentation](../README.md) · [Agent](../../agent/README.md) · [Installer & Signatur](../../agent/installer/README.md)
+· [Patchmanagement](patching.md) · [SNMP](snmp.md)
 
 ## Ein Gerät, eine Zeile
 
@@ -30,7 +31,11 @@ SHA-256. „Agent entfernen“ trennt den Agent vom Gerät, die Logs bleiben.
 | **Rechner** | Liste mit Status, Standort, System, CPU/RAM/Platte; Detail mit Befehlen, Skripten, Patches, Checks, Platten/Prozessen und Inventur |
 | **Skripte** | Bibliothek (PowerShell, cmd, bash, sh), Ausführung je Rechner |
 | **Checks** | Prüfungen, die der Agent selbst im Takt ausführt: CPU, RAM, Platte, Dienst, Port, Ping, Skript (Exit-Code) – global, je Standort oder je Rechner |
-| **Patches** | Ausstehende Updates je Rechner, suchen und installieren |
+| **Patch-Center** | Windows-, Linux- und Docker-Updates: Freigaben mit KI-Einschätzung, Läufe mit Proxmox-Snapshot und Prüfung — siehe [Patchmanagement](patching.md) |
+| **Patch-Richtlinien** | Zeitplan, Wartungsfenster, Freigaberegeln, KI, Sicherung, Prüfung, Docker — global, je Standort oder Rechner |
+| **Update-Quellen** | Sicherheitsmeldungen, bekannte Probleme, Release-Notizen, eigene RSS-Feeds, Websuche |
+| **Proxmox & Snapshots** | Proxmox-Hosts, Zuordnung Rechner ↔ VM, offene Sicherungen |
+| **SNMP-Geräte** | Netzwerkgeräte ohne Agent überwachen — siehe [SNMP](snmp.md) |
 | **Rechner-Alarme** | Offline, Schwelle überschritten, Check fehlgeschlagen; Schwellen einstellen |
 
 Lesen darf jeder angemeldete Benutzer, **Eingriffe nur Administratoren**. Jeder Eingriff
@@ -40,7 +45,9 @@ Lesen darf jeder angemeldete Benutzer, **Eingriffe nur Administratoren**. Jeder 
 
 Alarme gehen über dasselbe Meldesystem wie alles andere: *Benachrichtigungen* (Mail,
 Telegram, Webhook/n8n). Je Art ein- und ausschaltbar: *Rechner offline*, *über Schwelle*,
-*Check fehlgeschlagen*, *Updates verfügbar*; bei Behebung kommt eine Entwarnung.
+*Check fehlgeschlagen*, *Updates verfügbar*, *Freigabe nötig*, *Patch-Lauf fehlgeschlagen/
+erfolgreich*, *SNMP-Gerät meldet ein Problem*; bei Behebung kommt eine Entwarnung.
+Freigaben und Fehlschläge stehen zusätzlich im **Eingang** (Glocke oben rechts, App).
 
 ## Sicherung
 

@@ -2,6 +2,11 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.07.12.00.00
+
+### Added
+- Patch-Center (Übersicht, Freigaben mit KI und Quellen, alle Updates, Läufe, Docker), Patch-Richtlinien, Update-Quellen, Proxmox & Snapshots, SNMP-Geräte mit Assistent und Gerätedetail (Verlauf, Schwellen), Glocke für den Eingang.
+
 ## 2026.10.18.22.00.00
 
 ### Fixed

@@ -2,6 +2,18 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.07.12.00.00
+
+### Added
+- `patch_scan` liefert Klassifizierung (Windows über die festen WSUS-Kennungen), KB, CVEs, Veröffentlichung, Neustartbedarf; Linux: installierte/angebotene Version, Archiv, Sicherheitskennzeichen (apt `*-security`, dnf/yum `updateinfo`), Kernel.
+- `patch_apply` installiert nur die übergebenen IDs und startet nach Vorgabe neu (`never`/`if_needed`/`always`).
+- `docker_scan` / `docker_update`: Registry-Abgleich ohne Download, Versionsangabe des neuen Images, Neuaufbau über Compose oder Docker-API wie Watchtower, Healthcheck, Zurückrollen, Watchtower-Labels.
+- `health_snapshot`: Dienste, fehlgeschlagene Units, Container, Neustartbedarf.
+- SNMP-Poller (gosnmp, v1/v2c/v3 inkl. AES-192/256) für zugewiesene Geräte.
+
+### Changed
+- Lange Aufträge laufen in einem Hintergrund-Arbeiter; der Check-in bleibt im Takt.
+
 ## 2026.10.11.20.00.00
 
 ### Fixed

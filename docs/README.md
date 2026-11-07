@@ -32,6 +32,8 @@ sortiert, nicht nach Bauteilen.
 | Mails vom Server bekommen | [Integrationen → Mail](integrations/README.md#mail-postfix) |
 | die API benutzen | [API](api/README.md) |
 | Rechner fernwarten (Befehle, Skripte, Patches, Checks) | [Fernwartung](rmm/README.md) |
+| Windows, Linux und Docker patchen (Freigaben, KI, Proxmox-Snapshot) | [Patchmanagement](rmm/patching.md) |
+| Netzwerkgeräte per SNMP überwachen | [SNMP](rmm/snmp.md) |
 | Logs von Rechnern einsammeln | [Log-Agents](../agent/logship/README.md) |
 | PostgreSQL migrieren | [Datenbank](../server/db/README.md) |
 
