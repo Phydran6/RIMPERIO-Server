@@ -92,7 +92,7 @@ Starten:
 uvicorn app.main:app --reload --port 8000
 ```
 
-API-Dokumentation dann unter `http://127.0.0.1:8000/api/docs`.
+API-Dokumentation dann unter `http://127.0.0.1:8000/api/docs` – für die lokale Entwicklung am einfachsten mit `RIMPERIO_API_DOCS=public` (sonst nur mit Admin-Ticket, siehe docs/api).
 
 Änderungen gehören ins [Changelog](../../docs/changelog/backend.md); der Versionsstand
 im Datei-Kopf wandert mit.

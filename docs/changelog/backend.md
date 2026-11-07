@@ -2,6 +2,16 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## Unveröffentlicht — Angriffsfläche, Teil 2
+
+### Security
+- **Caddy-Admin-API nicht mehr im Netz.** Sie lauschte ohne Anmeldung auf `0.0.0.0:2019` im Docker-Netz, also auch erreichbar für n8n, Open WebUI, Portainer und Postfix. Ein HTTP-Knoten in einem n8n-Workflow genügte, um den Proxy umzubauen. Jetzt lauscht sie auf einem Unix-Socket im Volume `caddy_admin`, das nur Caddy und das Backend sehen (`app/caddy_admin.py`). Jede Caddyfile bekommt vor dem Laden die richtige Admin-Adresse (`enforce_admin`): Eine alte gespeicherte Zeile `admin 0.0.0.0:2019` öffnet den Port nicht wieder, und `admin off` sperrt RIMPERIO nicht aus. Rückfall ohne Socket: `CADDY_ADMIN_URL` wie bisher.
+- **API-Dokumentation nur für Administratoren.** `/api/docs` und `/api/openapi.json` waren für jeden offen, also ein vollständiger Lageplan aller Endpunkte. Jetzt nur noch mit Ticket (Zweck `api-docs`), geöffnet aus „Über RIMPERIO“. `RIMPERIO_API_DOCS=public` stellt das alte Verhalten her, `off` schaltet die Doku ab.
+- **„Nur HTTPS“ (optional).** Neu im Reverse-Proxy-Dialog und als `install.sh --https-only` (`RIMPERIO_HTTPS_ONLY`): Port 80 leitet dann per 308 auf HTTPS weiter, statt die Oberfläche auszuliefern. Adressen mit eigenem Zertifikat bleiben beim selben Namen, alles andere geht auf den FQDN. Standard bleibt wie bisher (Port 80 als Rettungsweg).
+
+### Fixed
+- **HTTPS ging nach einem Caddy-Neustart verloren.** Caddy liest beim Start nur die statische `Caddyfile` (HTTP); die gespeicherte Konfiguration spielte das Backend nur bei seinem eigenen Start ein, und zwar ohne zu warten, obwohl Caddy laut `depends_on` erst danach startet. Neu: Das Laden beim Start wartet bis zu 2 Minuten auf Caddy (im Hintergrund, die API ist sofort da), und ein Wächter vergleicht alle 30 s die laufende mit der gespeicherten Konfiguration (Caddys eigenes `/adapt`-JSON) und spielt sie bei Abweichung wieder ein.
+
 ## Unveröffentlicht — Sicherheitsdurchsicht
 
 ### Security

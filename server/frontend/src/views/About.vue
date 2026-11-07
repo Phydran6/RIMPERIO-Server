@@ -84,6 +84,13 @@
             <span class="font-medium" style="color: var(--color-primary)">{{ link.label }}</span>
             <span class="text-xs mt-0.5 block" style="color: var(--color-text-muted)">{{ link.hint }}</span>
           </a>
+          <!-- API-Doku: nur fuer Admins, mit Ticket (gilt eine Minute) -->
+          <button v-if="auth.isAdmin" type="button" class="link-card text-left" @click="openApiDocs">
+            <span class="font-medium" style="color: var(--color-primary)">API-Dokumentation</span>
+            <span class="text-xs mt-0.5 block" style="color: var(--color-text-muted)">
+              Alle Endpunkte zum Ausprobieren (Swagger). Nur für Administratoren.
+            </span>
+          </button>
         </div>
       </div>
 
@@ -143,6 +150,25 @@ import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
 
 const auth = useAuthStore()
+
+// Die API-Doku ist nicht mehr offen im Netz. Ein Ticket (60 s) oeffnet sie in
+// einem neuen Tab; danach einfach hier noch einmal klicken.
+async function openApiDocs() {
+  const tab = window.open('', '_blank')
+  try {
+    const ticket = await auth.ticket('api-docs')
+    const url = `/api/docs?token=${encodeURIComponent(ticket)}`
+    if (tab) {
+      tab.opener = null
+      tab.location.href = url
+    } else {
+      window.location.href = url
+    }
+  } catch (err) {
+    tab?.close()
+    error.value = err.message
+  }
+}
 
 const about = ref(null)
 const error = ref('')

@@ -369,10 +369,11 @@ async def check_frontend() -> Check:
 
 
 async def check_caddy() -> Check:
-    admin_url = settings.caddy_admin_url.rstrip("/")
+    from . import caddy_admin
+    admin_url = caddy_admin.describe()
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{admin_url}/config/")
+        async with caddy_admin.client(timeout=5.0) as client:
+            response = await client.get("/config/")
             response.raise_for_status()
             config = response.json() or {}
     except Exception as exc:
@@ -508,10 +509,11 @@ async def check_admin_password() -> Check:
 
 
 async def check_https() -> Check:
-    admin_url = settings.caddy_admin_url.rstrip("/")
+    from . import caddy_admin
+    admin_url = caddy_admin.describe()
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{admin_url}/config/")
+        async with caddy_admin.client(timeout=5.0) as client:
+            response = await client.get("/config/")
             response.raise_for_status()
             config = response.json() or {}
     except Exception:

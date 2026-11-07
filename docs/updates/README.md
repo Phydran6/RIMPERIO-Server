@@ -419,7 +419,7 @@ Beispiel, Stand abfragen:
 curl -s -H "Authorization: Bearer $TOKEN" https://rimperio.example.com/api/updates/status
 ```
 
-Einzelheiten: [API](../api/README.md) und `/api/docs` am laufenden Server.
+Einzelheiten: [API](../api/README.md) und die API-Dokumentation am laufenden Server (Über RIMPERIO, nur Administratoren).
 
 ---
 

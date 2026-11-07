@@ -353,12 +353,15 @@ class CaddyApplyRequest(BaseModel):
     letsencrypt_email: Optional[str] = None
     # Zusaetzliche Adressen (IPs/Namen), die per HTTPS erreichbar sein sollen
     extra_hosts: List[str] = []
+    # Port 80 nur noch als Weiterleitung auf HTTPS (Passwoerter nie im Klartext)
+    https_only: bool = False
 
 class CaddyTemplateRequest(BaseModel):
     domain: Optional[str] = None
     mode: str = Field(..., pattern="^(http|letsencrypt|custom|internal)$")
     letsencrypt_email: Optional[str] = None
     extra_hosts: List[str] = []
+    https_only: bool = False
 
 # Netzwerk / DNS
 class DnsConfigUpdate(BaseModel):

@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     rimperio_domain: str = ""
     rimperio_tls: str = ""          # letsencrypt | internal
     rimperio_acme_email: str = ""
+    # install.sh --https-only: Port 80 nur als Weiterleitung auf HTTPS.
+    rimperio_https_only: bool = False
 
     @property
     def database_url(self) -> str:

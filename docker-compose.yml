@@ -183,6 +183,9 @@ services:
       # Startpasswort fuer das Konto 'admin' (von install.sh erzeugt). Ersetzt
       # nur das bekannte Standardpasswort 'admin' - ein geaendertes bleibt.
       RIMPERIO_ADMIN_INITIAL_PASSWORD: ${RIMPERIO_ADMIN_INITIAL_PASSWORD:-}
+      # Caddys Admin-API: ueber den Socket im Volume caddy_admin (siehe unten).
+      # CADDY_ADMIN_URL ist nur noch der Rueckfall fuer Aufbauten ohne Socket.
+      CADDY_ADMIN_SOCKET: /caddy-admin/admin.sock
       CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
       CADDY_CERTS_DIR: ${CADDY_CERTS_DIR:-/caddy-certs}
       # Notausstieg: CADDY_FORCE_HTTP=true in der .env setzen, Backend neu starten
@@ -193,6 +196,7 @@ services:
       RIMPERIO_DOMAIN: ${RIMPERIO_DOMAIN:-}
       RIMPERIO_TLS: ${RIMPERIO_TLS:-}
       RIMPERIO_ACME_EMAIL: ${RIMPERIO_ACME_EMAIL:-}
+      RIMPERIO_HTTPS_ONLY: ${RIMPERIO_HTTPS_ONLY:-false}
       # Patchmanagement (System -> Updates): wo die Installation auf dem HOST
       # liegt und gegen welches Repository geprueft wird. Das Update selbst
       # laeuft auf dem Host (systemd-run), nicht in diesem Container.
@@ -243,6 +247,9 @@ services:
       OIDC_ENABLED: ${OIDC_ENABLED:-}
       # Sprache der Oberflaeche, wenn ein Browser nichts anderes verlangt.
       RIMPERIO_DEFAULT_LANGUAGE: ${RIMPERIO_DEFAULT_LANGUAGE:-de}
+      # API-Dokumentation (/api/docs): admin = nur mit Ticket aus der Oberflaeche
+      # (Ueber RIMPERIO), public = offen wie frueher, off = abgeschaltet.
+      RIMPERIO_API_DOCS: ${RIMPERIO_API_DOCS:-admin}
     expose:
       - "8000"
     # Lebt die API wirklich - nicht nur der Prozess? Caddy wartet darauf,
@@ -255,6 +262,8 @@ services:
       start_period: 60s
     volumes:
       - caddy_certs:/caddy-certs
+      # Socket der Caddy-Admin-API. Nur Backend und Caddy haengen das ein.
+      - caddy_admin:/caddy-admin
       # Sicherungen liegen in einem eigenen Volume: so ueberstehen sie einen
       # Neubau der Container - und genau dafuer sind sie da.
       - backup_data:/backups
@@ -324,6 +333,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
       - caddy_certs:/etc/caddy/certs
+      - caddy_admin:/caddy-admin
     depends_on:
       - frontend
       - backend
@@ -353,6 +363,7 @@ volumes:
   caddy_data:
   caddy_config:
   caddy_certs:
+  caddy_admin:
   backup_data:
   app_data:
 

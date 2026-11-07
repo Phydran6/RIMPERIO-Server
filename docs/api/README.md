@@ -1,7 +1,13 @@
 # API
 
-Die vollständige, immer aktuelle Referenz steht am laufenden Server:
-**`http://SERVER-IP/api/docs`** (OpenAPI/Swagger).
+Die vollständige, immer aktuelle Referenz steht am laufenden Server unter
+`/api/docs` (OpenAPI/Swagger). Sie ist **nur für Administratoren** erreichbar:
+in der Oberfläche unter **Über RIMPERIO → API-Dokumentation** öffnen. Der Link
+trägt ein Ticket, das eine Minute gilt. Das Schema als Datei gibt es mit
+demselben Ticket unter `/api/openapi.json?token=…`.
+
+Wer die Doku wie früher offen haben will, setzt `RIMPERIO_API_DOCS=public` in der
+`.env`. Mit `RIMPERIO_API_DOCS=off` ist sie ganz abgeschaltet.
 
 Hier steht das, was man vorher wissen will.
 

@@ -73,6 +73,7 @@ ADDONS="${RIMPERIO_ADDONS:-}"
 DOMAIN="${RIMPERIO_DOMAIN:-}"
 TLS_MODE="${RIMPERIO_TLS:-}"          # letsencrypt | internal
 ACME_EMAIL="${RIMPERIO_ACME_EMAIL:-}"
+HTTPS_ONLY="${RIMPERIO_HTTPS_ONLY:-false}"   # true = Port 80 leitet nur noch auf HTTPS weiter
 
 # Bekannte Zusatzdienste (muessen zu server/deploy/optional.yml passen).
 # Watchtower ist raus: es hat Container eigenmaechtig ausgetauscht. Tugtainer
@@ -172,6 +173,7 @@ Optionen (auch als Umgebungsvariable RIMPERIO_*):
   --tls <art>        letsencrypt (öffentlich erreichbar) | internal (eigenes Netz)
                      Standard: letsencrypt, wenn --email angegeben, sonst internal
   --email <adresse>  E-Mail für Let's Encrypt (RIMPERIO_ACME_EMAIL)
+  --https-only       Port 80 nur noch als Weiterleitung auf HTTPS (mit --domain)
   --skip-preflight   Systemprüfung überspringen (nicht empfohlen)
   --no-build         Images nicht neu bauen (nur starten)
   --yes, -y          Keine Rückfragen (unattended)
@@ -222,6 +224,7 @@ parse_args() {
             --tls=*)                TLS_MODE="${1#*=}" ;;
             --email)                ACME_EMAIL="${2:-}"; shift ;;
             --email=*)              ACME_EMAIL="${1#*=}" ;;
+            --https-only)           HTTPS_ONLY="true" ;;
             --skip-preflight)       SKIP_PREFLIGHT="true" ;;
             --no-build)             NO_BUILD="true" ;;
             --yes|-y|--unattended)  ASSUME_YES="true" ;;
@@ -382,6 +385,7 @@ apply_https_config() {
     set_env_value "$env_file" "RIMPERIO_TLS" "$TLS_MODE"
     set_env_value "$env_file" "RIMPERIO_ACME_EMAIL" "$ACME_EMAIL"
     set_env_value "$env_file" "SITE_URL" "https://$DOMAIN"
+    set_env_value "$env_file" "RIMPERIO_HTTPS_ONLY" "$HTTPS_ONLY"
 }
 
 run_preflight() {
@@ -865,7 +869,7 @@ print_summary() {
     echo -e "${YELLOW}WICHTIG: Passwort nach dem ersten Login ändern!${NC}"
     echo ""
     echo "Syslog-Empfang:  Port 514 (UDP/TCP)"
-    echo "API-Doku:        http://${local_ip}/api/docs"
+    echo "API-Doku:        in der Oberfläche unter Über RIMPERIO (nur Administratoren)"
     echo "PostgreSQL:      127.0.0.1:5432, nur vom Server selbst (Zugangsdaten in $INSTALL_DIR/.env)"
     echo ""
 

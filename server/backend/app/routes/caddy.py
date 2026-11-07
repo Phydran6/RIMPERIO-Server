@@ -11,7 +11,9 @@
 #     schlaegt das Anwenden fehl, wird die vorher laufende Config zurueckgeholt.
 # ==============================================================================
 
+import asyncio
 import ipaddress
+import json
 import logging
 import re
 import socket
@@ -23,6 +25,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import caddy_admin
 from ..auth import get_current_admin
 from ..config import settings
 from ..database import get_db, async_session
@@ -56,7 +59,9 @@ ROUTES_SNIPPET = """(rimperio_routes) {
 }
 """
 
-ADMIN_BLOCK = "{\n    admin 0.0.0.0:2019\n}\n\n"
+# Admin-API nur ueber den Unix-Socket (siehe app/caddy_admin.py). Vor jedem
+# Laden setzt caddy_admin.enforce_admin die tatsaechlich passende Adresse ein.
+ADMIN_BLOCK = "{\n    admin " + caddy_admin.SOCKET_LISTEN + "\n}\n\n"
 
 # HTTP-Block: faengt alles auf Port 80, was kein spezifischerer Block bedient.
 # Bewusst OHNE redir - sonst ist die Oberflaeche bei kaputtem TLS/DNS nicht mehr
@@ -99,6 +104,7 @@ def _build_template(
     mode: str,
     letsencrypt_email: Optional[str] = None,
     extra_hosts: Optional[List[str]] = None,
+    https_only: bool = False,
 ) -> str:
     """Baut eine Caddyfile.
 
@@ -153,9 +159,36 @@ def _build_template(
         addresses = " ".join(f"https://{host}" for host in hosts)
         blocks.append(f"{addresses} {{\n    tls internal\n    import rimperio_routes\n}}\n\n")
 
+    if https_only:
+        blocks.append(_https_only_block(domain, hosts))
+        return "".join(blocks)
+
     # Port 80 bleibt nutzbar (Rettungsweg + Zugriff per IP ohne Zertifikatswarnung)
     blocks.append(HTTP_BLOCK)
     return "".join(blocks)
+
+
+def _https_only_block(domain: str, hosts: List[str]) -> str:
+    """Port 80 als reine Weiterleitung auf HTTPS.
+
+    Ohne das gehen Passwoerter, Sitzungs-Tokens und Agent-Schluessel ueber
+    Port 80 im Klartext durchs Netz, sobald jemand die http://-Adresse nutzt.
+
+    * 308 statt 301: Agents, die per POST liefern, behalten Methode und Inhalt.
+    * Adressen mit eigenem Zertifikat (FQDN und Zusatzadressen) bleiben beim
+      gleichen Namen; alles andere (etwa die nackte IP ohne Zertifikat) geht
+      auf den FQDN - sonst landete der Browser bei einem Zertifikatsfehler.
+    * Let's-Encrypt-Pruefungen (/.well-known/acme-challenge) beantwortet Caddy
+      auf Port 80 weiterhin selbst, vor dieser Weiterleitung.
+    * Rettungsweg, falls HTTPS klemmt: CADDY_FORCE_HTTP=true in der .env und
+      das Backend neu starten.
+    """
+    known = " ".join([domain, *hosts])
+    return (":80 {\n"
+            f"    @tls_host host {known}\n"
+            "    redir @tls_host https://{host}{uri} 308\n"
+            f"    redir https://{domain}{{uri}} 308\n"
+            "}\n")
 
 
 def _dns_warning(domain: str) -> Optional[str]:
@@ -182,16 +215,17 @@ def _dns_warning(domain: str) -> Optional[str]:
 # ==============================================================================
 
 def _admin_url(path: str) -> str:
-    return settings.caddy_admin_url.rstrip("/") + path
+    """Pfad fuer caddy_admin.client() - die Basis (Socket oder URL) setzt der Client."""
+    return path
 
 
 async def _adapt_caddyfile(caddyfile: str) -> dict:
     """Wandelt die Caddyfile in JSON um - dient als Syntaxprüfung OHNE Anwenden."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with caddy_admin.client(timeout=10.0) as client:
             resp = await client.post(
                 _admin_url("/adapt"),
-                content=caddyfile.encode("utf-8"),
+                content=caddy_admin.enforce_admin(caddyfile).encode("utf-8"),
                 headers={"Content-Type": "text/caddyfile"},
             )
     except httpx.RequestError as exc:
@@ -205,7 +239,7 @@ async def _adapt_caddyfile(caddyfile: str) -> dict:
 async def _get_running_config() -> Optional[dict]:
     """Aktuell laufende Config (fuer Rollback). None, wenn nicht lesbar."""
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with caddy_admin.client(timeout=5.0) as client:
             resp = await client.get(_admin_url("/config/"))
             if resp.status_code < 400:
                 return resp.json()
@@ -215,7 +249,7 @@ async def _get_running_config() -> Optional[dict]:
 
 
 async def _load_json_config(config: dict) -> None:
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with caddy_admin.client(timeout=10.0) as client:
         await client.post(
             _admin_url("/load"),
             json=config,
@@ -230,8 +264,9 @@ async def _apply_caddyfile(caddyfile: str) -> None:
     # (gleicher Dateiname custom.crt) weiter im Speicher.
     headers = {"Content-Type": "text/caddyfile", "Cache-Control": "must-revalidate"}
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.post(url, content=caddyfile.encode("utf-8"), headers=headers)
+        async with caddy_admin.client(timeout=20.0) as client:
+            resp = await client.post(url, content=caddy_admin.enforce_admin(caddyfile).encode("utf-8"),
+                                     headers=headers)
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"Caddy Admin API nicht erreichbar: {exc}") from exc
 
@@ -241,7 +276,7 @@ async def _apply_caddyfile(caddyfile: str) -> None:
 
 async def _caddy_alive() -> bool:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with caddy_admin.client(timeout=5.0) as client:
             resp = await client.get(_admin_url("/config/"))
             return resp.status_code < 500
     except Exception:
@@ -279,7 +314,7 @@ async def get_caddy_config(db: AsyncSession = Depends(get_db), _=Depends(get_cur
     running_config = {}
     last_error = None
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with caddy_admin.client(timeout=5.0) as client:
             resp = await client.get(_admin_url("/config/"))
             if resp.status_code < 400:
                 running_config = resp.json() or {}
@@ -312,7 +347,8 @@ async def apply_caddy_config(
     if data.mode:
         if data.mode in ("letsencrypt", "custom", "internal") and not data.domain:
             raise HTTPException(status_code=400, detail="FQDN ist für HTTPS erforderlich")
-        effective = _build_template(data.domain, data.mode, data.letsencrypt_email, data.extra_hosts)
+        effective = _build_template(data.domain, data.mode, data.letsencrypt_email, data.extra_hosts,
+                                    https_only=data.https_only)
         if data.mode == "letsencrypt":
             warning = _dns_warning((data.domain or "").strip())
             if warning:
@@ -369,7 +405,8 @@ async def build_caddy_template(
     req: CaddyTemplateRequest,
     _=Depends(get_current_admin),
 ):
-    caddyfile = _build_template(req.domain, req.mode, req.letsencrypt_email, req.extra_hosts)
+    caddyfile = _build_template(req.domain, req.mode, req.letsencrypt_email, req.extra_hosts,
+                                https_only=req.https_only)
     warnings = []
     if req.mode == "letsencrypt":
         warning = _dns_warning((req.domain or "").strip())
@@ -474,6 +511,14 @@ async def ensure_caddy_config_on_startup(session_factory=None):
     """
     session_factory = session_factory or async_session
 
+    # Caddy startet laut depends_on NACH dem Backend. Ohne Warten ging das
+    # Laden der gespeicherten Config beim ersten Start regelmaessig ins Leere -
+    # und Caddy blieb bei reinem HTTP.
+    if not await wait_for_caddy():
+        logger.warning("Caddy nach %ss nicht erreichbar - der Wächter lädt die Config nach, "
+                       "sobald Caddy da ist.", STARTUP_WAIT_SECONDS)
+        return
+
     # Notausstieg per Umgebungsvariable: zurueck auf HTTP, gespeicherte Config verwerfen.
     if settings.caddy_force_http:
         logger.warning("CADDY_FORCE_HTTP gesetzt - starte mit reinem HTTP auf Port 80.")
@@ -507,7 +552,8 @@ async def ensure_caddy_config_on_startup(session_factory=None):
             logger.warning("Let's Encrypt ohne E-Mail nicht möglich - nehme internes Zertifikat.")
             mode = "internal"
         try:
-            caddyfile = _build_template(domain, mode, email or None)
+            caddyfile = _build_template(domain, mode, email or None,
+                                        https_only=settings.rimperio_https_only)
             await _apply_caddyfile(caddyfile)
             async with session_factory() as db:
                 await _save_setting(db, "caddy_caddyfile", caddyfile)
@@ -528,3 +574,74 @@ async def ensure_caddy_config_on_startup(session_factory=None):
         logger.warning("Not-Konfiguration (HTTP auf Port 80) geladen - Oberfläche bleibt erreichbar.")
     except Exception as exc:
         logger.error("Auch die Not-Konfiguration konnte nicht geladen werden: %s", exc)
+
+
+# ==============================================================================
+# Waechter: Caddy neu gestartet? Dann die gespeicherte Config wieder laden.
+# ==============================================================================
+# Caddy liest beim Start nur die statische Caddyfile (reines HTTP). Wird der
+# Container neu gestartet - Image-Update ueber System -> Container, Absturz,
+# `docker restart` -, war HTTPS bis zum naechsten Neustart des Backends weg.
+# Der Waechter vergleicht die laufende Config mit der gespeicherten und spielt
+# sie bei Abweichung wieder ein. Verglichen wird das JSON, das Caddy selbst
+# aus der Caddyfile macht (/adapt) - es ist identisch mit dem, was /config/
+# nach dem Laden liefert.
+
+STARTUP_WAIT_SECONDS = 120
+WATCH_INTERVAL_SECONDS = 30
+_adapted_cache: dict = {"source": None, "json": None}
+
+
+async def wait_for_caddy(max_seconds: float = STARTUP_WAIT_SECONDS) -> bool:
+    """Wartet, bis die Admin-API antwortet. True = erreichbar."""
+    waited, delay = 0.0, 1.0
+    while waited < max_seconds:
+        if await _caddy_alive():
+            return True
+        await asyncio.sleep(delay)
+        waited += delay
+        delay = min(delay * 2, 10.0)
+    return await _caddy_alive()
+
+
+def _canonical(config) -> str:
+    return json.dumps(config or {}, sort_keys=True, separators=(",", ":"))
+
+
+async def reload_if_drifted(session_factory=None) -> bool:
+    """Einmal pruefen; True, wenn neu geladen wurde."""
+    if settings.caddy_force_http:
+        return False
+    session_factory = session_factory or async_session
+    async with session_factory() as db:
+        saved = await _get_saved_caddyfile(db)
+    if not saved:
+        return False
+    running = await _get_running_config()
+    if running is None:
+        return False
+    source = caddy_admin.enforce_admin(saved)
+    if _adapted_cache["source"] != source:
+        adapted = await _adapt_caddyfile(saved)
+        _adapted_cache.update(source=source, json=_canonical(adapted.get("result", adapted)))
+    if _canonical(running) == _adapted_cache["json"]:
+        return False
+    logger.warning("Laufende Caddy-Konfiguration weicht von der gespeicherten ab "
+                   "(Caddy neu gestartet?) - lade die gespeicherte erneut.")
+    await _apply_caddyfile(saved)
+    return True
+
+
+async def watch_caddy() -> None:
+    """Hintergrundaufgabe: haelt Caddy auf der gespeicherten Konfiguration."""
+    failures = 0
+    while True:
+        await asyncio.sleep(WATCH_INTERVAL_SECONDS)
+        try:
+            await reload_if_drifted()
+            failures = 0
+        except Exception as exc:                                    # defensiv
+            failures += 1
+            # Nicht im 30-Sekunden-Takt das Protokoll fluten.
+            if failures in (1, 10) or failures % 120 == 0:
+                logger.warning("Caddy-Wächter: %s", getattr(exc, "detail", exc))

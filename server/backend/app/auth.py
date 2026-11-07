@@ -29,7 +29,7 @@ SCOPE_MFA_PENDING = "mfa_pending"
 # koennen (EventSource, WebSocket, Download-Link). Siehe create_ticket().
 SCOPE_TICKET = "ticket"
 TICKET_SECONDS = 60
-TICKET_PURPOSES = ("shell", "journal", "updates", "update-log", "backup-download")
+TICKET_PURPOSES = ("shell", "journal", "updates", "update-log", "backup-download", "api-docs")
 
 # MFA-Pending-Token: 5 Minuten, reicht für Code-Eingabe
 MFA_PENDING_TOKEN_MINUTES = 5
