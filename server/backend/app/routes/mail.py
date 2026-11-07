@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import mail
+from .. import alerts, mail, mail_m365, mail_providers
 from ..auth import get_current_admin
 from ..database import get_db
 
@@ -30,7 +30,8 @@ router = APIRouter(prefix="/api/mail", tags=["Mail"])
 
 
 class ConfigRequest(BaseModel):
-    mode: Optional[str] = Field(default=None, description="off | container | relay")
+    mode: Optional[str] = Field(default=None, description="off | container | relay | m365")
+    provider: Optional[str] = Field(default=None, description="Vorlage aus /config → providers")
     from_address: Optional[str] = None
     from_name: Optional[str] = None
     smtp_host: Optional[str] = None
@@ -47,6 +48,10 @@ class ConfigRequest(BaseModel):
     relay_user: Optional[str] = None
     relay_password: Optional[str] = None
     clear_relay_password: bool = False
+    m365_tenant_id: Optional[str] = None
+    m365_client_id: Optional[str] = None
+    m365_client_secret: Optional[str] = Field(default=None,
+                                              description="Leer = bestehendes Geheimnis behalten")
     default_recipients: Optional[List[str]] = None
     notify_on: Optional[Dict[str, bool]] = None
 
@@ -55,12 +60,20 @@ class TestRequest(BaseModel):
     recipient: str = Field(default="", description="Leer = die hinterlegten Empfänger")
 
 
+class M365StartRequest(BaseModel):
+    from_address: str = Field(default="", description="Leer = Postfach des anmeldenden Admins")
+    from_name: str = Field(default="RIMPERIO")
+
+
 @router.get("/config")
 async def get_config(db: AsyncSession = Depends(get_db), _=Depends(get_current_admin)):
     """Aktuelle Einstellung — ohne Passwörter."""
     config = await mail.load_config(db)
     return {
         "config": mail.public_config(config),
+        "providers": mail_providers.public_list(),
+        "m365_restrict_command": (mail_m365.restrict_command(config)
+                                  if config["mode"] == "m365" else ""),
         "modes": [{"id": key, **value} for key, value in mail.MODES.items()],
         "encryptions": [{"id": key, "label": label}
                         for key, label in mail.ENCRYPTIONS.items()],
@@ -82,7 +95,62 @@ async def put_config(data: ConfigRequest, db: AsyncSession = Depends(get_db),
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.warning("Mail-Einstellung geändert von %s", admin.username)
+    await _refresh_alerts(db)
     return {"config": result}
+
+
+async def _refresh_alerts(db: AsyncSession) -> None:
+    """Die Benachrichtigungen lesen die Mail-Einstellung aus einem Zwischenstand,
+    den sonst erst der Wachhund (minuetlich) erneuert."""
+    try:
+        await alerts.refresh(db)
+    except Exception:                                               # defensiv
+        logger.debug("alerts.refresh nach Mail-Änderung fehlgeschlagen", exc_info=True)
+
+
+@router.post("/verify")
+async def verify(data: ConfigRequest, db: AsyncSession = Depends(get_db),
+                 _=Depends(get_current_admin)):
+    """Prüft Verbindung und Anmeldung mit den eingegebenen Werten — ohne zu
+    speichern und ohne eine Mail zu verschicken."""
+    try:
+        config = mail.merge_config(await mail.load_config(db),
+                                   data.model_dump(exclude_none=True))
+        return await mail.verify(config)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+# =============================================================================
+# Microsoft 365: Einrichtung per Admin-Anmeldung
+# =============================================================================
+@router.post("/m365/start")
+async def m365_start(data: M365StartRequest, admin=Depends(get_current_admin)):
+    """Holt einen Gerätecode bei Microsoft. Danach /m365/status abfragen."""
+    if data.from_address and "@" not in data.from_address:
+        raise HTTPException(status_code=400, detail="Die Absenderadresse ist ungültig.")
+    try:
+        return await mail_m365.start(data.from_address, data.from_name, admin.username)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/m365/status/{flow}")
+async def m365_status(flow: str, _=Depends(get_current_admin)):
+    """Stand der Einrichtung. Fragt selbst bei Microsoft nach, ob die Anmeldung
+    durch ist - die Oberfläche ruft das einfach alle paar Sekunden auf."""
+    try:
+        return await mail_m365.status(flow)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+
+
+@router.delete("/m365/{flow}")
+async def m365_cancel(flow: str, _=Depends(get_current_admin)):
+    mail_m365.cancel(flow)
+    return {"cancelled": True}
 
 
 @router.get("/preview")

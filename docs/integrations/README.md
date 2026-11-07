@@ -76,21 +76,72 @@ Webhook holt, von Claude auswerten lässt und die Antwort in den Chat schickt.
 
 ---
 
-## Mail (Postfix)
+## Mail
 
 *System → Mail* — nur für Administratoren.
 
-**Die gesamte Konfiguration entsteht im Browser.** Keine `main.cf`, keine
-Handarbeit auf dem Server. Was eingetragen wird, schreibt das Backend nach
-`data/postfix/settings.env`; der Container liest das beim Start. Der Knopf
-*Erzeugte Postfix-Konfiguration* zeigt vorher, was in der Datei landen würde.
+**Anbieter anklicken, der Assistent erledigt den Rest.** Für jeden gängigen
+Anbieter gibt es eine Kachel mit eigenem Assistenten. Gespeichert wird erst,
+wenn die Anmeldung geprüft ist; danach lässt sich direkt eine Probemail
+schicken.
 
-Zwei Betriebsarten:
+| Anbieter | Wie | Was du tust |
+|----------|-----|-------------|
+| **Microsoft 365** | Microsoft Graph, App-Registrierung entsteht automatisch | mit einem Globalen Administrator bei Microsoft anmelden |
+| **Google / Gmail** | smtp.gmail.com:587 | App-Passwort anlegen (Link im Assistenten) |
+| **GMX** | mail.gmx.net:587 | im Postfach „POP3 und IMAP Zugriff erlauben“ einschalten |
+| **WEB.DE** | smtp.web.de:587 | im Postfach „POP3 und IMAP Zugriff erlauben“ einschalten |
+| **T-Online** | securesmtp.t-online.de:465 | separates E-Mail-Passwort anlegen |
+| **IONOS, STRATO, Posteo, mailbox.org** | fester Server | Adresse + Passwort |
+| **iCloud, Yahoo** | fester Server | App-Passwort anlegen |
+| **Anderer Mailserver** | SMTP, alles von Hand | Server, Port, Anmeldung |
+| **Postfix auf diesem Server** | eigener Container, optional Smarthost | Profil `postfix` einschalten |
 
-| Modus | Wie | Wann |
-|-------|-----|------|
-| **Postfix-Container** | RIMPERIO bringt seinen Mailserver mit | kein Mailserver vorhanden |
-| **Vorhandener Mailserver** | direkt per SMTP | Provider oder Firmen-Relay da |
+### Microsoft 365 ohne Entra-Portal
+
+1. Absenderpostfach wählen (leer = das Konto des anmeldenden Admins; ein
+   freigegebenes Postfach ohne Lizenz geht auch).
+2. *Bei Microsoft anmelden* zeigt einen Code. Auf
+   <https://microsoft.com/devicelogin> eingeben, mit einem **Globalen
+   Administrator** anmelden und *Im Namen Ihrer Organisation zustimmen*
+   anhaken. Das Verfahren braucht keine Redirect-Adresse, funktioniert also
+   auch, wenn RIMPERIO nur im LAN erreichbar ist.
+3. RIMPERIO legt an: App-Registrierung *RIMPERIO Mailversand*, das
+   Anwendungsrecht `Mail.Send` mit Admin-Zustimmung und ein Client-Geheimnis
+   (24 Monate; kürzer, wenn eine Richtlinie das verlangt). Eine frühere
+   RIMPERIO-App im selben Mandanten wird gelöscht.
+4. Das Admin-Token wird verworfen. Gespeichert werden nur Mandant, App-ID und
+   Geheimnis.
+
+Angemeldet wird über die öffentliche Microsoft-App *Microsoft Graph Command
+Line Tools* (die von `Connect-MgGraph`) mit den Rechten
+`Application.ReadWrite.All` und `AppRoleAssignment.ReadWrite.All`.
+
+`Mail.Send` als Anwendungsrecht darf von **jedem** Postfach im Mandanten
+senden. Begrenzen lässt sich das nur in Exchange Online. Den fertigen
+PowerShell-Befehl (`New-ApplicationAccessPolicy`) zeigt die Mail-Seite nach
+der Einrichtung an.
+
+Blockiert eine Richtlinie für bedingten Zugriff die Anmeldung per Gerätecode,
+gibt es im Assistenten *Vorhandene App-Registrierung eintragen* (Mandant,
+App-ID, Geheimnis).
+
+Läuft das Geheimnis ab, warnt die Seite 30 Tage vorher. Zum Erneuern den
+Assistenten einfach noch einmal durchlaufen.
+
+### Warum Google kein „Anmelden und fertig“ hat
+
+Google erlaubt nicht, OAuth-Clients für Gmail per API anzulegen, und für
+Gmail-Rechte ist das Gerätecode-Verfahren gesperrt. Ein gemeinsamer
+RIMPERIO-Client müsste eine kostenpflichtige Sicherheitsprüfung bei Google
+durchlaufen. Das App-Passwort ist der Weg, den Google für genau diesen Fall
+vorsieht.
+
+### Postfix-Container
+
+Was eingetragen wird, schreibt das Backend nach `data/postfix/settings.env`;
+der Container liest das beim Start. Der Knopf *Erzeugte Postfix-Konfiguration*
+zeigt, was in der Datei steht.
 
 Beim Container lässt sich zusätzlich ein **Smarthost** eintragen. Meist nötig:
 Die wenigsten Anschlüsse dürfen selbst zustellen (Port 25 gesperrt, kein
@@ -99,14 +150,10 @@ PTR-Eintrag). Dann übergibt Postfix an den Provider.
 Der Container nimmt nur aus dem Docker-Netz an. Ein offenes Relay im Internet
 ist binnen Stunden als Spamschleuder in Benutzung.
 
-**Benachrichtigungen** — auswählbar je Ereignis:
-
-- Ein Update steht bereit
-- Eine Sicherung ist fehlgeschlagen
-- Ein Gerät meldet sich nicht mehr
-- Der Plattenplatz wird knapp
-
 Braucht das Profil `postfix` unter *System → Zusatzdienste*.
+
+**Benachrichtigungen:** Wann eine Mail verschickt wird, steht für alle Wege
+gemeinsam unter *Benachrichtigungen*.
 
 ---
 
