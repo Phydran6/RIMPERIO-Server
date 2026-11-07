@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import create_access_token, get_current_user
+from ..auth import issue_access_token, get_current_user
 from ..config import settings
 from ..database import get_db
 from ..limiter import limiter
@@ -398,4 +398,4 @@ async def login_verify(
 
     # Bewusst kein zusätzlicher MFA-Schritt: der Passkey ist bereits zwei
     # Faktoren (Gerät + Entsperrung durch PIN/Biometrie).
-    return Token(access_token=create_access_token(data={"sub": user.username}))
+    return Token(access_token=issue_access_token(user))

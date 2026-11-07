@@ -21,7 +21,7 @@ import (
 )
 
 // Version des Agents — wandert in jeden Check-in und in die Inventur.
-const Version = "2026.11.05.12.00.00"
+const Version = "2026.11.07.02.30.00"
 
 // Config ist der dauerhafte Zustand des Agents auf der Platte.
 type Config struct {
@@ -74,8 +74,14 @@ func Load() (*Config, error) {
 
 // Save schreibt die Konfiguration an ihren Ort — nur für den Besitzer lesbar.
 func (c *Config) Save() error {
-	if err := os.MkdirAll(ConfigDir(), 0o750); err != nil {
+	if err := os.MkdirAll(ConfigDir(), 0o700); err != nil {
 		return fmt.Errorf("Verzeichnis anlegen: %w", err)
+	}
+	// Erst die Rechte festziehen, dann das Geheimnis hineinschreiben. Unter
+	// Windows wäre die Datei sonst für alle Benutzer lesbar (siehe
+	// config_windows.go).
+	if err := secureConfigDir(ConfigDir()); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {

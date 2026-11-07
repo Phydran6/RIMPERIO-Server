@@ -121,5 +121,58 @@ export const useAuthStore = defineStore('auth', () => {
     return res.json()
   }
 
-  return { token, user, isAuthenticated, isAdmin, login, loginMfa, loginPasskey, logout, fetchUser, api }
+  /**
+   * Kurzlebiges Ticket (60 s) für Wege ohne Authorization-Kopf: Terminal
+   * (WebSocket), Ereignisströme (EventSource) und Download-Links. So steht nie
+   * der volle Sitzungs-Token in einer Adresse - und damit nicht im
+   * Browserverlauf oder in Proxy-Protokollen.
+   */
+  async function ticket(purpose) {
+    const data = await api('/api/auth/ticket', { method: 'POST', body: { purpose } })
+    return data.ticket
+  }
+
+  /**
+   * EventSource mit Ticket. Bricht der Strom ab, holt sie ein frisches Ticket
+   * und verbindet neu - das automatische Wiederverbinden des Browsers würde
+   * sonst mit dem längst abgelaufenen Ticket anklopfen.
+   */
+  function eventStream(path, purpose, setup, { retryMs = 5000 } = {}) {
+    let source = null
+    let stopped = false
+    let timer = null
+
+    async function open() {
+      if (stopped || !token.value) return
+      try {
+        const t = await ticket(purpose)
+        if (stopped) return
+        const sep = path.includes('?') ? '&' : '?'
+        source = new EventSource(`${path}${sep}token=${encodeURIComponent(t)}`)
+        setup(source)
+        const userOnError = source.onerror
+        source.onerror = (event) => {
+          if (typeof userOnError === 'function') userOnError(event)
+          source?.close()
+          source = null
+          if (!stopped) timer = setTimeout(open, retryMs)
+        }
+      } catch {
+        if (!stopped) timer = setTimeout(open, retryMs * 2)
+      }
+    }
+
+    open()
+    return {
+      close() {
+        stopped = true
+        clearTimeout(timer)
+        source?.close()
+        source = null
+      },
+    }
+  }
+
+  return { token, user, isAuthenticated, isAdmin, login, loginMfa, loginPasskey, logout, fetchUser, api,
+           ticket, eventStream }
 })

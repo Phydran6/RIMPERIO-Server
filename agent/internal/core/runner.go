@@ -8,8 +8,9 @@
 // Beschreibung: Herzschlag und Dienstlogik. Als Systemdienst (Windows-Service
 //               bzw. systemd/launchd über kardianos/service): im Takt Messwerte
 //               erheben, einchecken, mitgegebene Befehle ausführen, Ergebnisse
-//               zurückmelden, ab und zu die Inventur erneuern. Dazu Anmeldung
-//               und das Ein-/Ausrichten des Dienstes.
+//               zurückmelden, ab und zu die Inventur erneuern. Dazu Anmeldung,
+//               das Ein-/Ausrichten des Dienstes und die vom Server verlangte
+//               Deinstallation (Befehl "uninstall", siehe uninstall.go).
 // ---------------------------------------------------------------------------
 
 package core
@@ -74,13 +75,19 @@ func (p *program) worker(client *Client) {
 
 func (p *program) Start(s service.Service) error {
 	cfg, err := Load()
-	if err != nil {
-		// Keine Konfiguration? Vielleicht hat der MSI-Installer die Eckdaten in
-		// der Registry hinterlegt — dann daraus eine Konfiguration bauen.
-		cfg, err = bootstrapFromSystem()
-		if err != nil {
-			return fmt.Errorf("keine Konfiguration und kein Bootstrap: %w", err)
+	if err != nil || cfg.AgentToken == "" {
+		// Noch nicht angemeldet? Dann gelten die Eckdaten, die der MSI-Installer
+		// in die Registry geschrieben hat — auch vor einer älteren, noch nicht
+		// angemeldeten Konfiguration. So greift eine Neuinstallation mit
+		// korrigierter Server-Adresse oder neuem Schlüssel.
+		if boot, berr := bootstrapFromSystem(); berr == nil {
+			cfg, err = boot, nil
+		} else if err != nil {
+			return fmt.Errorf("keine Konfiguration und kein Bootstrap: %w", berr)
 		}
+	}
+	if cfg.AgentToken != "" {
+		clearBootstrapSecret() // auch nach einer MSI-Reparatur
 	}
 	p.cfg = cfg
 	p.stop = make(chan struct{})
@@ -94,7 +101,15 @@ func (p *program) Stop(s service.Service) error {
 	if p.stop != nil {
 		close(p.stop)
 	}
-	p.wg.Wait()
+	// Höchstens 15 s warten: Ein langer Befehl soll weder den Stopp noch eine
+	// Deinstallation aufhalten (das MSI wartet auf den Dienst).
+	done := make(chan struct{})
+	go func() { p.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		logf("Laufender Befehl blockiert den Stopp — beende trotzdem.")
+	}
 	return nil
 }
 
@@ -131,7 +146,9 @@ func (p *program) run() {
 		interval = 60 * time.Second
 	}
 
-	p.cycle(client) // sofort, nicht erst nach einem Takt
+	if p.cycle(client) { // sofort, nicht erst nach einem Takt
+		return // deinstalliert — der Dienst wird gleich gestoppt
+	}
 	lastInv := time.Now()
 
 	ticker := time.NewTicker(interval)
@@ -142,7 +159,9 @@ func (p *program) run() {
 			logf("RIMPERIO-Agent hält an.")
 			return
 		case <-ticker.C:
-			p.cycle(client)
+			if p.cycle(client) {
+				return
+			}
 			if time.Since(lastInv) > 30*time.Minute {
 				if err := client.SendInventory(CollectInventory()); err == nil {
 					lastInv = time.Now()
@@ -152,8 +171,9 @@ func (p *program) run() {
 	}
 }
 
-// cycle ist ein einzelner Takt: Messwerte, Check-in, Befehle, Checks.
-func (p *program) cycle(client *Client) {
+// cycle ist ein einzelner Takt: Messwerte, Check-in, Befehle, Checks. Liefert
+// true, wenn der Server die Deinstallation verlangt hat und sie läuft.
+func (p *program) cycle(client *Client) (uninstalled bool) {
 	tel := CollectTelemetry()
 	resp, err := client.Checkin(CheckinRequest{
 		Version:   Version,
@@ -162,7 +182,7 @@ func (p *program) cycle(client *Client) {
 	})
 	if err != nil {
 		logf("Check-in fehlgeschlagen: %v", err)
-		return
+		return false
 	}
 
 	// Befehle ausführen (gewöhnliche Shell oder eingebaute Aktionen wie Patch).
@@ -170,6 +190,12 @@ func (p *program) cycle(client *Client) {
 	if len(resp.Commands) > 0 {
 		results := make([]CommandResult, 0, len(resp.Commands))
 		for _, c := range resp.Commands {
+			if c.Kind == "uninstall" {
+				// Was schon lief, noch melden — danach gibt es kein Token mehr.
+				_ = client.SendResults(results)
+				uninstallRequested(client, true)
+				return true
+			}
 			if longRunning(c.Kind) && p.jobs != nil {
 				select {
 				case p.jobs <- c:
@@ -197,6 +223,7 @@ func (p *program) cycle(client *Client) {
 			go p.snmp.run(client, due)
 		}
 	}
+	return false
 }
 
 // runDueChecks führt jene Checks aus, deren Intervall abgelaufen ist, und meldet
@@ -306,6 +333,7 @@ func (p *program) selfEnroll() error {
 	if err := p.cfg.Save(); err != nil {
 		return fmt.Errorf("Konfiguration speichern: %w", err)
 	}
+	clearBootstrapSecret()
 	logf("Selbst-Anmeldung erfolgreich. Agent-ID: %s", res.AgentUID)
 	return nil
 }
@@ -368,6 +396,11 @@ func RunOnce() error {
 		tel.CPUPercent, tel.MemPercent, len(resp.Commands), len(resp.Checks))
 	results := make([]CommandResult, 0, len(resp.Commands))
 	for _, c := range resp.Commands {
+		if c.Kind == "uninstall" {
+			_ = client.SendResults(results)
+			uninstallRequested(client, false)
+			return nil
+		}
 		results = append(results, HandleCommand(c, client))
 	}
 	if err := client.SendResults(results); err != nil {

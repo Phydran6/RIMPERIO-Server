@@ -754,3 +754,6 @@ footer,
 .rmm-bar > span.is-warn { background: var(--color-warning); }
 .rmm-bar > span.is-bad { background: var(--color-danger); }
 .rmm-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.rmm-remove-option { display: flex; gap: .5rem; align-items: center; font-weight: 500; cursor: pointer; }
+.rmm-remove-text { margin: .75rem 0 1rem; max-width: 48rem; }
+.rmm-badge-removing { margin-left: .5rem; }

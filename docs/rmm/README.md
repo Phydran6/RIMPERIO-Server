@@ -65,7 +65,9 @@ Die Oberfläche spricht `/api/rmm/…` (Anmeldung wie überall), der Agent `/api
 | `POST /api/rmm/agent/enroll` | Anmeldung mit Zugangsschlüssel → Agent-Token |
 | `POST /api/rmm/agent/checkin` | Lebenszeichen + Messwerte, holt Befehle und Checks ab |
 | `POST /api/rmm/agent/inventory` · `results` · `check-results` | Inventur, Befehlsergebnisse, Check-Ergebnisse |
-| `GET /api/rmm/agents` · `/agents/{uid}` | Rechner |
+| `POST /api/rmm/agent/unregister` | Abmeldung durch den Agent (beim Deinstallieren) |
+| `GET /api/rmm/agents` · `/agents/{uid}` | Rechner (mit `uninstall_pending`) |
+| `DELETE /api/rmm/agents/{uid}` | Eintrag sofort entfernen; mit `?uninstall=true` stattdessen den Agent sich selbst deinstallieren lassen |
 | `POST /api/rmm/agents/{uid}/commands` · `/run-script/{id}` · `/patches/{scan,apply}` | Eingriffe |
 | `GET/POST/PUT/DELETE /api/rmm/scripts` · `/checks` | Bibliothek und Prüfungen |
 | `GET /api/rmm/alerts` · `/summary` · `/settings` | Alarme, Übersicht, Schwellen |

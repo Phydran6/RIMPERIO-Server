@@ -2,6 +2,11 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## Unveröffentlicht — Sicherheitsdurchsicht
+
+### Security
+- **RIMPERIO-Agent (Windows): `agent.json` war für alle Benutzer lesbar.** `0600` gilt unter Windows nicht; `C:\ProgramData\RIMPERIO` erbte die Leserechte der Gruppe „Benutzer“. Damit lagen Agent-Token und während der Installation der Zugangsschlüssel offen. Jetzt: Vererbung aus, Vollzugriff nur für SYSTEM und Administratoren (per SID, sprachunabhängig), gesetzt vor jedem Schreiben. Linux: `/etc/rimperio` auf `0700`.
+
 ## 2026.11.07.12.00.00
 
 ### Added

@@ -4,7 +4,8 @@
 # Autor:        Phydran6
 # Beschreibung: Startet den kompletten Stack (docker compose) und spielt einmal
 #               alles Wesentliche durch: Anmeldung, Zugangsschlüssel, echter
-#               Go-Agent (Anmeldung, Inventur, Check-in, Befehl, Check), Syslog,
+#               Go-Agent (Anmeldung, Inventur, Check-in, Befehl, Check,
+#               Deinstallation auf allen drei Wegen), Syslog,
 #               die RMM- und Log-Schnittstellen. Fehler stehen als Annotation am
 #               Lauf (ohne Anmeldung lesbar).
 # ---------------------------------------------------------------------------
@@ -87,6 +88,35 @@ jobs:
           check "Patch-Center Übersicht"   'api "$B/api/patching/overview" | jq -e ".agents|length==1" >/dev/null'
           check "Richtlinie, Quellen, SNMP, Eingang" 'api "$B/api/patching/policies" | jq -e "length>=1" >/dev/null && api "$B/api/patching/sources" | jq -e ".sources|length>=8" >/dev/null && api "$B/api/snmp/templates" | jq -e "length>=10" >/dev/null && api "$B/api/notifications" | jq -e ".items|type==\"array\"" >/dev/null'
           check "App-Schnittstelle Level 3" 'api "$B/api/app/patching/summary" | jq -e ".needs_approval>=0" >/dev/null && api "$B/api/app/bootstrap" | jq -e ".server.api_level>=3" >/dev/null'
+
+          # --- Deinstallieren ------------------------------------------------
+          # 1) Aus der Oberfläche: Auftrag einreihen, der Agent führt ihn beim
+          #    nächsten Check-in aus und meldet sich dabei selbst ab.
+          R=$(api -X DELETE "$B/api/rmm/agents/$UID_?uninstall=true")
+          check "Deinstallation eingereiht"  '[ "$(echo "$R" | jq -r .status)" = uninstall_queued ]'
+          check "Liste zeigt Deinstallation" 'api "$B/api/rmm/agents" | jq -e ".[0].uninstall_pending==true" >/dev/null'
+          sudo /tmp/rimperio-agent once
+          check "Agent hat sich abgemeldet"  'api "$B/api/rmm/agents" | jq -e "length==0" >/dev/null'
+          check "Gerät ohne Logs ist weg"    'api "$B/api/agents" | jq -e "[.items[] | select(.hostname==\"$(hostname)\")] | length==0" >/dev/null'
+          check "Konfiguration gelöscht"     '! sudo test -e /etc/rimperio/agent.json'
+
+          # 2) Am Rechner: "rimperio-agent uninstall" meldet ab.
+          INVITE2=$(api -X POST "$B/api/agent-tokens" -d '{"name":"smoke2","kind":"enroll"}' | jq -r .token)
+          sudo /tmp/rimperio-agent enroll -server "$B" -secret "$INVITE2" -site Smoke
+          check "Erneut angemeldet"          'api "$B/api/rmm/agents" | jq -e "length==1" >/dev/null'
+          sudo /tmp/rimperio-agent uninstall
+          check "uninstall meldet ab"        'api "$B/api/rmm/agents" | jq -e "length==0" >/dev/null'
+          check "uninstall löscht Konfig"    '! sudo test -e /etc/rimperio/agent.json'
+
+          # 3) Nur den Eintrag entfernen: der Agent wird danach abgewiesen.
+          INVITE3=$(api -X POST "$B/api/agent-tokens" -d '{"name":"smoke3","kind":"enroll"}' | jq -r .token)
+          sudo /tmp/rimperio-agent enroll -server "$B" -secret "$INVITE3" -site Smoke
+          UID3=$(api "$B/api/rmm/agents" | jq -r '.[0].agent_uid')
+          R=$(api -X DELETE "$B/api/rmm/agents/$UID3")
+          check "Eintrag entfernt"           '[ "$(echo "$R" | jq -r .device_deleted)" = true ]'
+          check "Agent wird abgewiesen"      '! sudo /tmp/rimperio-agent once'
+          sudo /tmp/rimperio-agent uninstall   # 401 zählt als „schon abgemeldet“
+          check "Aufgeräumt nach Abweisung"  '! sudo test -e /etc/rimperio/agent.json'
 
           # Syslog: eine Zeile an Port 514 schicken und in den Logs wiederfinden.
           echo "<14>$(date '+%b %d %H:%M:%S') smokehost smoke: syslog-rimperio-test" | nc -u -w1 127.0.0.1 514 || true

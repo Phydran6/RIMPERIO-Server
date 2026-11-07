@@ -18,6 +18,15 @@
 }
 
 (rimperio_routes) {
+    # Schutz-Kopfzeilen fuer die Oberflaeche (die API setzt ihre eigenen).
+    # -Server: nicht verraten, welcher Proxy in welcher Fassung hier steht.
+    header {
+        -Server
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
     handle /api/* {
         reverse_proxy backend:8000
     }

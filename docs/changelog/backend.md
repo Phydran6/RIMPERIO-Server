@@ -2,6 +2,24 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## Unveröffentlicht — Sicherheitsdurchsicht
+
+### Security
+- **Geheimnisse über `GET /api/settings` lesbar.** Jeder angemeldete Benutzer (auch ohne Adminrechte) bekam alle Einstellungen im Rohzustand: SSO-Client-Secret, LDAP-Bind-Passwort, SMTP-Passwort, KI-API-Schlüssel, Telegram-Bot-Token. Einstellungen mit eigener Verwaltung (`PROTECTED_KEYS`) sind über die allgemeinen Endpunkte jetzt weder lesbar noch schreibbar; alles, was nach Geheimnis aussieht, wird zusätzlich geschwärzt (auch im Systemtagebuch).
+- **RMM-Geräteübernahme per Einladung.** `POST /api/rmm/agent/enroll` gab jedem Gerät mit gleichem Hostnamen einen neuen Agent-Token. Wer eine Einladung hatte, konnte so ein fremdes, schon angemeldetes Gerät übernehmen, dessen Befehle empfangen und Ergebnisse fälschen. Jetzt: 409, außer mit Generalschlüssel oder einem an genau dieses Gerät gebundenen Schlüssel. Zusätzlich: Check-Status nur aus `pass/fail/warn/unknown`, Inventur höchstens 4 MB.
+- **SSO:** Der Signaturalgorithmus kam aus dem (unsignierten) Token-Kopf, jetzt gilt eine feste Liste asymmetrischer Verfahren. Die `nonce` ist jetzt Pflicht (vorher wurde die Prüfung übersprungen, wenn sie fehlte). Bei mandantenübergreifenden Entra-Apps wird der Aussteller mit dem `tid` aus dem Token geprüft statt gar nicht. `next` nach der Anmeldung nur noch als lokaler Pfad (keine offene Weiterleitung).
+- **Sitzungs-Token nicht mehr in Adressen.** Terminal (WebSocket), Ereignisströme (SSE) und Backup-Download nehmen in `?token=` nur noch ein Ticket aus `POST /api/auth/ticket` an: 60 s gültig, nur für den genannten Zweck. Vorher stand der volle 24-h-Token in Proxy-Protokollen und im Browserverlauf.
+- **Passwortänderung beendet alte Sitzungen.** Jeder Token trägt einen Abdruck des Passwort-Hashes (`pv`); nach einer Änderung sind vorher ausgestellte Tokens sofort ungültig. Einmalige Folge des Updates: alle müssen sich neu anmelden.
+- **Login verrät keine Benutzernamen mehr über die Antwortzeit** (bcrypt läuft auch bei unbekanntem Namen). Kaputte Hashes führen zu „falsch“ statt zu HTTP 500.
+- **Startpasswort statt `admin`/`admin`.** `install.sh` erzeugt `RIMPERIO_ADMIN_INITIAL_PASSWORD`; beim Start wird das Standardpasswort damit ersetzt (ein geändertes bleibt). Ohne den Wert gibt es beim Start eine kritische Warnung.
+- **JWT-Secret:** Ein bekannter Standardwert (`change-me` …) bricht den Start ab (vorher nur mit `RIMPERIO_ENV=production`). Notausstieg für Tests: `RIMPERIO_ALLOW_WEAK_SECRET=true`. `install.sh` erzeugt neu 64 Zeichen.
+- **Caddyfile-Injektion** über die Let's-Encrypt-E-Mail (Zeilenumbruch) verhindert; der Update-Bezugspunkt (`ref`) wird geprüft, damit er nicht als git-Option (`--upload-pack=…`) ankommt.
+- **SVG-Logos** werden mit `Content-Security-Policy: sandbox` ausgeliefert (kein Skript mit der Herkunft des Servers). API-Antworten tragen `Content-Security-Policy: default-src 'none'` und bei Anmeldung `Cache-Control: no-store`. Caddy setzt Schutz-Kopfzeilen für die Oberfläche und verschweigt `Server`.
+- **Abhängigkeiten:** `python-jose` 3.4.0 (CVE-2024-33663, CVE-2024-33664), `python-multipart` 0.0.20 (CVE-2024-24762, CVE-2024-53981), `fastapi` 0.115.6 / Starlette 0.41 (CVE-2024-47874). Frontend: `npm audit fix` (source-map-js, GHSA-68fv-2mgg-jv7q).
+
+### Changed
+- `docker-compose.yml`: `no-new-privileges` für PostgreSQL, Syslog, Frontend und Caddy; Healthcheck für das Backend. Das Backend-Image wirft `gcc` nach dem Bauen der Pakete wieder raus.
+
 ## 2026.11.07.20.00.00
 
 ### Changed

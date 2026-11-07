@@ -109,7 +109,7 @@ async def create(data: CreateRequest, db: AsyncSession = Depends(get_db),
 # =============================================================================
 @router.get("/{name}/download")
 async def download(name: str,
-                   token: str = Query("", description="Access-Token, falls kein Kopf möglich"),
+                   token: str = Query("", description="Download-Ticket (/api/auth/ticket), falls kein Kopf möglich"),
                    authorization: str = Header("")):
     """Sicherung als Datei herunterladen.
 
@@ -118,10 +118,16 @@ async def download(name: str,
     (für Aufrufe aus Skripten) oder `?token=` (für den Link in der Oberfläche).
     Geprüft wird in beiden Fällen dasselbe.
     """
-    candidate = token.strip()
-    if not candidate and authorization.startswith("Bearer "):
-        candidate = authorization[7:].strip()
-    if not candidate or not await admin_from_token(candidate):
+    # Link aus der Oberflaeche: nur ein kurzlebiges Ticket, nie der volle
+    # Sitzungs-Token (der stuende sonst im Browserverlauf und im Proxy-Log).
+    # Skripte schicken weiterhin den normalen Token im Kopf.
+    if token.strip():
+        admin = await admin_from_token(token.strip(), purpose="backup-download")
+    elif authorization.startswith("Bearer "):
+        admin = await admin_from_token(authorization[7:].strip())
+    else:
+        admin = None
+    if not admin:
         raise HTTPException(status_code=401,
                             detail="Nicht angemeldet oder keine Administratorrechte.")
 

@@ -614,23 +614,20 @@ let updateStream = null
 
 function listenForUpdates() {
   if (!auth.isAdmin || typeof EventSource === 'undefined') return
-  // EventSource kennt keine eigenen Kopfzeilen - der Token geht als Parameter.
-  updateStream = new EventSource(`/api/updates/stream?token=${encodeURIComponent(auth.token)}`)
-
-  updateStream.addEventListener('update.available', (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      updateNotice.value = data.reason || t('updates.updateAvailable')
-    } catch {
-      updateNotice.value = t('updates.updateAvailable')
-    }
+  // EventSource kennt keine eigenen Kopfzeilen - in die Adresse kommt ein
+  // kurzlebiges Ticket, nicht der Sitzungs-Token. Bricht die Verbindung ab
+  // (Neustart, Proxy-Zeitlimit), verbindet eventStream mit frischem Ticket neu.
+  updateStream = auth.eventStream('/api/updates/stream', 'updates', (source) => {
+    source.addEventListener('update.available', (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        updateNotice.value = data.reason || t('updates.updateAvailable')
+      } catch {
+        updateNotice.value = t('updates.updateAvailable')
+      }
+    })
+    source.addEventListener('update.cleared', () => { updateNotice.value = '' })
   })
-  updateStream.addEventListener('update.cleared', () => { updateNotice.value = '' })
-
-  // Bricht die Verbindung ab (Neustart, Proxy-Zeitlimit), versucht der Browser
-  // es von selbst erneut. Nichts zu tun - nur nicht in einer Fehlerschleife
-  // lärmen.
-  updateStream.onerror = () => {}
 }
 
 onMounted(listenForUpdates)

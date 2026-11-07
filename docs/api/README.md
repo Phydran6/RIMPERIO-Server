@@ -26,9 +26,19 @@ Danach überall:
 Authorization: Bearer <access_token>
 ```
 
-**Zwei Ausnahmen von der Kopfzeile:** Der Ereignisstrom (`EventSource`) und das
-Terminal (`WebSocket`) können keine eigenen Kopfzeilen mitschicken — dort geht
-der Token als `?token=`. Geprüft wird er genauso streng.
+**Ausnahmen von der Kopfzeile:** Ereignisströme (`EventSource`), das Terminal
+(`WebSocket`) und der Backup-Download-Link können keine eigenen Kopfzeilen
+mitschicken. Dort geht in `?token=` **nicht** der Sitzungs-Token, sondern ein
+Ticket, das 60 Sekunden gilt und nur für einen Zweck taugt:
+
+```
+POST /api/auth/ticket          (Authorization: Bearer <access_token>)
+{"purpose": "shell" | "journal" | "updates" | "update-log" | "backup-download"}
+→ {"ticket": "...", "expires_in_seconds": 60}
+```
+
+So steht nie der volle Token in Proxy-Protokollen oder im Browserverlauf. Der
+Backup-Download nimmt für Skripte weiterhin den normalen `Authorization`-Kopf.
 
 ---
 
@@ -196,7 +206,7 @@ nicht dadurch umgehen, dass man die Oberfläche wegläßt.
 ## Ereignisstrom
 
 ```
-GET /api/updates/stream?token=<access_token>
+GET /api/updates/stream?token=<ticket, Zweck "updates">
 ```
 
 Server-Sent Events. Ereignisse: `update.available`, `update.cleared`,

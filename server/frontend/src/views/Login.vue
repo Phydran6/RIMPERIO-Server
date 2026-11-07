@@ -273,7 +273,9 @@ async function finishSso() {
     localStorage.setItem('token', data.access_token)
     await auth.fetchUser()
     window.history.replaceState({}, '', '/login')
-    router.push(params.get('next') || '/')
+    // Nur Pfade auf diesem Server - keine offene Weiterleitung über "next".
+    const next = params.get('next') || '/'
+    router.push(next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') ? next : '/')
   } catch (e) {
     error.value = e.message
     window.history.replaceState({}, '', '/login')

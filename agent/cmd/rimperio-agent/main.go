@@ -3,11 +3,12 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        main
 // Autor:        Phydran6
-// Version:      2026.10.31.15.40.00
+// Version:      2026.11.07.02.30.00
 //
 // Beschreibung: Kommandozeile des Agents. install meldet an und richtet den
 //               Dienst ein; run lässt ihn laufen (vom Dienstmanager gerufen);
-//               dazu enroll, start/stop/restart, uninstall, once und status.
+//               dazu enroll, start/stop/restart, uninstall (mit Abmeldung am
+//               Server), cleanup (für das MSI), once und status.
 // ---------------------------------------------------------------------------
 
 package main
@@ -42,7 +43,10 @@ func main() {
 	case "enroll":
 		doEnroll(os.Args[2:])
 	case "uninstall":
-		doUninstall()
+		doUninstall(os.Args[2:])
+	case "cleanup":
+		// Vom MSI beim Deinstallieren gerufen: abmelden + Konfiguration löschen.
+		doCleanup(os.Args[2:])
 	case "start", "stop", "restart":
 		must(core.ServiceControl(os.Args[1]), "Dienstaktion")
 		fmt.Printf("Dienst: %s ausgeführt.\n", os.Args[1])
@@ -126,15 +130,25 @@ func doEnroll(args []string) {
 	fmt.Printf("Angemeldet (ohne Dienst). Agent-ID: %s\nKonfiguration: %s\n", res.AgentUID, core.ConfigPath())
 }
 
-func doUninstall() {
-	if err := core.ServiceControl("stop"); err != nil {
-		fmt.Fprintf(os.Stderr, "Hinweis: Stoppen: %v\n", err)
+// keepRecordFlag liest "-keep-record": den Eintrag auf dem Server behalten.
+func keepRecordFlag(name string, args []string) bool {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
+	keep := fs.Bool("keep-record", false, "Eintrag auf dem Server behalten (nur vom Rechner entfernen)")
+	_ = fs.Parse(args)
+	return *keep
+}
+
+// doUninstall entfernt den Agent vom Rechner und (ohne -keep-record) vom Server.
+func doUninstall(args []string) {
+	for _, n := range core.Uninstall(keepRecordFlag("uninstall", args)) {
+		fmt.Println(n)
 	}
-	must(core.ServiceControl("uninstall"), "Dienst entfernen")
-	if err := os.Remove(core.ConfigPath()); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Hinweis: Konfiguration blieb liegen: %v\n", err)
+}
+
+func doCleanup(args []string) {
+	for _, n := range core.Cleanup(keepRecordFlag("cleanup", args)) {
+		fmt.Println(n)
 	}
-	fmt.Println("Agent entfernt.")
 }
 
 func doStatus() {
@@ -160,7 +174,10 @@ Verwendung:
                         Nur Konfiguration anlegen (für den MSI-Installer).
   rimperio-agent install    Dienst registrieren und starten.
   rimperio-agent enroll     -server URL -secret GEHEIMNIS [...]   Nur anmelden.
-  rimperio-agent start | stop | restart | uninstall
+  rimperio-agent uninstall  [-keep-record]
+                        Agent vom Rechner entfernen und am Server abmelden
+                        (-keep-record: Eintrag auf dem Server behalten).
+  rimperio-agent start | stop | restart
   rimperio-agent once       Ein Testdurchlauf.
   rimperio-agent status
   rimperio-agent version

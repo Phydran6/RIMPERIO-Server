@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/rimperio-icon.svg" alt="RIMPERIO" width="140">
+<img src="docs/assets/rimperio-icon.png" alt="RIMPERIO" width="140">
 
 # RIMPERIO
 
@@ -45,8 +45,8 @@ Einzeiler – direkt geht es so ([alle Optionen](docs/install/README.md#https-gl
 curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/install.sh \n  | sudo bash -s -- --domain rmm.example.de --email du@example.de --yes
 ```
 
-Danach: Oberfläche unter `https://DOMAIN` bzw. `http://SERVER-IP` (Anmeldung `admin` / `admin`,
-**sofort ändern**), API-Doku unter `/api/docs`, Syslog auf Port 514.
+Danach: Oberfläche unter `https://DOMAIN` bzw. `http://SERVER-IP` (Anmeldung `admin` mit dem
+Startpasswort, das der Installer am Ende anzeigt, **sofort ändern**), API-Doku unter `/api/docs`, Syslog auf Port 514.
 
 **Rechner anbinden** – in der Oberfläche unter *Fernwartung → Rechner → Agent hinzufügen*
 stehen die fertigen Befehle (PowerShell, MSI, Linux) samt Server-Adresse.

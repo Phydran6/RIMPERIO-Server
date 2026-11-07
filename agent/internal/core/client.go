@@ -6,7 +6,7 @@
 // Version:      2026.11.07.12.00.00
 //
 // Beschreibung: Der schmale HTTP-Weg zum Server. Anmeldung (enroll), Check-in
-//               mit Messwerten, Inventur und Ergebnisse. Immer HTTPS mit dem
+//               mit Messwerten, Inventur, Ergebnisse und Abmeldung. Immer HTTPS mit dem
 //               persönlichen Agent-Token im Authorization-Header; -insecure
 //               nur fürs Labor mit Selbstzertifikat.
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ type PendingCommand struct {
 	Shell   string `json:"shell"`
 	Command string `json:"command"`
 	Timeout int    `json:"timeout"`
-	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | docker_scan | docker_update | health_snapshot | reboot | software_inventory
+	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | docker_scan | docker_update | health_snapshot | reboot | software_inventory | uninstall
 }
 
 type CheckSpec struct {
@@ -181,4 +181,10 @@ func (c *Client) SendSnmpResults(results []SnmpResult) error {
 		return nil
 	}
 	return c.doJSON(http.MethodPost, "/api/rmm/agent/snmp-results", c.Token, results, nil)
+}
+
+// Unregister meldet den Agent beim Server ab. Der Server löscht dann Messwerte,
+// Befehle und Patch-Stand; ein Gerät ohne Logs verschwindet ganz.
+func (c *Client) Unregister() error {
+	return c.doJSON(http.MethodPost, "/api/rmm/agent/unregister", c.Token, struct{}{}, nil)
 }

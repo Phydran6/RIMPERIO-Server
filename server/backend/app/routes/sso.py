@@ -180,7 +180,13 @@ async def sso_callback(request: Request, code: str = Query(default=""),
         detail={"role": user.role, "provider": config.get("provider")})
 
     target = claims.get("_next") or ""
-    suffix = f"&next={target}" if target.startswith("/") else ""
+    # Nur Pfade auf diesem Server: "//boese.example" oder "/\\boese" waeren fuer
+    # den Browser fremde Adressen (offene Weiterleitung). Und kodiert, damit
+    # niemand ueber "next" weitere Parameter einschmuggelt.
+    from urllib.parse import quote
+    safe_target = (target.startswith("/") and not target.startswith(("//", "/\\"))
+                   and "\\" not in target and len(target) <= 200)
+    suffix = f"&next={quote(target, safe='/')}" if safe_target else ""
     return RedirectResponse(url=f"/login?sso={handoff}{suffix}", status_code=302)
 
 

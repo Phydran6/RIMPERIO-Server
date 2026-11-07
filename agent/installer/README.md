@@ -155,30 +155,43 @@ sudo bash install-agent.sh --server https://rmm.example.de --secret SCHLÜSSEL -
 
 ## Deinstallieren
 
+Standard ist **alles weg**: Dienst, Programm, Konfiguration und der Eintrag auf dem
+Server. Wer den Eintrag behalten will, sagt es ausdrücklich.
+
+**Aus der Oberfläche:** Rechner öffnen → *Agent entfernen* → Häkchen „Agent auch auf
+dem Rechner deinstallieren“ (Standard). Der Agent erledigt das beim nächsten Check-in
+selbst und verschwindet danach aus der Liste. Ohne Häkchen geht nur der Eintrag.
+
 **Windows, per MSI installiert:** *Einstellungen → Apps → RIMPERIO Agent →
 Deinstallieren*, oder still:
 
 ```powershell
-msiexec /x rimperio-agent.msi /qn
+msiexec /x rimperio-agent.msi /qn /norestart                 # alles weg
+msiexec /x rimperio-agent.msi /qn /norestart KEEP_RECORD=1   # Eintrag auf dem Server bleibt
 ```
 
-Das MSI stoppt und entfernt den Dienst und löscht das Programmverzeichnis.
+Statt der .msi-Datei geht auch der Produktcode:
+`(Get-ItemProperty HKLM:\SOFTWARE\RIMPERIO\Agent).ProductCode`. Ein Update (neueres
+MSI drüber installieren) meldet nichts ab.
 
 **Windows, per Skript installiert** (als Administrator):
 
 ```powershell
-& "C:\Program Files\RIMPERIO Agent\rimperio-agent.exe" uninstall   # Dienst + Konfiguration
-Remove-Item "C:\Program Files\RIMPERIO Agent" -Recurse -Force
+& "C:\Program Files\RIMPERIO Agent\rimperio-agent.exe" uninstall                 # alles weg
+& "C:\Program Files\RIMPERIO Agent\rimperio-agent.exe" uninstall -keep-record    # Eintrag bleibt
 ```
+
+Den Programmordner löscht der Agent wenige Sekunden nach dem Beenden selbst.
 
 **Linux:**
 
 ```bash
-sudo rimperio-agent uninstall          # Dienst + Konfiguration
-sudo rm /usr/local/bin/rimperio-agent
+sudo rimperio-agent uninstall                 # alles weg, auch /usr/local/bin/rimperio-agent
+sudo rimperio-agent uninstall -keep-record    # Eintrag auf dem Server bleibt
 ```
 
-Den Rechner danach in der Oberfläche unter *Agent → Entfernen* austragen (nur Admins).
+Ist der Server beim Deinstallieren nicht erreichbar, läuft die Deinstallation trotzdem
+durch — den Rechner dann in der Oberfläche entfernen (ohne Häkchen).
 
 ---
 

@@ -254,7 +254,7 @@ COMPOSE_PROFILES=portainer,tugtainer
 
 ## Nach der Installation
 
-1. **Passwort ändern** — `admin`/`admin` ist nur der Einstieg.
+1. **Passwort ändern** — das Startpasswort für `admin` zeigt der Installer am Ende an (es steht auch als `RIMPERIO_ADMIN_INITIAL_PASSWORD` in der `.env`). Ältere Installationen ohne diesen Wert starten mit `admin`/`admin`.
 2. **HTTPS einschalten** — Einstellungen → Netzwerk → Reverse Proxy.
    Let's Encrypt, eigenes Zertifikat oder selbstsigniert.
 3. **Systemcheck laufen lassen** — System → Systemzustand.

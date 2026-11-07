@@ -65,7 +65,11 @@
             </tr>
             <tr v-for="a in shown" :key="a.agent_uid" @click="$router.push(`/rmm/agents/${a.agent_uid}`)">
               <td><span class="rmm-dot" :class="a.online ? 'is-online' : 'is-offline'" :title="a.online ? 'online' : 'offline'"></span></td>
-              <td><strong>{{ a.hostname }}</strong><div class="rmm-muted">{{ a.description || a.local_ip || '' }}</div></td>
+              <td>
+                <strong>{{ a.hostname }}</strong>
+                <span v-if="a.uninstall_pending" class="badge badge-warning rmm-badge-removing">wird deinstalliert</span>
+                <div class="rmm-muted">{{ a.description || a.local_ip || '' }}</div>
+              </td>
               <td>{{ a.site }}</td>
               <td>{{ a.os || PLATFORM_LABEL[a.platform] || '–' }}</td>
               <td :class="loadClass(a.last_cpu)">{{ fmtPct(a.last_cpu) }}</td>

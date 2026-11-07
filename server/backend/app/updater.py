@@ -580,6 +580,8 @@ def build_command(action: str, database_backup: bool = True,
     if action == "apply":
         command.append("--db-backup" if database_backup else "--no-db-backup")
         if ref and ref != REPO_BRANCH:
+            if not _GIT_REF_RE.match(ref) or ".." in ref:
+                raise ValueError("Ungültige Versionsangabe.")
             command.extend(["--ref", ref])
     if action == "rollback" and backup_name:
         command.extend(["--backup", backup_name])
@@ -656,6 +658,7 @@ Die Wahl liegt in der settings-Tabelle, damit sie ein Update ueberlebt.
 """
 
 CHANNEL_SETTING_KEY = "update_channel"
+_GIT_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/\-]{0,199}$")
 
 CHANNELS = {
     "stable": {
@@ -710,6 +713,10 @@ async def save_channel(channel: str, ref: str = "", auto_offer: bool = True) -> 
     ref = (ref or "").strip()
     if channel == "pinned" and not ref:
         raise ValueError("Für eine festgelegte Version fehlt die Angabe, welche.")
+    # Der Bezugspunkt geht als Argument an git und in GitHub-Adressen. Ein Wert
+    # wie "--upload-pack=..." waere fuer git eine Option statt eines Namens.
+    if ref and (not _GIT_REF_RE.match(ref) or ".." in ref or ref.endswith((".lock", "/", "."))):
+        raise ValueError("Ungültige Versionsangabe (erlaubt: Zweig, Tag oder Commit).")
 
     config = {"channel": channel, "ref": ref, "auto_offer": bool(auto_offer)}
     async with async_session() as session:

@@ -51,6 +51,61 @@ jobs:
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...
           CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build ./...
 
+  msi:
+    # Baut das MSI bei jedem Push mit und spielt Installation und Deinstallation
+    # einmal echt durch — so fällt ein Fehler in der .wxs vor dem Release auf.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: agent/go.sum
+      # v4 wie im Release (siehe agent-release.yml: ab v7 OSMF-EULA).
+      - name: WiX installieren
+        run: dotnet tool install --global wix --version 4.0.6
+      - name: exe + MSI bauen
+        shell: pwsh
+        run: |
+          $log = "$env:RUNNER_TEMP\build.log"
+          foreach ($s in 'build-agent.ps1', 'build-msi.ps1') {
+            pwsh -NoProfile -File "./agent/installer/windows/$s" *>&1 | Tee-Object -FilePath $log -Append
+            if ($LASTEXITCODE -ne 0) {
+              Get-Content $log -Tail 15 | ForEach-Object { Write-Host "::error title=MSI bauen::$_" }
+              exit $LASTEXITCODE
+            }
+          }
+      - name: MSI installieren und wieder entfernen
+        shell: pwsh
+        run: |
+          $msi = (Resolve-Path agent/installer/windows/rimperio-agent.msi).Path
+          $script:fail = 0
+          function Check($name, $ok) {
+            if ($ok) { Write-Host "ok   $name" } else { Write-Host "::error title=MSI-Probe::$name"; $script:fail = 1 }
+          }
+          # Server absichtlich unerreichbar: Der Dienst startet, die Anmeldung wartet.
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" SERVER=http://127.0.0.1:9 SECRET=probe SITE=CI /qn /norestart /l*v `"$env:RUNNER_TEMP\install.log`""
+          Check "Installation (Exitcode $($p.ExitCode))" ($p.ExitCode -eq 0)
+          Start-Sleep -Seconds 5
+          Check "Dienst läuft"              ((Get-Service rimperio-agent -ErrorAction SilentlyContinue).Status -eq 'Running')
+          Check "ProductCode in Registry"   ((Get-ItemProperty HKLM:\SOFTWARE\RIMPERIO\Agent -ErrorAction SilentlyContinue).ProductCode -like '{*}')
+          Check "Ereignisquelle angemeldet" (Test-Path HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\rimperio-agent)
+          Check "Konfiguration angelegt"    (Test-Path C:\ProgramData\RIMPERIO\agent.json)
+
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn /norestart /l*v `"$env:RUNNER_TEMP\uninstall.log`""
+          Check "Deinstallation (Exitcode $($p.ExitCode))" ($p.ExitCode -eq 0)
+          Check "Dienst entfernt"           (-not (Get-Service rimperio-agent -ErrorAction SilentlyContinue))
+          Check "Registry entfernt"         (-not (Test-Path HKLM:\SOFTWARE\RIMPERIO\Agent))
+          Check "Konfiguration gelöscht"    (-not (Test-Path C:\ProgramData\RIMPERIO\agent.json))
+          Check "Programm entfernt"         (-not (Test-Path "$env:ProgramFiles\RIMPERIO Agent\rimperio-agent.exe"))
+          if ($script:fail) {
+            foreach ($f in 'install.log', 'uninstall.log') {
+              Select-String -Path "$env:RUNNER_TEMP\$f" -Pattern 'AgentCleanup|Return value 3|error|Fehler' |
+                Select-Object -Last 10 | ForEach-Object { Write-Host "::error title=$f::$($_.Line.Trim())" }
+            }
+            exit 1
+          }
+
   frontend:
     runs-on: ubuntu-latest
     steps:
