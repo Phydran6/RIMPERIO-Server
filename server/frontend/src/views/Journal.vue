@@ -316,23 +316,24 @@ async function prune() {
  */
 function listen() {
   if (typeof EventSource === 'undefined') return
-  stream = new EventSource(`/api/journal/stream?token=${encodeURIComponent(auth.token)}`)
+  // Ticket statt Sitzungs-Token in der Adresse; bei Abbruch neu mit frischem Ticket.
+  stream = auth.eventStream('/api/journal/stream', 'journal', (source) => {
+    source.addEventListener('system.event', (event) => {
+      live.value = true
+      if (page.value !== 1) return
+      try {
+        const entry = JSON.parse(event.data)
+        items.value = [{ id: `live-${Date.now()}-${Math.random()}`, category_label: entry.category,
+                         ...entry, detail: {} }, ...items.value].slice(0, pageSize.value)
+        total.value += 1
+      } catch {
+        // Eine unlesbare Zeile ist kein Grund, den Strom aufzugeben.
+      }
+    })
 
-  stream.addEventListener('system.event', (event) => {
-    live.value = true
-    if (page.value !== 1) return
-    try {
-      const entry = JSON.parse(event.data)
-      items.value = [{ id: `live-${Date.now()}-${Math.random()}`, category_label: entry.category,
-                       ...entry, detail: {} }, ...items.value].slice(0, pageSize.value)
-      total.value += 1
-    } catch {
-      // Eine unlesbare Zeile ist kein Grund, den Strom aufzugeben.
-    }
+    source.onopen = () => { live.value = true }
+    source.onerror = () => { live.value = false }
   })
-
-  stream.onopen = () => { live.value = true }
-  stream.onerror = () => { live.value = false }
 }
 
 onMounted(() => {

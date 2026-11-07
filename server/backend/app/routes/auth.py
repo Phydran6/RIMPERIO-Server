@@ -13,6 +13,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Union
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,8 +35,13 @@ from .. import journal, ldap_auth
 from ..limiter import client_ip as real_client_ip
 from ..auth import (
     verify_password,
+    burn_password_check,
     get_password_hash,
-    create_access_token,
+    issue_access_token,
+    create_ticket,
+    TICKET_PURPOSES,
+    TICKET_SECONDS,
+    get_current_admin,
     create_mfa_pending_token,
     decode_mfa_pending_token,
     is_user_mfa_locked,
@@ -110,6 +116,10 @@ async def login(
     result = await db.execute(select(User).where(User.username == form_data.username))
     user = result.scalar_one_or_none()
 
+    if user is None:
+        # Gleiche Laufzeit wie bei falschem Passwort - sonst verraet die
+        # Antwortzeit, welche Benutzernamen es gibt.
+        burn_password_check(form_data.password)
     if not user or not verify_password(form_data.password, user.password_hash):
         # Zweiter Versuch über das Verzeichnis, falls eingerichtet.
         user = await _login_via_ldap(db, form_data.username, form_data.password)
@@ -150,7 +160,7 @@ async def login(
         message=f"'{user.username}' hat sich angemeldet.",
         actor=user.username, source_ip=source_ip,
         detail={"role": user.role, "source": user.auth_source or "local", "mfa": False})
-    return Token(access_token=create_access_token(data={"sub": user.username}))
+    return Token(access_token=issue_access_token(user))
 
 
 @router.post("/login/mfa", response_model=Token)
@@ -189,12 +199,32 @@ async def login_mfa(
         message=f"'{user.username}' hat sich angemeldet (mit Zweitfaktor).",
         actor=user.username, source_ip=real_client_ip(request),
         detail={"role": user.role, "mfa": True})
-    return Token(access_token=create_access_token(data={"sub": user.username}))
+    return Token(access_token=issue_access_token(user))
 
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+class TicketRequest(BaseModel):
+    purpose: str
+
+
+@router.post("/ticket")
+@limiter.limit("60/minute")
+async def issue_ticket(request: Request, data: TicketRequest,
+                       admin: User = Depends(get_current_admin)):
+    """Kurzlebiges Ticket fuer Terminal, Ereignisstroeme und Download-Links.
+
+    Diese Wege koennen keinen Authorization-Kopf schicken. Statt des vollen
+    Sitzungs-Tokens kommt deshalb ein Ticket in die Adresse: 60 Sekunden
+    gueltig und nur fuer den genannten Zweck.
+    """
+    if data.purpose not in TICKET_PURPOSES:
+        raise HTTPException(status_code=400,
+                            detail=f"Unbekannter Zweck. Erlaubt: {', '.join(TICKET_PURPOSES)}")
+    return {"ticket": create_ticket(admin, data.purpose), "expires_in_seconds": TICKET_SECONDS}
 
 
 # =============================================================================
@@ -268,7 +298,7 @@ async def exchange_app_token(
 
     await db.commit()
 
-    return Token(access_token=create_access_token(data={"sub": user.username}))
+    return Token(access_token=issue_access_token(user))
 
 
 @router.get("/app-qr", response_model=AppQRResponse)

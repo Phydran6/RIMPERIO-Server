@@ -397,13 +397,22 @@ async function loadStatus() {
   }
 }
 
-function connect() {
+async function connect() {
   error.value = ''
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const rows = 32
   const cols = estimateColumns()
+  // Ein Ticket fuer genau diese eine Verbindung (60 s gueltig) - nicht der
+  // Sitzungs-Token, der sonst in Proxy-Protokollen stuende.
+  let ticket
+  try {
+    ticket = await auth.ticket('shell')
+  } catch (err) {
+    error.value = err.message
+    return
+  }
   const url = `${protocol}://${window.location.host}/api/shell/ws`
-    + `?token=${encodeURIComponent(auth.token)}&rows=${rows}&cols=${cols}`
+    + `?token=${encodeURIComponent(ticket)}&rows=${rows}&cols=${cols}`
 
   socket = new WebSocket(url)
 

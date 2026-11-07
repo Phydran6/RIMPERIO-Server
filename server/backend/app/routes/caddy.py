@@ -38,6 +38,15 @@ logger = logging.getLogger("rimperio.caddy")
 
 # Routen-Snippet: einmal definiert, in jedem Site-Block importiert.
 ROUTES_SNIPPET = """(rimperio_routes) {
+    # Schutz-Kopfzeilen fuer die Oberflaeche (die API setzt ihre eigenen).
+    # -Server: nicht verraten, welcher Proxy in welcher Fassung hier steht.
+    header {
+        -Server
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
     handle /api/* {
         reverse_proxy backend:8000
     }
@@ -56,6 +65,10 @@ HTTP_BLOCK = ":80 {\n    import rimperio_routes\n}\n"
 
 # Fallback, wenn nichts gespeichert ist (entspricht caddy/Caddyfile im Repo).
 DEFAULT_CADDYFILE = ADMIN_BLOCK + ROUTES_SNIPPET + "\n" + HTTP_BLOCK
+
+# Die E-Mail landet woertlich in der Caddyfile. Ohne Pruefung liesse sich ueber
+# einen Zeilenumbruch darin beliebige Caddy-Konfiguration einschleusen.
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9.\-]{1,253}\.[A-Za-z]{2,63}$")
 
 _HOSTNAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*$")
 
@@ -122,8 +135,11 @@ def _build_template(
             )
         tls_line = "    tls /etc/caddy/certs/custom.crt /etc/caddy/certs/custom.key"
     elif mode == "letsencrypt":
+        letsencrypt_email = (letsencrypt_email or "").strip()
         if not letsencrypt_email:
             raise HTTPException(status_code=400, detail="E-Mail für Let's Encrypt erforderlich")
+        if not _EMAIL_RE.match(letsencrypt_email):
+            raise HTTPException(status_code=400, detail="Ungültige E-Mail-Adresse für Let's Encrypt")
         tls_line = f"    tls {letsencrypt_email}"
     else:  # internal
         tls_line = "    tls internal"

@@ -95,16 +95,33 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+_WEAK_SECRETS = {"change-me", "changeme", "secret", "jwt-secret", "rimperio", ""}
+
+
 def validate_security_settings() -> None:
-    """Warnt beim Start bei unsicheren Standardwerten."""
+    """Prueft beim Start, ob die Schluessel taugen.
+
+    Mit dem JWT-Secret unterschreibt der Server jede Sitzung. Wer es kennt,
+    stellt sich selbst einen Admin-Token aus - und hat damit die Root-Shell
+    auf dem Host. Ein bekannter Standardwert ist darum kein Warnfall, sondern
+    ein Startabbruch. Notausstieg fuer Testaufbauten:
+    RIMPERIO_ALLOW_WEAK_SECRET=true.
+    """
+    import os
     logger = logging.getLogger("rimperio.security")
-    if settings.jwt_secret == "change-me":
+    secret = settings.jwt_secret or ""
+    weak = secret.strip().lower() in _WEAK_SECRETS
+    short = len(secret) < 32
+    if not (weak or short):
+        return
+    if weak:
         logger.critical(
-            "SICHERHEITSWARNUNG: JWT_SECRET ist noch der Standardwert 'change-me'! "
-            "Setze die Umgebungsvariable JWT_SECRET auf einen langen zufälligen Wert."
-        )
-        # In Produktionsumgebungen Startup verweigern
-        import os
-        if os.getenv("RIMPERIO_ENV", "").lower() == "production":
-            logger.critical("RIMPERIO_ENV=production – Startup abgebrochen wegen unsicherem JWT_SECRET.")
+            "SICHERHEITSWARNUNG: JWT_SECRET ist ein bekannter Standardwert! "
+            "Setze JWT_SECRET in der .env auf einen langen Zufallswert, z. B. "
+            "`openssl rand -hex 32`.")
+        if os.getenv("RIMPERIO_ALLOW_WEAK_SECRET", "").lower() not in ("1", "true", "yes"):
+            logger.critical("Start abgebrochen. (Nur für Tests: RIMPERIO_ALLOW_WEAK_SECRET=true)")
             sys.exit(1)
+    else:
+        logger.warning(
+            "JWT_SECRET ist kürzer als 32 Zeichen. Empfohlen: `openssl rand -hex 32`.")

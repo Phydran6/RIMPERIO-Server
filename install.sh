@@ -604,10 +604,12 @@ ensure_env() {
     fi
 
     log_info "Erstelle .env..."
-    local db_password jwt_secret webhook_secret
+    local db_password jwt_secret webhook_secret admin_password
     db_password="$(generate_password)"
-    jwt_secret="$(generate_password)"
+    # 64 Zeichen: mit diesem Wert unterschreibt der Server jede Sitzung.
+    jwt_secret="$(generate_password)$(generate_password)"
     webhook_secret="$(generate_password)"
+    admin_password="$(generate_password | head -c 20)"
 
     cat > "$env_file" << EOF
 # RIMPERIO v${RIMPERIO_VERSION} Konfiguration
@@ -623,6 +625,11 @@ POSTGRES_VERSION=17
 
 # JWT Secret für API Authentifizierung
 JWT_SECRET=${jwt_secret}
+
+# Startpasswort für das Konto 'admin'. Ersetzt beim ersten Start das bekannte
+# Standardpasswort 'admin'. Nach der ersten Anmeldung bitte ändern - und diese
+# Zeile darf dann gerne raus.
+RIMPERIO_ADMIN_INITIAL_PASSWORD=${admin_password}
 
 # --- Patchmanagement ---------------------------------------------------------
 # Der Server sieht selbst nach, ob auf GitHub etwas Neues liegt, und meldet es
@@ -844,15 +851,22 @@ print_summary() {
         echo "  oder gleich beim Einzeiler: ... | sudo bash -s -- --domain rmm.example.de --email du@example.de"
     fi
     echo ""
-    echo "Standard-Login:"
+    local initial_admin_password=""
+    initial_admin_password="$(grep -E '^RIMPERIO_ADMIN_INITIAL_PASSWORD=' "$INSTALL_DIR/.env" 2>/dev/null | head -n1 | cut -d= -f2-)"
+    echo "Erste Anmeldung:"
     echo "  Benutzer: admin"
-    echo "  Passwort: admin"
+    if [[ -n "$initial_admin_password" ]]; then
+        echo "  Passwort: ${initial_admin_password}"
+        echo "            (steht auch in $INSTALL_DIR/.env - nur root kann sie lesen)"
+    else
+        echo "  Passwort: admin  (bestehende Installation ohne Startpasswort)"
+    fi
     echo ""
     echo -e "${YELLOW}WICHTIG: Passwort nach dem ersten Login ändern!${NC}"
     echo ""
     echo "Syslog-Empfang:  Port 514 (UDP/TCP)"
     echo "API-Doku:        http://${local_ip}/api/docs"
-    echo "PostgreSQL:      ${local_ip}:5432 (Zugangsdaten in $INSTALL_DIR/.env)"
+    echo "PostgreSQL:      127.0.0.1:5432, nur vom Server selbst (Zugangsdaten in $INSTALL_DIR/.env)"
     echo ""
 
     if [[ ${#SELECTED_ADDONS[@]} -gt 0 ]]; then

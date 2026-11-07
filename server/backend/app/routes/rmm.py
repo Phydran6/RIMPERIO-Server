@@ -36,6 +36,10 @@ agent_router = APIRouter(prefix="/api/rmm/agent", tags=["RMM-Agent"])
 
 SHELLS = {"powershell", "cmd", "bash", "sh"}
 CHECK_TYPES = {"cpu", "mem", "disk", "service", "port", "ping", "script"}
+CHECK_STATUSES = {"pass", "fail", "warn", "unknown"}
+# Obergrenze fuer eine Inventur. Ein echter Rechner liegt weit darunter; ohne
+# Grenze koennte ein uebernommener Agent die Datenbank mit Muell fuellen.
+MAX_INVENTORY_BYTES = 4 * 1024 * 1024
 
 
 def _now() -> datetime:
@@ -250,6 +254,31 @@ async def enroll(data: EnrollIn, request: Request, db: AsyncSession = Depends(ge
     agent = (await db.execute(
         select(Agent).where(func.lower(Agent.hostname) == hostname.lower()).order_by(Agent.id)
     )).scalars().first()
+    # Uebernahme-Schutz: Ein Geraet, das schon als RMM-Agent angemeldet ist,
+    # bekommt nicht einfach einen neuen Token, nur weil jemand denselben
+    # Hostnamen nennt. Sonst koennte jeder mit einer Einladung ein fremdes
+    # Geraet "uebernehmen": er bekaeme dessen Befehle (samt evtl. Geheimnissen
+    # darin), koennte Ergebnisse faelschen, und der echte Agent waere
+    # ausgesperrt. Neu anmelden darf ein solches Geraet nur der
+    # Generalschluessel, ein an genau dieses Geraet gebundener Schluessel -
+    # oder nachdem es in der Oberflaeche entfernt bzw. vom Agent abgemeldet
+    # wurde.
+    if agent is not None and agent.rmm_token_hash:
+        kind = (key.kind or "agent").lower()
+        bound_here = key.agent_id is not None and key.agent_id == agent.id
+        if kind != "global" and not bound_here:
+            await db.rollback()
+            rmm.record("enroll.denied",
+                       f"RMM-Anmeldung für {hostname} abgelehnt: das Gerät ist bereits angemeldet "
+                       f"(Schlüssel '{key.name}').", actor=hostname, target=hostname, source_ip=ip)
+            raise HTTPException(
+                status_code=409,
+                detail=("Ein Gerät mit diesem Namen ist bereits angemeldet. Für eine Neuinstallation "
+                        "das Gerät zuerst in der Oberfläche entfernen oder den Generalschlüssel "
+                        "verwenden."))
+        rmm.record("enroll.reenrolled",
+                   f"RMM-Agent auf {hostname} neu angemeldet – der bisherige Agent-Token ist ungültig.",
+                   actor=key.name or "Schlüssel", target=hostname, source_ip=ip)
     if agent is None:
         agent = Agent(hostname=hostname, device_type=data.platform or "unknown",
                       first_seen=_now(), last_seen=_now(), extra_data={})
@@ -338,6 +367,8 @@ async def checkin(data: CheckinIn, request: Request, agent: Agent = Depends(curr
 async def inventory(payload: dict = Body(...), agent: Agent = Depends(current_agent),
                     db: AsyncSession = Depends(get_db)) -> dict:
     """Vollständige Inventur (OS, Hardware, Software, Dienste, Netzwerk)."""
+    if len(json.dumps(payload, default=str)) > MAX_INVENTORY_BYTES:
+        raise HTTPException(status_code=413, detail="Inventur zu groß.")
     agent.inventory = payload
     agent.rmm_last_seen = _now()
     for key in ("os", "platform", "arch"):
@@ -402,7 +433,7 @@ async def check_results(items: List[CheckResultIn], agent: Agent = Depends(curre
         if row is None:
             row = CheckResult(check_id=item.check_id, agent_id=agent.id)
             db.add(row)
-        row.status = item.status
+        row.status = item.status if item.status in CHECK_STATUSES else "unknown"
         row.value = (item.value or "")[:255]
         row.output = (item.output or "")[:20000] or None
         row.ts = _now()

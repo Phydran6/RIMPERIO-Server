@@ -47,7 +47,7 @@ class UpdateRequest(BaseModel):
     # Der alte Schalter bleibt: er steuert den zusaetzlichen pg_dump, den das
     # Wartungsskript auf dem Host anlegt (unabhaengig von der ZIP-Sicherung).
     database_backup: bool = True
-    ref: str = Field(default="", description="Release/Tag/Commit; leer = eingestellter Kanal")
+    ref: str = Field(default="", pattern=r"^$|^[A-Za-z0-9][A-Za-z0-9._/\-]{0,199}$", description="Release/Tag/Commit; leer = eingestellter Kanal")
     allow_downgrade: bool = Field(
         default=False,
         description="Auch einspielen, wenn das Ziel aelter ist als der installierte Stand")
@@ -66,7 +66,7 @@ class RollbackRequest(BaseModel):
 
 class ChannelRequest(BaseModel):
     channel: str = Field(..., description="stable | edge | pinned")
-    ref: str = Field(default="", description="Release/Tag bei 'pinned'")
+    ref: str = Field(default="", pattern=r"^$|^[A-Za-z0-9][A-Za-z0-9._/\-]{0,199}$", description="Release/Tag bei 'pinned'")
     auto_offer: bool = Field(default=True,
                              description="Neuen Stand von selbst anbieten")
 
@@ -109,7 +109,7 @@ async def stream_log(token: str = Query(..., description="Access-Token eines Adm
     Der Token kommt als Abfrageparameter, weil `EventSource` im Browser keine
     eigenen Kopfzeilen mitschicken kann. Geprüft wird er genauso streng.
     """
-    if not await admin_from_token(token):
+    if not await admin_from_token(token, purpose="update-log"):
         raise HTTPException(status_code=401,
                             detail="Nicht angemeldet oder keine Administratorrechte.")
 
@@ -159,7 +159,7 @@ async def stream(token: str = Query(..., description="Access-Token eines Admins"
     Der Token kommt als Abfrageparameter statt im Kopf: `EventSource` im Browser
     kann keine eigenen Kopfzeilen mitschicken. Geprüft wird er genauso streng.
     """
-    if not await admin_from_token(token):
+    if not await admin_from_token(token, purpose="updates"):
         raise HTTPException(status_code=401,
                             detail="Nicht angemeldet oder keine Administratorrechte.")
 

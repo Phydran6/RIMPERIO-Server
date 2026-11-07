@@ -64,10 +64,48 @@ def _try_sysrq_reboot() -> bool:
     except Exception:
         return False
 
+# Einstellungen mit eigener Verwaltung (und eigenen Geheimnissen). Ueber die
+# allgemeinen Endpunkte hier sind sie weder lesbar noch schreibbar: vorher
+# konnte JEDER angemeldete Benutzer - auch ohne Adminrechte - mit
+# GET /api/settings das SSO-Client-Secret, das LDAP-Bind-Passwort, das
+# SMTP-Passwort, KI-API-Schluessel und den Telegram-Bot-Token auslesen. Und
+# ein Schreiben hier ginge an der Pruefung der zustaendigen Seite vorbei.
+PROTECTED_KEYS = frozenset({
+    "ai_config", "alert_config", "archiving", "archiving_history",
+    "discovery_config", "discovery_state", "ldap", "mail_config",
+    "rmm_thresholds", "sso_config", "update_channel", "dns_config",
+    "caddy_caddyfile", "caddy_config", "caddy_settings",
+})
+
+# Feldnamen, die nach Geheimnis aussehen - auch in Einstellungen, die (noch)
+# nicht oben stehen, kommen sie nie im Klartext heraus.
+_SECRET_HINTS = ("password", "passwd", "secret", "token", "api_key", "apikey", "private_key")
+
+
+def _is_protected(key: str) -> bool:
+    key = (key or "").lower()
+    return key in PROTECTED_KEYS or key.startswith(("caddy_", "sso_", "ldap_", "mail_", "ai_"))
+
+
+def _redact(value):
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            if isinstance(k, str) and any(h in k.lower() for h in _SECRET_HINTS) and v:
+                out[k] = "********"
+            else:
+                out[k] = _redact(v)
+        return out
+    if isinstance(value, list):
+        return [_redact(v) for v in value]
+    return value
+
+
 @router.get("", response_model=SettingsResponse)
 async def get_settings(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     result = await db.execute(select(Setting))
-    return SettingsResponse(settings={s.key: s.value for s in result.scalars().all()})
+    return SettingsResponse(settings={s.key: _redact(s.value) for s in result.scalars().all()
+                                      if not _is_protected(s.key)})
 
 @router.get("/database", response_model=DatabaseSettingsResponse)
 async def get_database_settings(_=Depends(get_current_admin)):
@@ -81,16 +119,22 @@ async def get_database_settings(_=Depends(get_current_admin)):
 
 @router.get("/{key}")
 async def get_setting(key: str, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    if _is_protected(key):
+        raise HTTPException(status_code=404, detail=f"Setting '{key}' nicht gefunden")
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one_or_none()
     if not setting:
         raise HTTPException(status_code=404, detail=f"Setting '{key}' nicht gefunden")
-    return {"key": setting.key, "value": setting.value}
+    return {"key": setting.key, "value": _redact(setting.value)}
 
 @router.put("/{key}")
 async def update_setting(key: str, data: SettingUpdate, request: Request,
                          db: AsyncSession = Depends(get_db),
                          admin=Depends(get_current_admin)):
+    if _is_protected(key):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{key}' wird über die eigene Seite verwaltet, nicht über diesen Endpunkt.")
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one_or_none()
     previous = setting.value if setting else None
@@ -109,8 +153,8 @@ async def update_setting(key: str, data: SettingUpdate, request: Request,
         db, category="settings", event="setting.changed",
         message=f"Einstellung '{key}' geändert.",
         actor=admin.username, source_ip=real_client_ip(request), target=key,
-        detail={"before": previous, "after": data.value})
-    return {"key": setting.key, "value": setting.value}
+        detail={"before": _redact(previous), "after": _redact(data.value)})
+    return {"key": setting.key, "value": _redact(setting.value)}
 
 @router.post("/retention/preview", response_model=RetentionResponse)
 async def preview_retention(days: int = Query(..., ge=1), db: AsyncSession = Depends(get_db), _=Depends(get_current_admin)):
