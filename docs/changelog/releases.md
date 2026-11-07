@@ -11,6 +11,20 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.07.23.00.00 (2026-11-07) – Oberfläche als RMM, HTTPS hinter NPM, App-QR
+
+- **Neues Menü:** nach RMM-Arbeitsbereichen gegliedert (Geräte, Überwachung,
+  Patchmanagement, Automatisierung, Benutzer & Zugang, Mein Konto, RIMPERIO-Server,
+  Einstellungen). Jeder Menüpunkt ist eine Seite, ohne Reiterleisten dazwischen.
+  Dazu Suchfeld, Zähler für Alarme und Freigaben und eine neue Übersicht.
+- **HTTPS hinter Nginx Proxy Manager & Co.:** wird jetzt auch über die
+  Browser-Adresse erkannt und automatisch übernommen, sobald ein Administrator die
+  Oberfläche über den Proxy öffnet.
+- **App verbinden repariert:** Der QR-Code nennt die https-Adresse statt `http://`,
+  und der Countdown steht nicht mehr sofort auf „abgelaufen“.
+- **Öffentliche Adresse** lässt sich unter *Einstellungen → HTTPS & Adresse*
+  eintragen.
+
 ## v2026.11.07.02.30.00 (2026-11-07) – Agent sauber deinstallieren
 
 - **Deinstallieren heißt jetzt: alles weg.** Am Rechner (MSI oder
