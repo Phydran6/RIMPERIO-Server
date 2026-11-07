@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.10.08.22.00.00
+# Version:     2026.11.07.20.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Netzwerksuche: findet Systeme im Netz und sagt, ob sie
 #               schon Logs liefern und wie man sie einbindet.
@@ -33,7 +33,8 @@ TCP-Verbindungsversuche auf typische Ports. Wer antwortet - auch mit
 "Verbindung abgelehnt" -, lebt. Danach liest die Suche die ARP-Tabelle des
 Hosts: im eigenen Subnetz tauchen dort auch Geraete auf, die jede Anfrage
 verwerfen (typisch: Smartphones). Fuer jedes gefundene System kommen dann die
-Details: Rueckwaerts-DNS, SSH-Kennung, SNMP-Systembeschreibung.
+Details: Hostname (DNS, mDNS, NetBIOS - siehe hostnames.py), SSH-Kennung,
+SNMP-Systembeschreibung.
 
 Das ist bewusst ein *hoeflicher* Scan: nur Verbindungsaufbau, keine
 Schwachstellenpruefung, gedrosselt. Trotzdem kann eine Firewall mit
@@ -65,7 +66,6 @@ import re
 import socket
 import struct
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -73,7 +73,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import hostexec, journal, snmp
+from . import hostexec, hostnames, journal, snmp
 from .models import Agent, DiscoveredDevice, Setting
 
 logger = logging.getLogger("rimperio.discovery")
@@ -482,17 +482,28 @@ async def ssh_banner(ip: str, timeout: float = 2.5) -> str:
             await asyncio.wait_for(writer.wait_closed(), 0.5)
 
 
-_dns_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="discovery-dns")
+async def lan_dns_servers(nets: HostNetworks) -> List[str]:
+    """Die Nameserver des LANs: die des Hosts und das Standard-Gateway.
 
-
-async def reverse_dns(ip: str, timeout: float = 2.0) -> str:
-    loop = asyncio.get_running_loop()
-    try:
-        name, _, _ = await asyncio.wait_for(
-            loop.run_in_executor(_dns_pool, socket.gethostbyaddr, ip), timeout)
-    except (asyncio.TimeoutError, OSError):
-        return ""
-    return name.rstrip(".")[:255]
+    Der Container selbst fragt Dockers eingebauten DNS - der kennt die Namen,
+    die der Router per DHCP vergeben hat, oft nicht. Der Host und der Router
+    kennen sie.
+    """
+    servers: List[str] = []
+    if nets.host_access:
+        # systemd-resolved: /etc/resolv.conf nennt nur den Stub 127.0.0.53,
+        # die echten Server stehen in der ersten Datei.
+        for path in ("/run/systemd/resolve/resolv.conf", "/etc/resolv.conf"):
+            text = await hostexec.read_host_file(path, timeout=5)
+            for server in hostnames.parse_resolv_conf(text or ""):
+                if server not in servers:
+                    servers.append(server)
+    for gateway in nets.gateways:
+        if gateway not in servers:
+            servers.append(gateway)
+    # Nur Server im eigenen Netz: ein oeffentlicher Resolver (8.8.8.8) kennt
+    # keine LAN-Namen, und die Anfragen sollen das LAN nicht verlassen.
+    return [s for s in servers if ipaddress.IPv4Address(s).is_private][:4]
 
 
 # =============================================================================
@@ -669,6 +680,8 @@ class Found:
     alive_by: Set[str] = field(default_factory=set)   # icmp, tcp, arp, router
     network: str = ""
     hostname: str = ""
+    hostname_source: str = ""
+    names: Dict[str, str] = field(default_factory=dict)   # Quelle -> gemeldeter Name
     ssh: str = ""
     snmp: Optional[dict] = None
 
@@ -884,17 +897,18 @@ async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
     STATE.done, STATE.total = 0, len(alive)
     rest_ports = [p for p in PORTS if p not in QUICK_PORTS]
     community = cfg.get("snmp_community") or "public"
+    name_servers = await lan_dns_servers(nets)
 
     async def details(item: Found) -> None:
         async with gate:
             answers = await asyncio.gather(*(tcp_probe(item.ip, p) for p in rest_ports))
             item.ports.update(p for p, a in zip(rest_ports, answers) if a == "open")
-            jobs = [reverse_dns(item.ip)]
+            jobs = [hostnames.resolve(item.ip, name_servers)]
             jobs.append(ssh_banner(item.ip) if 22 in item.ports else _empty())
             if cfg.get("snmp_probe_hosts"):
                 jobs.append(snmp.system_info(item.ip, community))
             results = await asyncio.gather(*jobs)
-            item.hostname = results[0]
+            item.hostname, item.hostname_source, item.names = results[0]
             item.ssh = results[1]
             if len(results) > 2:
                 item.snmp = results[2]
@@ -910,6 +924,8 @@ async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
         "notes": list(STATE.notes),
         "icmp": icmp_ok,
         "host_access": nets.host_access,
+        "name_servers": name_servers,
+        "named": sum(1 for f in alive.values() if f.hostname or (f.snmp or {}).get("sys_name")),
     }
     return alive, nets, summary
 
@@ -985,14 +1001,25 @@ async def _store(session: AsyncSession, found: Dict[str, Found], nets: HostNetwo
 
         row.ip_address = ip
         row.mac_address = item.mac or row.mac_address
-        row.hostname = item.hostname or snmp_info.get("sys_name") or row.hostname
+        # Ein Name aus dieser Suche schlaegt einen alten; findet die Suche
+        # keinen, bleibt der zuletzt bekannte stehen.
+        details = dict(row.details or {})
+        sys_name = hostnames.clean(snmp_info.get("sys_name", ""), ip, "snmp")
+        if item.hostname:
+            row.hostname, details["hostname_source"] = item.hostname, item.hostname_source
+        elif sys_name:
+            row.hostname, details["hostname_source"] = sys_name, "snmp"
+        names = dict(item.names)
+        if sys_name:
+            names["snmp"] = sys_name
+        if names:
+            details["names"] = names
         row.kind = kind
         row.os_guess = (os_guess or "")[:120]
         row.open_ports = sorted(item.ports)
         row.network = (item.network or "")[:100]
         row.same_subnet = nets.local_address_for(ip) is not None if nets.interfaces else None
         row.last_seen = now
-        details = dict(row.details or {})
         details.update({
             "ssh_banner": item.ssh,
             "snmp": snmp_info or None,
@@ -1047,10 +1074,15 @@ async def list_devices(session: AsyncSession, nets: Optional[HostNetworks] = Non
         matched_by = "mac" if agent else ""
         if agent is None and device.ip_address in by_ip:
             agent, matched_by = by_ip[device.ip_address], "ip"
-        if agent is None and device.hostname:
-            candidates = by_name.get(_short(device.hostname), [])
-            if len(candidates) == 1:
-                agent, matched_by = candidates[0], "hostname"
+        if agent is None:
+            # Jeder gemeldete Name zaehlt - der NetBIOS-Name ist oft genau
+            # der, den auch der Agent meldet, waehrend DNS etwas anderes sagt.
+            known = [device.hostname] + list(((device.details or {}).get("names") or {}).values())
+            for name in filter(None, known):
+                candidates = by_name.get(_short(name), [])
+                if len(candidates) == 1:
+                    agent, matched_by = candidates[0], "hostname"
+                    break
 
         delivering = bool(agent and agent.last_seen and now - agent.last_seen <= DELIVERING_WINDOW)
         kind = device.kind or "unknown"
@@ -1065,6 +1097,13 @@ async def list_devices(session: AsyncSession, nets: Optional[HostNetworks] = Non
         else:
             status = "open"
 
+        # Hat die Suche keinen Namen gefunden, das System liefert aber schon
+        # ueber einen Agent, ist dessen Name der richtige.
+        hostname = device.hostname
+        hostname_source = (device.details or {}).get("hostname_source") or ""
+        if not hostname and agent and agent.hostname:
+            hostname, hostname_source = agent.hostname, "agent"
+
         syslog_target = None
         if nets and nets.interfaces:
             syslog_target = nets.local_address_for(device.ip_address) or nets.interfaces[0]["address"]
@@ -1073,7 +1112,9 @@ async def list_devices(session: AsyncSession, nets: Optional[HostNetworks] = Non
             "id": device.id,
             "ip_address": device.ip_address,
             "mac_address": device.mac_address,
-            "hostname": device.hostname,
+            "hostname": hostname,
+            "hostname_source": hostname_source,
+            "hostname_source_label": hostnames.SOURCE_LABELS.get(hostname_source, ""),
             "kind": kind,
             "kind_label": KIND_LABELS.get(kind, kind),
             "os_guess": device.os_guess,

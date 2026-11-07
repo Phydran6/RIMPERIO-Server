@@ -2,6 +2,25 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.07.20.00.00
+
+### Changed
+- **Netzwerksuche erkennt Hostnamen** (`hostnames.py`): statt nur Rückwärts-DNS über den Docker-Resolver werden parallel gefragt: PTR beim Resolver des Containers, PTR direkt bei den Nameservern des Hosts (`/run/systemd/resolve/resolv.conf`, `/etc/resolv.conf`) und beim Standard-Gateway, mDNS-Unicast (Port 5353) und NetBIOS-Statusabfrage (Port 137). Vorrang DNS → DNS des LANs → mDNS → NetBIOS → SNMP-sysName. Automatische Provider-Namen und IPs als Name werden verworfen.
+- `discovered_devices.details` enthält `hostname_source` und `names` (alle gemeldeten Namen je Quelle); ein bekannter Name bleibt stehen, wenn eine spätere Suche keinen findet.
+- `GET /api/discovery/devices` liefert `hostname_source`/`hostname_source_label`; ohne gefundenen Namen wird der Hostname des zugeordneten Agents gezeigt. Der Abgleich mit den Agents nutzt alle gemeldeten Namen, nicht nur den angezeigten.
+- Zusammenfassung des Suchlaufs: `name_servers`, `named`.
+
+## 2026.11.07.18.00.00
+
+### Added
+- **Mail über Microsoft 365** (`mail_m365.py`): Admin meldet sich per Gerätecode an (öffentliche App „Microsoft Graph Command Line Tools“). RIMPERIO legt dann die App-Registrierung mit `Mail.Send` an, erteilt die Admin-Zustimmung und erzeugt das Client-Geheimnis. Versand über Graph `sendMail` mit Client Credentials. Eine frühere RIMPERIO-App wird gelöscht, halb angelegte Apps werden bei Fehlern wieder entfernt.
+- **Mail-Anbieter-Vorlagen** (`mail_providers.py`): Google, GMX, WEB.DE, T-Online, IONOS, STRATO, iCloud, Yahoo, Posteo, mailbox.org mit festem Server/Port/Verschlüsselung und Vorbereitungsschritten.
+- Endpunkte `POST /api/mail/verify` (Anmeldung prüfen, ohne zu speichern), `POST /api/mail/m365/start`, `GET /api/mail/m365/status/{flow}`, `DELETE /api/mail/m365/{flow}`. `GET /api/mail/config` liefert `providers` und `m365_restrict_command`.
+
+### Changed
+- `mail.py`: neue Betriebsart `m365`, Feld `provider`, `merge_config` (gemeinsame Prüfung für Speichern und Verify), `send()` wählt den Weg selbst.
+- Nach dem Speichern der Mail-Einstellung wird der Zwischenstand der Benachrichtigungen sofort erneuert, nicht erst durch den Wachhund.
+
 ## 2026.11.07.12.00.00
 
 ### Added

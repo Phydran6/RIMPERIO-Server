@@ -2,6 +2,16 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.07.20.00.00
+
+### Changed
+- **Systeme im Netz**: Liste zeigt den Hostnamen (Tooltip: woher er stammt) oder „kein Name gefunden“ statt der IP doppelt. Detailansicht mit Zeile „Hostname“ samt Quelle und „Weitere Namen“, wenn DNS, mDNS, NetBIOS oder SNMP Abweichendes melden.
+
+## 2026.11.07.18.00.00
+
+### Changed
+- **System → Mail** neu: oben der aktuelle Stand mit Probemail, darunter je Anbieter eine Kachel, die einen eigenen Assistenten öffnet (`components/MailWizard.vue`). Microsoft 365 mit Admin-Anmeldung und Live-Fortschritt, die Vorlagen mit Vorbereitungs-Links. Gespeichert wird erst nach geprüfter Anmeldung. Warnung 30 Tage vor Ablauf des M365-Geheimnisses.
+
 ## 2026.11.07.12.00.00
 
 ### Added
