@@ -212,13 +212,18 @@ check_root_only() {
     fi
 }
 
-prepare_dirs() {
+# Vor allem anderen (auch vor dem Anlegen des Kontos): Taugt der Ort?
+check_layout() {
     [ -d /opt ] || install -d -m 0755 -o root -g root /opt
     check_root_only /opt
-    local d owner mode
+    local d
     for d in /opt/RMM "$BASE" "$BASE/bin" "$BASE/lib" "$BASE/etc" "$BASE/var"; do
         if [ -L "$d" ]; then die "$d ist ein symbolischer Link — so nicht. Bitte entfernen und neu starten."; fi
     done
+}
+
+prepare_dirs() {
+    local d owner mode
     for d in /opt/RMM "$BASE" "$BASE/bin" "$BASE/lib"; do
         if [ -d "$d" ]; then
             owner="$(stat -c %u "$d")"; mode="$(stat -c %a "$d")"
@@ -760,6 +765,7 @@ do_install() {
     require_root
     require_systemd
     choose_account
+    check_layout
     ensure_account
     carry_old_conf
     prepare_dirs

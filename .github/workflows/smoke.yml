@@ -110,8 +110,23 @@ jobs:
           # wait_for BEDINGUNG SEKUNDEN
           wait_for() { local i; for i in $(seq 1 "$2"); do eval "$1" && return 0; sleep 1; done; return 1; }
           invite() { api -X POST "$B/api/agent-tokens" -d "{\"name\":\"$1\",\"kind\":\"enroll\"}" | jq -r .token; }
-          install_rmm() { sudo bash agent/installer/linux/install-agent.sh --binary /tmp/rimperio-agent --server "$B" --site Smoke "$@"; }
-          install_log() { sudo bash agent/logship/install-linux.sh --mode https --yes --fqdn 127.0.0.1 --port 8443 --insecure "$@"; }
+          # must TITEL BEFEHL…: Ausgabe zeigen; scheitert der Befehl, gehen die letzten
+          # Zeilen als Annotation raus (ohne Anmeldung lesbar) und der Lauf endet.
+          must() {
+            local title="$1"; shift
+            if ! "$@" > /tmp/step.log 2>&1; then
+              cat /tmp/step.log
+              tail -n 12 /tmp/step.log | while IFS= read -r l; do echo "::error title=$title::$l"; done
+              exit 1
+            fi
+            cat /tmp/step.log
+          }
+          rmm_raw() { sudo bash agent/installer/linux/install-agent.sh --binary /tmp/rimperio-agent --server "$B" --site Smoke "$@"; }
+          log_raw() { sudo bash agent/logship/install-linux.sh --mode https --yes --fqdn 127.0.0.1 --port 8443 --insecure "$@"; }
+          install_rmm() { must install-agent.sh rmm_raw "$@"; }
+          install_log() { must install-linux.sh log_raw "$@"; }
+          uninstall_rmm() { must "rimperio-agent uninstall" sudo /opt/RMM/rimperio/bin/rimperio-agent uninstall "$@"; }
+          uninstall_log() { must "install-linux.sh uninstall" sudo bash agent/logship/install-linux.sh uninstall --yes; }
           runs_as() { ps -o user= -p "$(systemctl show -p MainPID --value "$1")" | tr -d ' '; }
           kick() { sudo systemctl restart rimperio-agent; }   # Neustart = sofort ein Takt
           agents() { api "$B/api/rmm/agents" | jq -r "$1"; }
@@ -126,6 +141,16 @@ jobs:
 
           TOKEN=$(curl -sS -X POST "$B/api/auth/login" -d 'username=admin&password=admin' | jq -r .access_token)
           check "Anmeldung admin/admin" '[ -n "$TOKEN" ] && [ "$TOKEN" != null ]'
+
+          # --- 0. /opt für alle beschreibbar: Die Runner-Images setzen es auf 777
+          #        (runner-images: chmod -R 777 /opt). Darüber ließe sich das
+          #        Hilfsskript austauschen — der Installer muss sich weigern,
+          #        bevor er Konto oder Anmeldung anfasst.
+          echo "/opt vorher: $(stat -c '%U %a' /opt)"
+          sudo chmod 0777 /opt
+          check "Installer weigert sich bei beschreibbarem /opt" '! rmm_raw --secret lbe_abcdef0123456789 >/tmp/opt.log 2>&1 && grep -q "/opt gehört nicht root oder ist für andere beschreibbar" /tmp/opt.log && ! test -e /opt/RMM && ! getent passwd rimperio >/dev/null'
+          check "Log-Installer weigert sich ebenso" '! log_raw --token lbe_abcdef0123456789 >/tmp/opt.log 2>&1 && grep -q "/opt gehört nicht root oder ist für andere beschreibbar" /tmp/opt.log && ! test -e /opt/RMM && ! getent passwd rimperio >/dev/null'
+          sudo chmod 0755 /opt
 
           # --- 1. Fernwartungs-Agent über den echten Installer -----------------
           INVITE=$(invite smoke)
@@ -199,7 +224,7 @@ jobs:
           install_rmm
           check "Update behält die Anmeldung"  '[ "$(agents ".[0].agent_uid")" = "$UID2" ] && api "$B/api/rmm/agents" | jq -e "length==1" >/dev/null'
           check "Update: läuft als rimperio"   '[ "$(runs_as rimperio-agent)" = rimperio ]'
-          sudo $A_BIN uninstall
+          uninstall_rmm
           check "uninstall meldet ab"          'api "$B/api/rmm/agents" | jq -e "length==0" >/dev/null'
           check "uninstall räumt alles ab"     'all_gone'
 
@@ -212,7 +237,7 @@ jobs:
           check "Eintrag entfernt"             '[ "$(echo "$R" | jq -r .device_deleted)" = true ]'
           check "Agent wird abgewiesen"        '! sudo $A_BIN once >/dev/null 2>&1'
           check "once mit sudo läuft als Konto" 'sudo $A_BIN once 2>&1 | grep -q "Läuft als Dienstkonto"'
-          sudo $A_BIN uninstall   # 401 zählt als „schon abgemeldet“
+          uninstall_rmm   # 401 zählt als „schon abgemeldet“
           check "Aufgeräumt nach Abweisung"    'all_gone'
 
           # --- 6. Log-Agent (wie beim Einbinden per SSH) neben dem Fernwartungs-Agent
@@ -222,13 +247,13 @@ jobs:
           check "Log-Agent läuft als rimperio"   '[ "$(runs_as rimperio-log-agent)" = rimperio ]'
           check "Log-Agent unter /opt/RMM/rimperio" 'sudo test -f /opt/RMM/rimperio/lib/log-agent.py && [ "$(sudo stat -c "%U %a" /opt/RMM/rimperio/etc/log-agent.json)" = "rimperio 600" ]'
           check "Beide Dienste laufen"           'systemctl is-active --quiet rimperio-agent && systemctl is-active --quiet rimperio-log-agent'
-          check "Anderes Konto wird abgewiesen"  '! install_log --token rmp_abcdef0123456789 --user anders >/dev/null 2>&1 && ! getent passwd anders >/dev/null'
+          check "Anderes Konto wird abgewiesen"  '! log_raw --token rmp_abcdef0123456789 --user anders >/dev/null 2>&1 && ! getent passwd anders >/dev/null'
           sleep 3
           logger -t smoke "logagent-rimperio-test"
           check "Log-Agent liest das Journal ohne root" 'wait_for "log_arrived logagent-rimperio-test" 90'
-          sudo bash agent/logship/install-linux.sh uninstall --yes
+          uninstall_log
           check "Log-Agent weg, Fernwartung bleibt" '! test -e /etc/systemd/system/rimperio-log-agent.service && systemctl is-active --quiet rimperio-agent && getent passwd rimperio >/dev/null'
-          sudo $A_BIN uninstall
+          uninstall_rmm
           check "Zuletzt alles weg"              'all_gone'
 
           # --- 7. Übernahme älterer Fassungen, die als root liefen -----------
@@ -239,7 +264,7 @@ jobs:
 
           # 7a) Fernwartung: /usr/local/bin + /etc/rimperio, als root
           INVITE6=$(invite smoke6)
-          sudo env RIMPERIO_BASE_URL="https://github.com/Phydran6/RIMPERIO-Server/releases/download/$OLD" \
+          must alter-Installer sudo env RIMPERIO_BASE_URL="https://github.com/Phydran6/RIMPERIO-Server/releases/download/$OLD" \
             bash /tmp/old-agent.sh --server "$B" --secret "$INVITE6" --site Smoke
           check "Alte Fernwartung läuft als root" '[ "$(runs_as rimperio-agent)" = root ] && sudo test -f /etc/rimperio/agent.json'
           UID6=$(agents '.[0].agent_uid')
@@ -247,24 +272,24 @@ jobs:
           check "Übernahme: dieselbe Anmeldung"   '[ "$(agents ".[0].agent_uid")" = "$UID6" ] && api "$B/api/rmm/agents" | jq -e "length==1" >/dev/null'
           check "Übernahme: läuft als rimperio"   '[ "$(runs_as rimperio-agent)" = rimperio ]'
           check "Übernahme: Altlasten weg"        '! test -e /usr/local/bin/rimperio-agent && ! sudo test -e /etc/rimperio'
-          sudo $A_BIN uninstall
+          uninstall_rmm
           check "Übernahme: danach alles weg"     'all_gone && api "$B/api/rmm/agents" | jq -e "length==0" >/dev/null'
 
           # 7b) Log-Agent: /opt/rimperio-agent, als root, Dienst hieß rimperio-agent
           INVITE7=$(invite smoke7); INVITE8=$(invite smoke8)
-          sudo bash /tmp/old-log.sh --mode https --yes --fqdn 127.0.0.1 --port 8443 --insecure --token "$INVITE7"
+          must alter-Log-Installer sudo bash /tmp/old-log.sh --mode https --yes --fqdn 127.0.0.1 --port 8443 --insecure --token "$INVITE7"
           check "Alter Log-Agent läuft als root"  '[ "$(runs_as rimperio-agent)" = root ] && grep -q rimperio_agent.py /etc/systemd/system/rimperio-agent.service'
           install_rmm --secret "$INVITE8"
           check "Alter Log-Agent umbenannt, läuft weiter" 'systemctl is-active --quiet rimperio-log-agent && grep -q rimperio_agent.py /etc/systemd/system/rimperio-log-agent.service'
           check "Fernwartung daneben als rimperio" '[ "$(runs_as rimperio-agent)" = rimperio ]'
-          sudo bash agent/logship/install-linux.sh --yes   # ohne Token: übernimmt die alte Einrichtung
+          must install-linux.sh sudo bash agent/logship/install-linux.sh --yes   # ohne Token: übernimmt die alte Einrichtung
           check "Log-Agent übernommen: als rimperio" '[ "$(runs_as rimperio-log-agent)" = rimperio ]'
           check "Log-Agent übernommen: Altlasten weg" '! test -e /opt/rimperio-agent && ! grep -qs rimperio_agent.py /etc/systemd/system/rimperio-agent.service /etc/systemd/system/rimperio-log-agent.service'
           sleep 3
           logger -t smoke "logagent-migriert-test"
           check "Übernommener Log-Agent liefert"   'wait_for "log_arrived logagent-migriert-test" 90'
-          sudo bash agent/logship/install-linux.sh uninstall --yes
-          sudo $A_BIN uninstall
+          uninstall_log
+          uninstall_rmm
           check "Zum Schluss alles weg"            'all_gone && ! test -e /etc/systemd/system/rimperio-log-agent.service'
 
           # Syslog: eine Zeile an Port 514 schicken und in den Logs wiederfinden.

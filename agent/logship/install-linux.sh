@@ -472,7 +472,9 @@ ensure_account() {
 
 # Programm und Konfiguration liegen in Ordnern, die nur root beschreiben darf;
 # das Dienstkonto bekommt etc/ (lesen) und var/ (Leseposition) fuer sich.
-prepare_dirs() {
+# Vor allem anderen (auch vor dem Anlegen des Kontos): Taugt der Ort? Wer in
+# /opt schreiben darf, koennte /opt/RMM austauschen.
+check_layout() {
     local d owner mode
     [[ -d /opt ]] || install -d -m 0755 -o root -g root /opt
     owner="$(stat -c %u /opt)"; mode="$(stat -c %a /opt)"
@@ -482,6 +484,10 @@ prepare_dirs() {
     for d in /opt/RMM "$BASE_DIR" "${BASE_DIR}/lib" "${BASE_DIR}/etc" "${BASE_DIR}/var"; do
         if [[ -L "$d" ]]; then fail "$d ist ein symbolischer Link - so nicht. Bitte entfernen und neu starten."; fi
     done
+}
+
+prepare_dirs() {
+    local d
     for d in /opt/RMM "$BASE_DIR" "${BASE_DIR}/lib"; do
         install -d "$d"
         chown root:root "$d"
@@ -1188,6 +1194,7 @@ configure_https() {
 
     # Dienstkonto (nie root) - ohne Angabe wie der Fernwartungs-Agent, sonst "rimperio".
     choose_account
+    check_layout          # vor der Anmeldung: eine Einladung gilt nur einmal
 
     # DNS/Erreichbarkeit informativ pruefen (kein harter Abbruch)
     if resolve_host "$FQDN"; then
