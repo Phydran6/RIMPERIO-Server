@@ -1,7 +1,7 @@
 <!-- ==============================================================================
      Name:        Phydran6
      Kontakt:     Phydran6
-     Version:     2026.11.07.20.00.00
+     Version:     2026.11.08.17.00.00
      Changelog:   docs/changelog/frontend.md
      Beschreibung: RIMPERIO - Systeme im Netz. Zeigt, was die Netzwerksuche
                    gefunden hat, ob es schon Logs liefert und wie man es
@@ -255,10 +255,23 @@
                       <input v-model="onboard.password" type="password" class="input" autocomplete="off">
                     </div>
                   </div>
-                  <div>
-                    <label class="label">sudo-Passwort (nur falls abweichend)</label>
-                    <input v-model="onboard.sudoPassword" type="password" class="input" autocomplete="off" placeholder="leer = wie oben">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label class="label">sudo-Passwort (nur falls abweichend)</label>
+                      <input v-model="onboard.sudoPassword" type="password" class="input" autocomplete="off" placeholder="leer = wie oben">
+                    </div>
+                    <div>
+                      <label class="label">Dienstkonto für den Agent</label>
+                      <input v-model="onboard.serviceUser" type="text" class="input font-mono" autocomplete="off"
+                             spellcheck="false" placeholder="rimperio">
+                    </div>
                   </div>
+                  <p v-if="serviceUserError" class="text-sm" style="color: var(--color-danger)">{{ serviceUserError }}</p>
+                  <p class="hint">
+                    Der Agent läuft unter diesem Konto, <strong>nicht als root</strong> — fehlt es, wird es
+                    angelegt (ohne Anmeldung, ohne Passwort). Alles liegt unter <code>/opt/RMM/rimperio</code>;
+                    <code>sudo</code> braucht nur die Einrichtung.
+                  </p>
                   <p class="hint">
                     Die Zugangsdaten gelten nur für diesen Vorgang und werden danach verworfen —
                     nichts davon landet in der Datenbank oder im Tagebuch.
@@ -268,7 +281,7 @@
                 <div class="flex gap-2">
                   <button class="btn btn-ghost btn-sm" @click="cancelOnboard">Abbrechen</button>
                   <button class="btn btn-primary btn-sm"
-                          :disabled="!onboard.fingerprint || !onboard.username || !onboard.password"
+                          :disabled="!onboard.fingerprint || !onboard.username || !onboard.password || !!serviceUserError"
                           @click="runOnboard">Einbinden starten</button>
                 </div>
               </div>
@@ -559,9 +572,19 @@ const ignoredDraft = ref(false)
 const copied = ref(false)
 const error = ref('')
 
+// Unter diesem Konto läuft der Agent auf dem Ziel — nie root.
+const DEFAULT_SERVICE_USER = 'rimperio'
 const onboard = ref({ open: false, manual: false, fpLoading: false, fingerprint: '',
-  username: '', password: '', sudoPassword: '', error: '', state: null })
+  username: '', password: '', sudoPassword: '', serviceUser: DEFAULT_SERVICE_USER, error: '', state: null })
 let onboardTimer = null
+
+const serviceUserError = computed(() => {
+  const u = (onboard.value.serviceUser || '').trim()
+  if (!u) return ''
+  if (u === 'root') return 'Der Agent läuft absichtlich nicht als root — bitte ein eigenes Konto nennen.'
+  if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(u)) return 'Dienstkonto: nur Kleinbuchstaben, Ziffern, _ und - (höchstens 32 Zeichen).'
+  return ''
+})
 
 const settingsOpen = ref(false)
 const form = ref({})
@@ -618,12 +641,13 @@ const serverHost = computed(() => {
   return window.location.hostname
 })
 
-const RAW = 'https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agents'
+const RAW = 'https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/logship'
 // Erst GitHub, sonst der RIMPERIO-Server selbst — so klappt es auch ohne Internet.
+// Der Agent läuft danach als Dienstkonto (--user), nicht als root.
 const linuxCommand = computed(() =>
   `sh -c 'curl -fsSL ${RAW}/install-linux.sh -o /tmp/lb.sh || ` +
   `curl -fsSLk https://${serverHost.value}/api/agents/installer/linux -o /tmp/lb.sh' && ` +
-  `sudo bash /tmp/lb.sh --fqdn ${serverHost.value} --token EINLADUNG --yes`)
+  `sudo bash /tmp/lb.sh --fqdn ${serverHost.value} --token EINLADUNG --user ${DEFAULT_SERVICE_USER} --yes`)
 const windowsCommand = computed(() =>
   `& ([scriptblock]::Create((irm ${RAW}/install-windows.ps1))) -Action install -Fqdn ${serverHost.value} -Token EINLADUNG -Yes`)
 
@@ -697,7 +721,7 @@ function openDevice(d) {
 function resetOnboard() {
   stopOnboardPoll()
   onboard.value = { open: false, manual: false, fpLoading: false, fingerprint: '',
-    username: '', password: '', sudoPassword: '', error: '', state: null }
+    username: '', password: '', sudoPassword: '', serviceUser: DEFAULT_SERVICE_USER, error: '', state: null }
 }
 
 async function beginOnboard() {
@@ -730,6 +754,7 @@ async function runOnboard() {
       body: {
         username: o.username, password: o.password,
         sudo_password: o.sudoPassword, fingerprint: o.fingerprintRaw,
+        service_user: (o.serviceUser || '').trim() || DEFAULT_SERVICE_USER,
       },
     })
   } catch (e) {

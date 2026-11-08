@@ -3,11 +3,14 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.10.31.15.40.00
+// Version:      2026.11.08.17.00.00
 //
 // Beschreibung: Konfiguration des Agents: wo der Server steht, das persönliche
 //               Token, der Check-in-Takt. Liegt als JSON an einem festen,
-//               geschützten Ort (Windows: ProgramData\RIMPERIO, Linux: /etc/rimperio).
+//               geschützten Ort (Windows: ProgramData\RIMPERIO, Linux:
+//               /opt/RMM/rimperio/etc — dort gehört sie dem Dienstkonto, unter
+//               dem der Agent läuft). Ältere Linux-Installationen lagen unter
+//               /etc/rimperio und liefen als root; die werden weiter gefunden.
 // ---------------------------------------------------------------------------
 
 package core
@@ -18,10 +21,33 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // Version des Agents — wandert in jeden Check-in und in die Inventur.
-const Version = "2026.11.07.02.30.00"
+const Version = "2026.11.08.17.00.00"
+
+// LinuxHome ist das Installationsverzeichnis unter Linux. Darunter liegt alles:
+// bin/ (Programm), lib/ (Hilfsskript für Aufgaben, die root brauchen), etc/
+// (Konfiguration) und var/ (Zustand). install-agent.sh legt es so an.
+const LinuxHome = "/opt/RMM/rimperio"
+
+// legacyConfigDir ist der Ort älterer Linux-Installationen (bis 2026.11.07).
+const legacyConfigDir = "/etc/rimperio"
+
+// HomeDir liefert das Installationsverzeichnis. RIMPERIO_HOME verschiebt es
+// (für Tests); sonst gilt LinuxHome.
+func HomeDir() string {
+	if h := strings.TrimSpace(os.Getenv("RIMPERIO_HOME")); h != "" {
+		return filepath.Clean(h)
+	}
+	return LinuxHome
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // Config ist der dauerhafte Zustand des Agents auf der Platte.
 type Config struct {
@@ -48,7 +74,17 @@ func ConfigDir() string {
 		}
 		return filepath.Join(base, "RIMPERIO")
 	}
-	return "/etc/rimperio"
+	if runtime.GOOS != "linux" {
+		return legacyConfigDir // macOS & Co.: unverändert
+	}
+	dir := filepath.Join(HomeDir(), "etc")
+	// Eine ältere Installation (root, /etc/rimperio) bleibt lesbar, bis
+	// install-agent.sh sie übernimmt. Das Dienstkonto selbst sieht dort nichts
+	// (0700 root) und landet immer im neuen Verzeichnis.
+	if !fileExists(filepath.Join(dir, "agent.json")) && fileExists(filepath.Join(legacyConfigDir, "agent.json")) {
+		return legacyConfigDir
+	}
+	return dir
 }
 
 // ConfigPath ist der volle Pfad zur Konfigurationsdatei.
@@ -87,7 +123,8 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	// 0600: Das Token darf nur der Dienstbenutzer (root/SYSTEM) lesen.
+	// 0600: Das Token darf nur der Dienstbenutzer lesen (unter Linux das
+	// Dienstkonto des Agents, unter Windows SYSTEM).
 	if err := os.WriteFile(ConfigPath(), data, 0o600); err != nil {
 		return fmt.Errorf("Konfiguration schreiben: %w", err)
 	}

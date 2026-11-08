@@ -51,6 +51,9 @@ Startpasswort, das der Installer am Ende anzeigt, **sofort ändern**), API-Doku 
 **Rechner anbinden** – in der Oberfläche unter *Fernwartung → Rechner → Agent hinzufügen*
 stehen die fertigen Befehle (PowerShell, MSI, Linux) samt Server-Adresse.
 Für reine Log-Lieferung gibt es die Log-Agents: [agent/logship](agent/logship/README.md).
+Unter Linux laufen beide Agents unter einem eigenen Dienstkonto (Standard `rimperio`),
+nicht als root, und liegen unter `/opt/RMM/rimperio`
+([Einzelheiten](agent/README.md#linux-dienstkonto-statt-root)).
 
 ## Wegweiser
 
@@ -116,8 +119,9 @@ No data is sent to the RIMPERIO authors or any other third party.
 Remove *RIMPERIO Agent* via *Settings → Apps* (or
 `msiexec /x rimperio-agent.msi`). Without the MSI, run `rimperio-agent uninstall`
 as administrator (removes service and configuration), then delete
-`C:\Program Files\RIMPERIO Agent\`. On Linux: `sudo rimperio-agent uninstall &&
-sudo rm /usr/local/bin/rimperio-agent`. See
+`C:\Program Files\RIMPERIO Agent\`. On Linux: `sudo /opt/RMM/rimperio/bin/rimperio-agent uninstall`
+(removes the service, everything under `/opt/RMM/rimperio`, the sudo rule and the service
+account the installer created). See
 [agent/installer/README.md](agent/installer/README.md#deinstallieren).
 
 <div align="center">

@@ -16,7 +16,8 @@ ausführt.
 | **Dienst** | Windows-Service bzw. systemd/launchd — über [`kardianos/service`](https://github.com/kardianos/service) |
 | **Messwerte** | CPU, RAM, Platten, Laufzeit, Top-Prozesse — über [`gopsutil`](https://github.com/shirou/gopsutil) |
 | **Weg zum Server** | nur ausgehend: HTTPS + `Authorization: Bearer <AGENT-TOKEN>` |
-| **Konfiguration** | `C:\ProgramData\RIMPERIO\agent.json` bzw. `/etc/rimperio/agent.json` (0600) |
+| **Konfiguration** | `C:\ProgramData\RIMPERIO\agent.json` bzw. `/opt/RMM/rimperio/etc/agent.json` (0600, gehört dem Dienstkonto) |
+| **Läuft als** | Windows: `SYSTEM` · Linux: eigenes Dienstkonto (Standard `rimperio`), **nicht root** — siehe [Linux: Dienstkonto statt root](#linux-dienstkonto-statt-root) |
 | **Plattformen** | Windows (amd64), Linux (amd64/arm64); baubar auch für macOS |
 
 ---
@@ -63,6 +64,55 @@ rimperio-agent version
 `-insecure` schaltet die TLS-Prüfung ab — **nur** fürs Labor mit
 Selbstzertifikat, nie in Produktion.
 
+Unter Linux richtet [`install-agent.sh`](installer/linux/install-agent.sh) den Dienst ein;
+`setup` und `install` verweisen dort hin. `enroll`, `once` und `run` laufen nie als root:
+mit `sudo` gerufen, startet sich der Agent unter seinem Dienstkonto neu.
+
+---
+
+## Linux: Dienstkonto statt root
+
+Der Agent läuft unter einem **eigenen Dienstkonto** (Standard `rimperio`, wählbar mit
+`--user`). Fehlt es, legt der Installer es an — als Systemkonto ohne Anmeldung und ohne
+Passwort. root als Dienstkonto lehnt er ab. `sudo` braucht nur die Einrichtung selbst.
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/installer/linux/install-agent.sh \
+  | sudo bash -s -- --server https://rmm.example.de --secret SCHLÜSSEL --site Buero --user rimperio
+```
+
+**Alles liegt unter `/opt/RMM/rimperio`:**
+
+| Pfad | Inhalt | Gehört |
+|---|---|---|
+| `bin/rimperio-agent` | das Programm | root, 0755 |
+| `lib/rimperio-helper` | Hilfsskript für Aufgaben, die root brauchen | root, 0755 |
+| `etc/agent.json` | Konfiguration mit Agent-Token | Dienstkonto, 0600 |
+| `var/` | Arbeitsverzeichnis | Dienstkonto, 0700 |
+
+Außerhalb liegt nur, was systemd und sudo verlangen: `/etc/systemd/system/rimperio-agent.service`
+und `/etc/sudoers.d/rimperio-agent`. Der [Log-Agent](logship/README.md) wohnt im selben
+Verzeichnis und unter demselben Konto.
+
+**Rechte (`--sudo`).** Was root braucht, geht über das Hilfsskript — die sudo-Regel
+erlaubt dem Konto genau dieses eine Skript, und das prüft jede Angabe selbst (nur
+Paketnamen, keine Dateien oder Pfade, Minuten als Zahl):
+
+| Stufe | Darf | Befehle aus der Oberfläche |
+|---|---|---|
+| `limited` *(Standard)* | Paketlisten auffrischen, die freigegebenen Updates einspielen, Neustart, sich selbst deinstallieren | laufen als Dienstkonto, ohne root |
+| `full` | zusätzlich `sudo` für alles | dürfen `sudo …` benutzen |
+| `none` | nichts davon — keine Updates, kein Neustart aus der Ferne | laufen als Dienstkonto, ohne root |
+
+Inventur, Messwerte, Checks und die Suche nach Updates brauchen keine Rechte. Docker:
+Gibt es die Gruppe `docker`, bekommt der Dienst sie dazu (für Container-Updates — sie ist
+so mächtig wie root); `--no-docker` lässt das weg.
+
+**Aktualisieren:** denselben Einzeiler noch einmal — ohne `--secret` geht es auch, die
+Anmeldung bleibt. Eine ältere Installation (als root, `/usr/local/bin`, `/etc/rimperio`)
+wird dabei übernommen, samt Anmeldung. Lief unter dem Dienstnamen `rimperio-agent` noch
+der ältere Log-Agent, heißt er danach `rimperio-log-agent` und läuft weiter.
+
 ---
 
 ## Anmeldung (Enrollment)
@@ -98,11 +148,16 @@ außerdem Logs schickt, bleibt mit seinen Logs unter *Geräte* stehen.
 |---|---|---|
 | Oberfläche | Rechner → *Agent entfernen* → Häkchen „auch auf dem Rechner deinstallieren“ | Häkchen weg = nur der Eintrag geht, der Agent bleibt installiert |
 | Windows, MSI | *Einstellungen → Apps* oder `msiexec /x rimperio-agent.msi /qn /norestart` | `KEEP_RECORD=1` |
-| Windows/Linux, ohne MSI | `rimperio-agent uninstall` (als Administrator/root) | `-keep-record` |
+| Windows, ohne MSI | `rimperio-agent uninstall` (als Administrator) | `-keep-record` |
+| Linux | `sudo /opt/RMM/rimperio/bin/rimperio-agent uninstall` | `-keep-record` |
 
 Aus der Oberfläche läuft das so: Der Server reiht den Befehl `uninstall` ein; beim
 nächsten Check-in meldet der Agent sich ab (`POST /api/rmm/agent/unregister`) und
-entfernt sich — per MSI installiert über den Windows Installer, sonst selbst. Ist der
+entfernt sich — per MSI installiert über den Windows Installer, unter Linux über das
+Hilfsskript (es übergibt dafür an eine kurzlebige systemd-Unit, weil das Stoppen des
+Dienstes sonst auch das Skript beendete), sonst selbst. Unter Linux gehen dabei auch die
+sudo-Regel und — wenn sonst nichts von RIMPERIO darunter läuft — das Dienstkonto, sofern
+der Installer es angelegt hat, und `/opt/RMM/rimperio`. Ist der
 Rechner aus, wartet der Auftrag, bis er wieder läuft. Ist der Server beim Deinstallieren
 am Rechner nicht erreichbar, läuft die Deinstallation trotzdem durch; den Eintrag
 entfernt man dann in der Oberfläche.
@@ -137,4 +192,6 @@ Mit Versions-Ressource und Signatur fürs .exe/.msi: siehe
 | [`internal/core/client.go`](internal/core/client.go) | HTTP-Weg zum Server |
 | [`internal/core/exec.go`](internal/core/exec.go) | Befehle ausführen (Shell, Zeitlimit) |
 | [`internal/core/config.go`](internal/core/config.go) | Konfiguration lesen/schreiben |
+| [`internal/core/privileged_linux.go`](internal/core/privileged_linux.go) | Linux: Aufgaben mit root über das Hilfsskript, nie als root laufen |
+| [`installer/linux/install-agent.sh`](installer/linux/install-agent.sh) | Linux-Installer: Dienstkonto, `/opt/RMM/rimperio`, sudo-Regel, Hilfsskript |
 | [`internal/core/bootstrap_windows.go`](internal/core/bootstrap_windows.go) | Registry-Bootstrap für das MSI |

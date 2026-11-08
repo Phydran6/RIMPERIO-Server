@@ -2,6 +2,11 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.08.17.00.00
+
+### Changed
+- **Linux per SSH einbinden — Agent nicht mehr als root** (`app/onboard.py`, `POST /api/discovery/devices/{id}/onboard`): neues Feld `service_user` (Standard `rimperio`; root und ungültige Namen gibt es als 422). Der Installer richtet den Log-Agent unter diesem Konto ein, alles unter `/opt/RMM/rimperio`; die Schrittliste meldet danach, unter welchem Konto der Dienst läuft (root wäre eine Warnung). Im Tagebuch steht das Konto bei `onboard.ok`.
+
 ## Unveröffentlicht — Sicherheitsdurchsicht
 
 ### Security

@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.10.08.22.00.00
+# Version:     2026.11.08.17.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Netzwerksuche API ("Systeme im Netz")
 # ==============================================================================
@@ -153,6 +153,19 @@ class OnboardRequest(BaseModel):
     sudo_password: str = Field("", max_length=256)
     # Der Fingerabdruck, den der Administrator zuvor bestätigt hat.
     fingerprint: str = Field(..., min_length=10, max_length=120)
+    # Unter diesem Konto läuft der Agent auf dem Ziel — nie root. Fehlt es,
+    # legt der Installer es an.
+    service_user: str = Field(onboard.DEFAULT_SERVICE_USER, max_length=32)
+
+    @field_validator("service_user")
+    @classmethod
+    def _check_service_user(cls, value: str) -> str:
+        value = (value or "").strip() or onboard.DEFAULT_SERVICE_USER
+        if value == "root":
+            raise ValueError("Der Agent läuft nicht als root — bitte ein eigenes Dienstkonto nennen.")
+        if not onboard.valid_service_user(value):
+            raise ValueError("Dienstkonto: nur Kleinbuchstaben, Ziffern, _ und - (höchstens 32 Zeichen).")
+        return value
 
 
 @router.get("/devices/{device_id}/fingerprint")
@@ -185,7 +198,8 @@ async def onboard_device(device_id: int, data: OnboardRequest, request: Request,
         sudo_password=data.sudo_password)
     started = await onboard.start(
         device_id, creds, data.fingerprint.strip(),
-        actor=admin.username, source_ip=real_client_ip(request))
+        actor=admin.username, source_ip=real_client_ip(request),
+        service_user=data.service_user)
     if not started:
         raise HTTPException(status_code=409, detail="Für dieses System läuft bereits ein Einbinden.")
     return {"started": True, "state": onboard.state_for(device_id)}

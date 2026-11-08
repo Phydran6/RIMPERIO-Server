@@ -55,22 +55,44 @@ curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/
 | Deinstallieren | → [Einzeiler zum Deinstallieren](#deinstallieren--einzeiler) |
 
 **Optionen:** `--fqdn` · `--token` · `--ip` · `--port` · `--mode https\|syslog` ·
-`--proto udp\|tcp` *(Syslog)* · `--min-level info\|warning\|error` · `--insecure` · `--yes` · `--timeout <s>`
-(alle auch als `RIMPERIO_*`-Umgebungsvariable).
+`--proto udp\|tcp` *(Syslog)* · `--min-level info\|warning\|error` · `--insecure` ·
+`--user <konto>` · `--yes` · `--timeout <s>` (alle auch als `RIMPERIO_*`-Umgebungsvariable).
 
-Alles liegt unter `/opt/rimperio-agent/`, der Dienst heißt `rimperio-agent`:
+### Nicht als root: eigenes Dienstkonto
 
-Status des Dienstes:
+Der HTTPS-Agent läuft unter einem **eigenen Dienstkonto** — Standard `rimperio`, anders
+mit `--user <konto>` (im manuellen Modus fragt der Installer danach). Fehlt das Konto,
+wird es angelegt: Systemkonto, ohne Anmeldung, ohne Passwort. root lehnt der Installer ab.
+Das Journal liest der Dienst über die Gruppe `systemd-journal`, schreiben darf er nur in
+sein eigenes Verzeichnis (`ProtectSystem=strict`, `NoNewPrivileges`).
+
+Alles liegt unter `/opt/RMM/rimperio` — geteilt mit dem
+[Fernwartungs-Agent](../README.md#linux-dienstkonto-statt-root), unter demselben Konto:
+
+| Pfad | Inhalt | Gehört |
+|---|---|---|
+| `lib/log-agent.py` | das Programm | root, 0644 |
+| `etc/log-agent.json` | Konfiguration mit Geräteschlüssel | Dienstkonto, 0600 |
+| `var/log-agent.cursor`, `var/log-agent.id` | Leseposition, Gerätenummer | Dienstkonto |
+
+Der Dienst heißt `rimperio-log-agent`:
 
 ```bash
-systemctl status rimperio-agent
+systemctl status rimperio-log-agent
+journalctl -u rimperio-log-agent -f
 ```
 
-Protokoll live mitlesen:
+**Aktualisieren:** den Einzeiler noch einmal, ohne `--fqdn` und `--token` — die Werte der
+vorhandenen Installation gelten weiter, eine neue Anmeldung ist nicht nötig:
 
 ```bash
-journalctl -u rimperio-agent -f
+curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/logship/install-linux.sh | sudo bash -s -- --yes
 ```
+
+Eine **ältere Fassung** (lief als root unter `/opt/rimperio-agent`, Dienst `rimperio-agent`)
+wird dabei übernommen: Einstellungen, Geräteschlüssel, Leseposition und Gerätenummer
+wandern mit, der Agent macht genau dort weiter. Danach sind Dienst und Verzeichnis der
+alten Fassung weg.
 
 ---
 
@@ -197,7 +219,8 @@ Nur hier: Agent weg, Gerät und Logs bleiben auf dem Server:
 
 | | Komplett | Nur hier |
 |---|---|---|
-| Dienst bzw. geplante Aufgabe, Agent-Verzeichnis, Konfiguration mit Token | ✔ | ✔ |
+| Dienst bzw. geplante Aufgabe, Agent-Dateien, Konfiguration mit Token | ✔ | ✔ |
+| Linux: Dienstkonto und `/opt/RMM/rimperio` — sofern vom Installer angelegt und nicht noch der Fernwartungs-Agent darunter läuft | ✔ | ✔ |
 | Gerät auf dem Server, **auch ältere Einträge mit demselben Hostnamen** | ✔ | – |
 | Logs dieses Geräts auf dem Server | ✔ | – |
 
@@ -214,7 +237,7 @@ Nur hier: Agent weg, Gerät und Logs bleiben auf dem Server:
 <summary>Wie findet der Server das richtige Gerät?</summary>
 
 Der Agent merkt sich beim ersten Senden seine Gerätenummer
-(`/opt/rimperio-agent/agent_id` bzw. `%ProgramData%\RIMPERIO-Agent\agent_id`) und nennt
+(`/opt/RMM/rimperio/var/log-agent.id` bzw. `%ProgramData%\RIMPERIO-Agent\agent_id`) und nennt
 sie beim Abmelden. Fehlt sie, sucht der Server nach MAC, dann Hostname + IP, dann
 Hostname allein. Welcher Weg gegriffen hat, steht in der Antwort (`matched_by`).
 </details>
@@ -228,7 +251,8 @@ Hostname allein. Welcher Weg gegriffen hat, steht in der Antwort (`matched_by`).
 | Installer bleibt stehen | Behoben: Rückfragen haben jetzt ein Zeitlimit (60 s, `RIMPERIO_ASK_TIMEOUT`), ohne Terminal wird gar nicht gefragt. `--yes` überspringt alles. |
 | Deinstallation hängt | Behoben: `systemctl stop` bekommt 20 s, dann wird der Dienst abgeschossen; der Server-Aufruf hat 20 s Zeitlimit. |
 | `HTTP 401` beim Senden | Token stimmt nicht oder wurde zurückgezogen. Im Web-UI neu holen. |
-| Keine Logs, Dienst läuft | `journalctl -u rimperio-agent -f` ansehen. Meist DNS oder eine Firewall auf 443. |
+| Keine Logs, Dienst läuft | `journalctl -u rimperio-log-agent -f` ansehen. Meist DNS oder eine Firewall auf 443. |
+| „Der Fernwartungs-Agent läuft als …“ | Beide Agents teilen sich `/opt/RMM/rimperio` und damit ein Konto. `--user` weglassen oder dasselbe Konto nennen. |
 | Zertifikat wird abgelehnt | Bei eigener CA: `--insecure` bzw. `-Insecure`. Besser: die CA auf dem Rechner bekannt machen. |
 | Gerät steht doppelt im Web-UI | Der Rechner hat die IP gewechselt. Einmal `uninstall-purge` räumt alle Einträge des Hostnamens ab. |
 

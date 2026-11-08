@@ -5,13 +5,17 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.11.07.12.00.00
+// Version:      2026.11.08.17.00.00
 //
 // Beschreibung: Patchmanagement unter Linux über den vorhandenen Paketmanager
 //               (apt / dnf / yum). Die Suche liefert je Paket installierte und
 //               angebotene Version, das Archiv und ob es ein Sicherheitsupdate
 //               ist (apt: *-security, dnf/yum: updateinfo). Eingespielt werden
 //               nur die übergebenen Pakete — nie still „alles“.
+//
+//               Der Agent läuft als Dienstkonto: Lesen (Liste der Updates) geht
+//               ohne Rechte, Auffrischen, Einspielen und Neustart laufen über
+//               das Hilfsskript (asRoot, privileged_linux.go).
 // ---------------------------------------------------------------------------
 
 package core
@@ -19,18 +23,37 @@ package core
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
 const aptEnv = "DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a "
 const aptOpts = "-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 
+// refreshLists frischt die Paketlisten auf (braucht root). Scheitert das, wird
+// mit den vorhandenen Listen weitergesucht — apt-daily hält sie meist aktuell.
+func refreshLists(direct string) {
+	r := Execute(PendingCommand{Shell: "sh", Command: asRoot(direct, "pkg-refresh"), Timeout: 600})
+	if hint := privilegeHint(r); hint != "" {
+		logf("Paketlisten nicht aufgefrischt: %s", hint)
+	}
+}
+
+// quoted setzt die (schon geprüften) Paketnamen einzeln in Anführungszeichen.
+func quoted(ids []string) string {
+	q := make([]string, 0, len(ids))
+	for _, id := range ids {
+		q = append(q, shellQuote(id))
+	}
+	return strings.Join(q, " ")
+}
+
 func patchScan() (PatchScanResult, error) {
 	res := PatchScanResult{RebootPending: rebootPending()}
 	switch {
 	case hasCmd("apt-get"):
 		res.Manager = "apt"
-		Execute(PendingCommand{Shell: "sh", Command: aptEnv + "apt-get update -qq", Timeout: 600})
+		refreshLists(aptEnv + "apt-get update -qq")
 		r := Execute(PendingCommand{Shell: "sh", Command: "apt list --upgradable 2>/dev/null", Timeout: 180})
 		res.Updates = parseApt(r.Stdout)
 	case hasCmd("dnf"):
@@ -51,17 +74,18 @@ func patchScan() (PatchScanResult, error) {
 
 func patchApply(ids []string) (*PatchApplyResult, error) {
 	res := &PatchApplyResult{}
-	pkgs := strings.Join(ids, " ")
+	pkgs := quoted(ids)
+	task := append([]string{"pkg-upgrade"}, ids...)
 	var r CommandResult
 	switch {
 	case hasCmd("apt-get"):
-		Execute(PendingCommand{Shell: "sh", Command: aptEnv + "apt-get update -qq", Timeout: 600})
-		if pkgs == "" {
-			r = Execute(PendingCommand{Shell: "sh", Command: aptEnv + "apt-get -y " + aptOpts + " upgrade", Timeout: 7200})
+		refreshLists(aptEnv + "apt-get update -qq")
+		if len(ids) == 0 {
+			r = Execute(PendingCommand{Shell: "sh", Command: asRoot(aptEnv+"apt-get -y "+aptOpts+" upgrade", task...), Timeout: 7200})
 		} else {
 			// install --only-upgrade zieht neue Abhängigkeiten nach (etwa ein
 			// neues linux-image-*), fasst aber nichts an, was nicht genannt ist.
-			r = Execute(PendingCommand{Shell: "sh", Command: aptEnv + "apt-get -y " + aptOpts + " install --only-upgrade " + pkgs, Timeout: 7200})
+			r = Execute(PendingCommand{Shell: "sh", Command: asRoot(aptEnv+"apt-get -y "+aptOpts+" install --only-upgrade "+pkgs, task...), Timeout: 7200})
 		}
 		left := Execute(PendingCommand{Shell: "sh", Command: "apt list --upgradable 2>/dev/null", Timeout: 180})
 		classify(res, ids, parseApt(left.Stdout))
@@ -70,7 +94,7 @@ func patchApply(ids []string) (*PatchApplyResult, error) {
 		if !hasCmd("dnf") {
 			pm = "yum"
 		}
-		r = Execute(PendingCommand{Shell: "sh", Command: pm + " -y upgrade " + pkgs, Timeout: 7200})
+		r = Execute(PendingCommand{Shell: "sh", Command: asRoot(pm+" -y upgrade "+pkgs, task...), Timeout: 7200})
 		left := Execute(PendingCommand{Shell: "sh", Command: pm + " -q check-update", Timeout: 600})
 		classify(res, ids, parseDnf(left.Stdout, nil))
 	default:
@@ -85,6 +109,10 @@ func patchApply(ids []string) (*PatchApplyResult, error) {
 	}
 	res.Message = fmt.Sprintf("%d installiert, %d offen geblieben.", len(res.Installed), len(res.Failed))
 	if err := exitErr(r); err != nil {
+		if hint := privilegeHint(r); hint != "" {
+			res.Message += " " + hint
+			return res, fmt.Errorf("%s", hint)
+		}
 		if len(res.Failed) > 0 {
 			res.Message += " " + describeFailures(res.Failed)
 		}
@@ -132,8 +160,12 @@ func scheduleReboot(delay int) error {
 		minutes = 1
 	}
 	r := Execute(PendingCommand{Shell: "sh",
-		Command: fmt.Sprintf("shutdown -r +%d 'RIMPERIO: Neustart nach Updates' 2>&1 || systemctl reboot", minutes),
+		Command: asRoot(fmt.Sprintf("shutdown -r +%d 'RIMPERIO: Neustart nach Updates' 2>&1 || systemctl reboot", minutes),
+			"reboot", strconv.Itoa(minutes)),
 		Timeout: 60})
+	if hint := privilegeHint(r); hint != "" {
+		return fmt.Errorf("%s", hint)
+	}
 	return exitErr(r)
 }
 

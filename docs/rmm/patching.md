@@ -136,6 +136,15 @@ Auf jedem Linux-Rechner mit Agent und Docker:
 - **Prüfen:** Healthcheck abwarten (bzw. 15 s stabil laufen); sonst alter Stand zurück.
 - **Aufräumen:** altes Image entfernen.
 
+**Rechte unter Linux.** Der Agent läuft als eigenes Dienstkonto, nicht als root
+([Einzelheiten](../../agent/README.md#linux-dienstkonto-statt-root)). Pakete spielt er über
+ein festes Hilfsskript per `sudo` ein (`--sudo limited`, Standard); ohne sudo-Regel
+(`--sudo none`) sucht er nur. Für Docker bekommt der Dienst die Gruppe `docker`. Kann er
+ein Compose-Projekt nicht lesen (Dateien oder `.env` gehören root allein), erneuert er den
+Container über die Docker-API. Zugangsdaten für private Registries liest er aus
+`/opt/RMM/rimperio/var/.docker/config.json` — einmal hinüberkopieren:
+`sudo install -D -o rimperio -g rimperio -m 0600 /root/.docker/config.json /opt/RMM/rimperio/var/.docker/config.json`.
+
 Labels am Container:
 
 | Label | Wirkung |

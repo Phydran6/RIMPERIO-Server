@@ -290,10 +290,17 @@ nichts anderes geht.**
 **Linux automatisch einbinden.** Bei einem Linux-System genügt in der
 Detailansicht *Automatisch einbinden (SSH)*. RIMPERIO zeigt zuerst den
 SSH-Hostschlüssel des Zielsystems — stimmt er, bestätigt man und gibt einen
-Benutzer mit `sudo` (nicht root) samt Passwort ein. Der Server verbindet sich,
-prüft das System, überträgt den Installer über dieselbe SSH-Verbindung (das Ziel
-braucht dafür kein Internet) und richtet den HTTPS-Agent ein. Fertig ist es
-erst, wenn wirklich Logs ankommen.
+Benutzer mit `sudo` (nicht root) samt Passwort ein, dazu das **Dienstkonto** für den
+Agent (Standard `rimperio`). Der Server verbindet sich, prüft das System, überträgt den
+Installer über dieselbe SSH-Verbindung (das Ziel braucht dafür kein Internet) und richtet
+den HTTPS-Agent ein. Fertig ist es erst, wenn wirklich Logs ankommen.
+
+Der Agent läuft danach **nicht als root**, sondern unter dem Dienstkonto — fehlt es, legt
+der Installer es an (Systemkonto ohne Anmeldung und ohne Passwort). Das Journal liest er
+über die Gruppe `systemd-journal`, schreiben darf er nur in sein Verzeichnis. Alles liegt
+unter `/opt/RMM/rimperio`; `sudo` braucht nur die Einrichtung. Die Schrittliste zeigt am
+Ende, unter welchem Konto der Dienst läuft. Einzelheiten:
+[Log-Agent](../../agent/logship/README.md#nicht-als-root-eigenes-dienstkonto).
 
 Die Zugangsdaten werden **nur für diesen einen Vorgang** verwendet: nie
 gespeichert, nie ins Tagebuch geschrieben, danach verworfen — auch im

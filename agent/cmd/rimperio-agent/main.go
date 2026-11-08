@@ -3,12 +3,18 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        main
 // Autor:        Phydran6
-// Version:      2026.11.07.02.30.00
+// Version:      2026.11.08.17.00.00
 //
 // Beschreibung: Kommandozeile des Agents. install meldet an und richtet den
 //               Dienst ein; run lässt ihn laufen (vom Dienstmanager gerufen);
 //               dazu enroll, start/stop/restart, uninstall (mit Abmeldung am
 //               Server), cleanup (für das MSI), once und status.
+//
+//               Linux: Den Dienst richtet install-agent.sh ein (eigenes
+//               Dienstkonto, alles unter /opt/RMM/rimperio) — setup/install
+//               verweisen dorthin. enroll, once und run laufen nie als root:
+//               mit sudo gerufen, startet sich der Agent unter dem Dienstkonto
+//               neu.
 // ---------------------------------------------------------------------------
 
 package main
@@ -29,18 +35,22 @@ func main() {
 
 	switch os.Args[1] {
 	case "setup":
+		must(core.ManualSetupAllowed(), "Einrichtung")
 		doSetup(os.Args[2:])
 	case "bootstrap":
+		core.DropRoot() // unter Linux schreibt das Dienstkonto seine Konfiguration selbst
 		doBootstrap(os.Args[2:])
 	case "install":
 		// Dienst registrieren und starten (Anmeldung ist bereits geschehen
 		// oder passiert beim ersten Start selbst).
+		must(core.ManualSetupAllowed(), "Einrichtung")
 		must(core.ServiceControl("install"), "Dienst einrichten (Administrator/root nötig?)")
 		if err := core.ServiceControl("start"); err != nil {
 			fmt.Fprintf(os.Stderr, "Hinweis: Dienst nicht sofort gestartet: %v\n", err)
 		}
 		fmt.Println("Dienst eingerichtet.")
 	case "enroll":
+		core.DropRoot() // Konfiguration gehört dem Dienstkonto, nicht root
 		doEnroll(os.Args[2:])
 	case "uninstall":
 		doUninstall(os.Args[2:])
@@ -52,8 +62,11 @@ func main() {
 		fmt.Printf("Dienst: %s ausgeführt.\n", os.Args[1])
 	case "run":
 		// Vom Dienstmanager aufgerufen; blockiert bis zum Stopp.
+		core.DropRoot()
 		must(core.RunService(), "Dienst läuft nicht")
 	case "once":
+		// Befehle vom Server laufen nie als root — auch nicht beim Testlauf mit sudo.
+		core.DropRoot()
 		must(core.RunOnce(), "Testdurchlauf")
 		fmt.Println("Testdurchlauf ok.")
 	case "status":
@@ -169,10 +182,11 @@ func usage() {
 
 Verwendung:
   rimperio-agent setup      -server URL -secret GEHEIMNIS [-site S] [-desc D] [-insecure]
-                        Anmelden + Dienst einrichten + starten (manueller Weg).
+                        Anmelden + Dienst einrichten + starten (manueller Weg;
+                        unter Linux statt dessen install-agent.sh).
   rimperio-agent bootstrap  -server URL -secret GEHEIMNIS [-site S] [-desc D] [-insecure]
                         Nur Konfiguration anlegen (für den MSI-Installer).
-  rimperio-agent install    Dienst registrieren und starten.
+  rimperio-agent install    Dienst registrieren und starten (nicht unter Linux).
   rimperio-agent enroll     -server URL -secret GEHEIMNIS [...]   Nur anmelden.
   rimperio-agent uninstall  [-keep-record]
                         Agent vom Rechner entfernen und am Server abmelden

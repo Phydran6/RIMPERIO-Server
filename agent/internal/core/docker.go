@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.11.07.12.00.00
+// Version:      2026.11.08.17.00.00
 //
 // Beschreibung: Container-Updates auf dem Host — das, was Watchtower und
 //               Tugtainer tun, gesteuert vom Server:
@@ -44,6 +44,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -593,12 +594,41 @@ func (d *dockerClient) updateOne(name string, req DockerUpdateRequest, useCompos
 
 	project, service := labels["com.docker.compose.project"], labels["com.docker.compose.service"]
 	workdir := labels["com.docker.compose.project.working_dir"]
-	if useCompose && project != "" && service != "" && workdir != "" {
-		if st, err := os.Stat(workdir); err == nil && st.IsDir() {
-			return d.updateCompose(o, ref, labels, req)
-		}
+	if useCompose && project != "" && service != "" && workdir != "" && composeReadable(labels, workdir) {
+		return d.updateCompose(o, ref, labels, req)
 	}
 	return d.updateAPI(o, old, oldImg, image, req)
+}
+
+// composeReadable: Kann der Agent das Compose-Projekt lesen (Compose-Dateien,
+// .env)? Unter Linux läuft er als Dienstkonto, nicht als root — gehört ein
+// Projekt root allein, nimmt er den Weg über die Docker-API, statt an
+// "permission denied" zu scheitern.
+func composeReadable(labels map[string]string, workdir string) bool {
+	if st, err := os.Stat(workdir); err != nil || !st.IsDir() {
+		return false
+	}
+	files := []string{}
+	for _, f := range strings.Split(labels["com.docker.compose.project.config_files"], ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			if !filepath.IsAbs(f) {
+				f = filepath.Join(workdir, f)
+			}
+			files = append(files, f)
+		}
+	}
+	if env := filepath.Join(workdir, ".env"); fileExists(env) {
+		files = append(files, env)
+	}
+	for _, f := range files {
+		fh, err := os.Open(f)
+		if err != nil {
+			logf("Compose-Datei nicht lesbar (%v) — Weg über die Docker-API.", err)
+			return false
+		}
+		fh.Close()
+	}
+	return true
 }
 
 // --- Weg 1: Compose ---------------------------------------------------------------

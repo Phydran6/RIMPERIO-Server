@@ -1,12 +1,17 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.10.08.22.00.00
+# Version:     2026.11.08.17.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Linux-Systeme selbst einbinden (ueber SSH).
 # ==============================================================================
 """
 Ein Linux-System per SSH einbinden, ohne dort von Hand etwas zu tun.
+
+Der Agent laeuft danach **nicht als root**, sondern unter einem eigenen
+Dienstkonto (Standard ``rimperio``, in der Oberflaeche waehlbar; fehlt es,
+legt der Installer es an). Alles liegt unter ``/opt/RMM/rimperio``. ``sudo``
+braucht nur die Einrichtung selbst.
 
 Was passiert
 ------------
@@ -23,9 +28,10 @@ Was passiert
    (SFTP). Das Zielsystem muss dafuer weder ins Internet noch den RIMPERIO-Server
    erreichen; der kurze Agent-Dienst ist im Installer selbst enthalten.
 5. **Installer ausfuehren** mit einer Einladung, die der Server vorher erzeugt
-   hat. Der Installer tauscht sie in einen eigenen Geraeteschluessel - wie beim
-   Einzeiler von Hand.
-6. **Warten**, bis wirklich Logs ankommen. Erst dann gilt das Geraet als
+   hat, und dem gewaehlten Dienstkonto. Der Installer tauscht die Einladung in
+   einen eigenen Geraeteschluessel - wie beim Einzeiler von Hand.
+6. **Nachsehen**, unter welchem Konto der Dienst laeuft - root waere ein Fehler.
+7. **Warten**, bis wirklich Logs ankommen. Erst dann gilt das Geraet als
    eingebunden.
 
 Zugangsdaten
@@ -49,6 +55,7 @@ import asyncio
 import base64
 import hashlib
 import logging
+import re
 import secrets
 import shlex
 import time
@@ -71,6 +78,17 @@ DELIVERY_POLL = 5
 
 # Laufzeit der Einladung: knapp, sie wird ja sofort benutzt.
 ENROLL_HOURS = 1
+
+# Dienstkonto, unter dem der Agent auf dem Ziel laeuft - nie root.
+DEFAULT_SERVICE_USER = "rimperio"
+SERVICE_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+# So heisst der Dienst des Log-Agents (agent/logship/install-linux.sh).
+LOG_AGENT_SERVICE = "rimperio-log-agent"
+
+
+def valid_service_user(name: str) -> bool:
+    """Linux-Kontoname ohne Sonderzeichen - und nicht root."""
+    return bool(SERVICE_USER_RE.match(name or "")) and name != "root"
 
 
 # =============================================================================
@@ -233,11 +251,14 @@ def parse_os_release(text: str) -> Dict[str, str]:
 
 def build_install_command(script_path: str, *, fqdn: str, token: str,
                           ip_fallback: str = "", port: int = 443,
-                          insecure: bool = False, min_level: str = "info") -> str:
+                          insecure: bool = False, min_level: str = "info",
+                          service_user: str = DEFAULT_SERVICE_USER) -> str:
     """Die Argumentzeile fuer install-linux.sh. Werte werden sicher gequotet."""
+    if not valid_service_user(service_user):
+        raise OnboardError(f"Ungültiges Dienstkonto „{service_user}“ (nicht root, nur a-z, 0-9, _ und -).")
     args = ["bash", script_path, "--mode", "https", "--yes",
             "--fqdn", fqdn, "--token", token, "--port", str(port),
-            "--min-level", min_level]
+            "--min-level", min_level, "--user", service_user]
     if ip_fallback:
         args += ["--ip", ip_fallback]
     if insecure:
@@ -318,7 +339,8 @@ def is_running(device_id: int) -> bool:
 # =============================================================================
 def _run_ssh(device: dict, creds: Credentials, fingerprint: str, enroll_token: str,
              server: dict, state: OnboardState,
-             factory: SessionFactory = _default_factory) -> str:
+             factory: SessionFactory = _default_factory,
+             service_user: str = DEFAULT_SERVICE_USER) -> str:
     """Verbindet, prueft, installiert. Gibt den Hostnamen des Ziels zurueck.
 
     Laeuft im Thread-Executor (paramiko blockiert). Wirft OnboardError mit einer
@@ -368,7 +390,8 @@ def _run_ssh(device: dict, creds: Credentials, fingerprint: str, enroll_token: s
 
         command = build_install_command(
             remote_script, fqdn=server["fqdn"], token=enroll_token,
-            ip_fallback=server["ip_fallback"], insecure=server["insecure"])
+            ip_fallback=server["ip_fallback"], insecure=server["insecure"],
+            service_user=service_user)
         result = session.run(command, sudo=not is_root,
                              sudo_password=creds.effective_sudo(), timeout=180)
         # Aufraeumen, egal wie es ausging - im Skript steht die Einladung.
@@ -377,7 +400,17 @@ def _run_ssh(device: dict, creds: Credentials, fingerprint: str, enroll_token: s
         if not result.ok:
             tail = "\n".join(result.text.splitlines()[-8:])
             raise OnboardError(f"Der Installer ist fehlgeschlagen:\n{tail}")
-        state.step("Agent installiert und gestartet")
+        state.step("Agent installiert und gestartet (unter /opt/RMM/rimperio)")
+
+        # Unter welchem Konto laeuft der Dienst? root waere ein Fehler.
+        runs_as = session.run(
+            f"systemctl show -p User {LOG_AGENT_SERVICE} 2>/dev/null | cut -d= -f2",
+            timeout=20).text
+        if runs_as and runs_as != "root":
+            state.step(f"Läuft als Dienstkonto „{runs_as}“, nicht als root")
+        else:
+            state.step(f"Achtung: Der Dienst läuft als „{runs_as or 'root'}“ — bitte auf dem System prüfen.",
+                       ok=False)
         return hostname
     finally:
         if session is not None:
@@ -425,21 +458,24 @@ def _installer_source() -> str:
 # =============================================================================
 async def start(device_id: int, creds: Credentials, fingerprint: str,
                 actor: str, source_ip: str,
-                factory: SessionFactory = _default_factory) -> bool:
+                factory: SessionFactory = _default_factory,
+                service_user: str = DEFAULT_SERVICE_USER) -> bool:
     """Startet das Einbinden im Hintergrund. False, wenn fuer dieses Geraet schon einer laeuft."""
     lock = _lock_for(device_id)
     if lock.locked() or is_running(device_id):
         creds.wipe()
         return False
     STATES[device_id] = OnboardState(device_id=device_id)
-    task = asyncio.create_task(_orchestrate(device_id, creds, fingerprint, actor, source_ip, factory))
+    task = asyncio.create_task(_orchestrate(device_id, creds, fingerprint, actor, source_ip, factory,
+                                            service_user))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return True
 
 
 async def _orchestrate(device_id: int, creds: Credentials, fingerprint: str,
-                       actor: str, source_ip: str, factory: SessionFactory) -> None:
+                       actor: str, source_ip: str, factory: SessionFactory,
+                       service_user: str = DEFAULT_SERVICE_USER) -> None:
     from .database import async_session
 
     state = STATES[device_id]
@@ -451,7 +487,8 @@ async def _orchestrate(device_id: int, creds: Credentials, fingerprint: str,
 
             loop = asyncio.get_running_loop()
             hostname = await loop.run_in_executor(
-                None, _run_ssh, device, creds, fingerprint, enroll_token, server, state, factory)
+                None, _run_ssh, device, creds, fingerprint, enroll_token, server, state, factory,
+                service_user)
 
             state.phase = "Warte auf die erste Logzeile…"
             delivering = await _await_delivery(hostname, device["ip_address"])
@@ -466,7 +503,8 @@ async def _orchestrate(device_id: int, creds: Credentials, fingerprint: str,
                     message=f"{hostname} ({device['ip_address']}) per SSH eingebunden.",
                     actor=actor, source_ip=source_ip, target=hostname, ok=True,
                     duration_ms=int((time.monotonic() - started) * 1000),
-                    detail={"delivering": delivering, "has_name": server["has_name"]})
+                    detail={"delivering": delivering, "has_name": server["has_name"],
+                            "service_user": service_user})
         except OnboardError as exc:
             await _fail(state, device_id, actor, source_ip, str(exc))
         except Exception as exc:

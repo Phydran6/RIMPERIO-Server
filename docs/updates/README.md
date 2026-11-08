@@ -30,7 +30,8 @@ Alle Befehle laufen **auf dem Server**, als root. `RAW` steht dabei für
 | Nur neu bauen und starten *(nach Änderungen an der `.env`)* | `cd /opt/rimperio && sudo docker compose up -d --build --remove-orphans` |
 | Vorher prüfen, ob die Maschine reicht | `curl -sSL RAW/server/install/preflight.sh \| sudo bash` |
 | PostgreSQL-Major-Upgrade **mit** Datenerhalt | `curl -sSL RAW/db/migrate.sh \| sudo bash` |
-| Linux-Agent aktualisieren *(Installer drüber — FQDN und Token wieder mitgeben)* | `curl -sSL RAW/agent/logship/install-linux.sh \| sudo bash -s -- --fqdn rimperio.example.com --token DEIN-TOKEN --yes` |
+| Linux-Log-Agent aktualisieren *(Installer drüber — die vorhandenen Einstellungen gelten weiter)* | `curl -sSL RAW/agent/logship/install-linux.sh \| sudo bash -s -- --yes` |
+| Linux-Fernwartungs-Agent aktualisieren *(die Anmeldung bleibt)* | `curl -sSL RAW/agent/installer/linux/install-agent.sh \| sudo bash -s -- --server https://rmm.example.de` |
 
 > **Den ersten Einzeiler holt sich das Wartungsskript frisch von GitHub.** Das
 > ist der Weg für Installationen, die so alt sind, dass sie das Skript noch
@@ -519,18 +520,27 @@ cd /opt/rimperio && sudo docker compose up -d
 ## Agents und Zusatzdienste
 
 **Agents** aktualisieren sich nicht selbst. Der Installer-Einzeiler drüber
-genügt — er konfiguriert die vorhandene Installation neu, **FQDN und Token
-gehören also wieder dazu** (unbeaufsichtigt übernimmt er keine alten Werte):
+genügt. Ohne `--fqdn` und `--token` übernimmt er die Werte der vorhandenen
+Installation — eine neue Anmeldung ist nicht nötig:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/logship/install-linux.sh \
-  | sudo bash -s -- --fqdn rimperio.example.com --token DEIN-AGENT-TOKEN --yes
+  | sudo bash -s -- --yes
 ```
 
-Ohne `--yes` fragt der Installer nach und bietet an, die vorhandene Installation
-neu zu konfigurieren. Der bestehende Token steht in
-`/opt/rimperio-agent/config.json`. Windows und alle Optionen:
-[Agents](../../agent/logship/README.md).
+Mit `--fqdn` und `--token` richtet er den Agent neu ein (etwa für einen anderen
+Server). Ohne `--yes` fragt der Installer nach. Die Einstellungen stehen in
+`/opt/RMM/rimperio/etc/log-agent.json`; der Agent läuft als eigenes Dienstkonto,
+nicht als root. Eine ältere Fassung (als root unter `/opt/rimperio-agent`) wird
+dabei übernommen. Den Fernwartungs-Agent aktualisiert sein Installer genauso:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/installer/linux/install-agent.sh \
+  | sudo bash -s -- --server https://rmm.example.de
+```
+
+Windows und alle Optionen: [Log-Agents](../../agent/logship/README.md) ·
+[Fernwartungs-Agent](../../agent/installer/README.md).
 
 ### Was diese Seite *nicht* aktualisiert
 

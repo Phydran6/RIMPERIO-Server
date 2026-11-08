@@ -2,13 +2,24 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.10.10.22.00.00
+# Version:     2026.11.08.17.00.00
 # Changelog:   docs/changelog/agents.md
 # Beschreibung: RIMPERIO Linux Agent - Installer (teilautomatisch)
 #
 #   Standard = HTTPS: ein schlanker Python-systemd-Dienst sendet ALLE Logs
 #   (journald) verschluesselt + Token an  https://<FQDN>/api/agents/ingest
 #   Alternativ Syslog (rsyslog -> UDP/TCP). Keine externen Abhaengigkeiten.
+#
+#   NICHT ALS ROOT: Der Dienst "rimperio-log-agent" laeuft unter einem eigenen
+#   Dienstkonto (Standard "rimperio", waehlbar mit --user; fehlt es, wird es
+#   angelegt). Lesen darf er das Journal ueber die Gruppe systemd-journal,
+#   schreiben nur in sein eigenes Verzeichnis. Alles liegt unter
+#   /opt/RMM/rimperio - geteilt mit dem Fernwartungs-Agent (install-agent.sh):
+#     lib/log-agent.py      Programm                  root,  0644
+#     etc/log-agent.json    Konfiguration mit Token   Konto, 0600
+#     var/log-agent.*       Leseposition, Geraetenummer
+#   Aeltere Fassungen (root, /opt/rimperio-agent, Dienst rimperio-agent) werden
+#   beim Installieren uebernommen - samt Leseposition, ohne neue Anmeldung.
 #
 #   TEILAUTOMATISCH: Am Anfang laeuft ein 5s-Countdown. Wird eine Taste gedrueckt,
 #   schaltet der Installer auf MANUELL und fragt ab da alle Werte blockierend ab
@@ -23,6 +34,7 @@
 #     curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/logship/install-linux.sh \
 #       | sudo bash -s -- --fqdn rimperio.example.com --token xxxx
 #
+#   Anderes Dienstkonto:  ... --user svc-rimperio
 #   Deinstallieren:  sudo bash install-linux.sh uninstall
 #   Testen:          sudo bash install-linux.sh test
 # ==============================================================================
@@ -48,19 +60,32 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-AGENT_VERSION="2026.10.10.22.00.00"
+AGENT_VERSION="2026.11.08.17.00.00"
 
 # --- Pfade: Syslog-Modus (rsyslog) ---
 CONFIG_FILE="/etc/rsyslog.d/99-rimperio.conf"
 QUEUE_PREFIX="/var/spool/rsyslog/rimperio_queue"
 
-# --- Pfade: HTTPS-Modus (alles unter /opt/rimperio-agent/*) ---
-AGENT_DIR="/opt/rimperio-agent"
-AGENT_SCRIPT="${AGENT_DIR}/rimperio_agent.py"
-AGENT_CONFIG="${AGENT_DIR}/config.json"
-AGENT_CURSOR="${AGENT_DIR}/cursor"
-SERVICE_NAME="rimperio-agent"
+# --- Pfade: HTTPS-Modus (alles unter /opt/RMM/rimperio) ---
+BASE_DIR="/opt/RMM/rimperio"
+AGENT_SCRIPT="${BASE_DIR}/lib/log-agent.py"
+AGENT_CONFIG="${BASE_DIR}/etc/log-agent.json"
+AGENT_CURSOR="${BASE_DIR}/var/log-agent.cursor"
+AGENT_ID_FILE="${BASE_DIR}/var/log-agent.id"
+SERVICE_NAME="rimperio-log-agent"
 SYSTEMD_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
+# Der Fernwartungs-Agent (install-agent.sh) wohnt im selben Verzeichnis und
+# unter demselben Dienstkonto.
+RMM_UNIT="/etc/systemd/system/rimperio-agent.service"
+# Steht im Kommentarfeld eines Kontos, das ein RIMPERIO-Installer angelegt hat.
+# Nur solche Konten entfernt die Deinstallation wieder.
+ACCOUNT_MARK="RIMPERIO Agent"
+
+# --- Aeltere Fassungen (bis 2026.11.07): root, eigenes Verzeichnis, und der
+#     Dienst hiess wie der Fernwartungs-Agent "rimperio-agent". ---
+LEGACY_DIR="/opt/rimperio-agent"
+LEGACY_CONFIG="${LEGACY_DIR}/config.json"
+LEGACY_UNIT="/etc/systemd/system/rimperio-agent.service"
 
 # --- Defaults / Verhalten ---
 PROMPT_TIMEOUT="${RIMPERIO_TIMEOUT:-5}"   # Sekunden Countdown bis Auto-Start
@@ -76,8 +101,14 @@ IPFB="${RIMPERIO_IP:-}"
 PORT="${RIMPERIO_PORT:-${PLACEHOLDER_PORT:-}}"
 TOKEN="${RIMPERIO_TOKEN:-${PLACEHOLDER_TOKEN:-}}"
 MINLEVEL="${RIMPERIO_MINLEVEL:-${PLACEHOLDER_MINLEVEL:-info}}"
+MINLEVEL_EXPLICIT="false"                 # true => nicht aus vorhandener Installation uebernehmen
+if [[ -n "${RIMPERIO_MINLEVEL:-${PLACEHOLDER_MINLEVEL:-}}" ]]; then MINLEVEL_EXPLICIT="true"; fi
 INSECURE="${RIMPERIO_INSECURE:-false}"
 PROTO="${RIMPERIO_PROTO:-udp}"            # nur Syslog-Modus: udp | tcp
+# Dienstkonto des HTTPS-Agents. Leer = wie der Fernwartungs-Agent, sonst "rimperio".
+AGENT_USER="${RIMPERIO_USER:-}"
+AGENT_GROUP=""
+REUSED_TOKEN="false"                      # true => Geraeteschluessel aus bestehender Installation
 
 # ==============================================================================
 # Hilfsfunktionen
@@ -168,6 +199,8 @@ Optionen (auch als Umgebungsvariable RIMPERIO_*):
   --ip <ip>           Optionale IP als Fallback     (RIMPERIO_IP)
   --min-level <info|warning|error>            (RIMPERIO_MINLEVEL)
   --insecure          Selbstsignierte TLS-Zerts akzeptieren  (RIMPERIO_INSECURE=true)
+  --user <konto>      Dienstkonto des HTTPS-Agents (Standard rimperio, wird
+                      angelegt; nie root)          (RIMPERIO_USER)
   --yes, --unattended Keine Rueckfragen, alles Default        (ASSUME_YES)
   --timeout <sek>     Countdown bis Auto-Start (Standard 5)  (RIMPERIO_TIMEOUT)
                       Taste druecken => manueller Modus (alle Werte, kein Timeout)
@@ -196,9 +229,11 @@ parse_args() {
             --proto=*)       PROTO="${1#*=}" ;;
             --mode)          MODE="${2:-}"; shift ;;
             --mode=*)        MODE="${1#*=}" ;;
-            --min-level)     MINLEVEL="${2:-}"; shift ;;
-            --min-level=*)   MINLEVEL="${1#*=}" ;;
+            --min-level)     MINLEVEL="${2:-}"; MINLEVEL_EXPLICIT="true"; shift ;;
+            --min-level=*)   MINLEVEL="${1#*=}"; MINLEVEL_EXPLICIT="true" ;;
             --insecure|-k)   INSECURE="true" ;;
+            --user)          AGENT_USER="${2:-}"; shift ;;
+            --user=*)        AGENT_USER="${1#*=}" ;;
             --yes|-y|--unattended) ASSUME_YES="true" ;;
             --timeout)       PROMPT_TIMEOUT="${2:-5}"; shift ;;
             --timeout=*)     PROMPT_TIMEOUT="${1#*=}" ;;
@@ -214,22 +249,36 @@ parse_args() {
 # ==============================================================================
 
 syslog_installed() { [[ -f "$CONFIG_FILE" ]] && grep -q "RIMPERIO Agent v" "$CONFIG_FILE"; }
-https_installed()  { [[ -f "$SYSTEMD_UNIT" ]] || [[ -f "$AGENT_SCRIPT" ]]; }
+# Aelterer Log-Agent: Dienst "rimperio-agent" mit dem Python-Skript (nicht der
+# gleichnamige Fernwartungs-Agent!) oder sein Verzeichnis.
+legacy_unit_is_log_agent() { [[ -f "$LEGACY_UNIT" ]] && grep -q 'rimperio_agent.py' "$LEGACY_UNIT"; }
+legacy_installed() { legacy_unit_is_log_agent || [[ -d "$LEGACY_DIR" ]]; }
+https_installed()  { [[ -f "$SYSTEMD_UNIT" ]] || [[ -f "$AGENT_SCRIPT" ]] || legacy_installed; }
 is_installed()     { syslog_installed || https_installed; }
+
+# Die Konfiguration der vorhandenen Installation: neu, sonst die aeltere.
+existing_config() {
+    if [[ -f "$AGENT_CONFIG" ]]; then echo "$AGENT_CONFIG"
+    elif [[ -f "$LEGACY_CONFIG" ]]; then echo "$LEGACY_CONFIG"
+    fi
+}
 
 # ==============================================================================
 # Server-Konfig aus vorhandener Installation lesen (fuer Purge-Defaults)
 # ==============================================================================
 
 read_agent_config() {
-    local key="$1"
-    [[ -f "$AGENT_CONFIG" ]] || return 0
+    local key="$1" file
+    file="$(existing_config)"
+    [[ -n "$file" ]] || return 0
     command -v python3 >/dev/null 2>&1 || return 0
-    python3 - "$AGENT_CONFIG" "$key" <<'PYEOF' 2>/dev/null || true
+    python3 - "$file" "$key" <<'PYEOF' 2>/dev/null || true
 import json, sys
 try:
     d = json.load(open(sys.argv[1], encoding="utf-8"))
     v = d.get(sys.argv[2], "")
+    if isinstance(v, bool):
+        v = "true" if v else "false"
     print("" if v is None else v)
 except Exception:
     pass
@@ -237,7 +286,7 @@ PYEOF
 }
 
 detect_server_from_config() {
-    if [[ -f "$AGENT_CONFIG" ]]; then
+    if [[ -n "$(existing_config)" ]]; then
         SERVER_HOST_DETECTED="$(read_agent_config server_fqdn)"
         [[ -z "$SERVER_HOST_DETECTED" ]] && SERVER_HOST_DETECTED="$(read_agent_config server_ip)"
         SERVER_PORT_DETECTED="$(read_agent_config server_port)"
@@ -371,6 +420,222 @@ restart_rsyslog() {
 }
 
 # ==============================================================================
+#  DIENSTKONTO UND VERZEICHNISSE  (HTTPS-Modus - der Agent laeuft nicht als root)
+# ==============================================================================
+
+# Konto, unter dem ein Dienst laut Unit-Datei laeuft (leer = root/unbekannt).
+unit_user() {
+    if [[ -f "$1" ]]; then sed -n 's/^User=//p' "$1" | head -n1; fi
+}
+
+# Laeuft der Fernwartungs-Agent (install-agent.sh) ebenfalls unter /opt/RMM/rimperio?
+rmm_agent_here() { [[ -f "$RMM_UNIT" ]] && grep -q "${BASE_DIR}/" "$RMM_UNIT"; }
+
+# Ein Konto fuer alle RIMPERIO-Dienste auf dem Rechner - Fernwartungs- und
+# Log-Agent teilen sich /opt/RMM/rimperio. Ohne Angabe gilt das Konto des
+# Fernwartungs-Agents, sonst "rimperio".
+choose_account() {
+    local other=""
+    if rmm_agent_here; then other="$(unit_user "$RMM_UNIT")"; fi
+    if [[ "$other" == "root" ]]; then other=""; fi
+    ask AGENT_USER "Dienstkonto, unter dem der Agent läuft (wird angelegt, falls es fehlt)" "${AGENT_USER:-${other:-rimperio}}"
+    if [[ -n "$other" && "$other" != "$AGENT_USER" ]]; then
+        fail "Der Fernwartungs-Agent auf diesem Rechner läuft als \"$other\". Beide teilen sich $BASE_DIR - bitte dasselbe Konto nehmen: --user $other"
+    fi
+    if [[ "$AGENT_USER" == "root" ]]; then
+        fail "Der Agent läuft absichtlich nicht als root. Bitte ein eigenes Konto nennen (Standard: --user rimperio)."
+    fi
+    if [[ ! "$AGENT_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+        fail "Ungültiger Kontoname \"$AGENT_USER\" - erlaubt: Kleinbuchstaben, Ziffern, _ und -, höchstens 32 Zeichen."
+    fi
+}
+
+ensure_account() {
+    if id -u "$AGENT_USER" >/dev/null 2>&1; then
+        [[ "$(id -u "$AGENT_USER")" -ne 0 ]] || fail "Das Konto \"$AGENT_USER\" hat die UID 0 und ist damit root."
+        log_info "Dienstkonto \"$AGENT_USER\" ist vorhanden und wird benutzt."
+    else
+        command -v useradd >/dev/null 2>&1 || fail "useradd fehlt - bitte das Konto \"$AGENT_USER\" selbst anlegen."
+        local shell
+        shell="$(command -v nologin 2>/dev/null || echo /bin/false)"
+        if getent group "$AGENT_USER" >/dev/null 2>&1; then
+            useradd -r -g "$AGENT_USER" -d "${BASE_DIR}/var" -M -s "$shell" -c "$ACCOUNT_MARK" "$AGENT_USER" \
+                || fail "Das Dienstkonto \"$AGENT_USER\" ließ sich nicht anlegen (useradd)."
+        else
+            useradd -r -U -d "${BASE_DIR}/var" -M -s "$shell" -c "$ACCOUNT_MARK" "$AGENT_USER" \
+                || fail "Das Dienstkonto \"$AGENT_USER\" ließ sich nicht anlegen (useradd)."
+        fi
+        log_success "Dienstkonto \"$AGENT_USER\" angelegt (Systemkonto, ohne Anmeldung und ohne Passwort)."
+    fi
+    AGENT_GROUP="$(id -gn "$AGENT_USER")"
+}
+
+# Programm und Konfiguration liegen in Ordnern, die nur root beschreiben darf;
+# das Dienstkonto bekommt etc/ (lesen) und var/ (Leseposition) fuer sich.
+prepare_dirs() {
+    local d owner mode
+    [[ -d /opt ]] || install -d -m 0755 -o root -g root /opt
+    owner="$(stat -c %u /opt)"; mode="$(stat -c %a /opt)"
+    if [[ "$owner" != "0" ]] || (( (8#$mode & 8#022) != 0 )); then
+        fail "/opt gehört nicht root oder ist für andere beschreibbar (Rechte $mode). Bitte zuerst richten: chown root:root /opt && chmod go-w /opt"
+    fi
+    for d in /opt/RMM "$BASE_DIR" "${BASE_DIR}/lib" "${BASE_DIR}/etc" "${BASE_DIR}/var"; do
+        if [[ -L "$d" ]]; then fail "$d ist ein symbolischer Link - so nicht. Bitte entfernen und neu starten."; fi
+    done
+    for d in /opt/RMM "$BASE_DIR" "${BASE_DIR}/lib"; do
+        install -d "$d"
+        chown root:root "$d"
+        chmod 0755 "$d"
+    done
+    # Nur die Ordner selbst - nie rekursiv: Was darin liegt, gehoert dem Konto,
+    # und root fasst es nicht an (ein Symlink darin fuehrte sonst sonstwohin).
+    for d in "${BASE_DIR}/etc" "${BASE_DIR}/var"; do
+        install -d "$d"
+        chown "${AGENT_USER}:${AGENT_GROUP}" "$d"
+        chmod 0700 "$d"
+    done
+}
+
+# In etc/ und var/ schreibt nur das Dienstkonto selbst: root schriebe einem
+# untergeschobenen Symlink hinterher. Inhalt kommt von stdin.
+write_as_account() {
+    runuser -u "$AGENT_USER" -- sh -c 'umask 077; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$1"
+}
+
+# Werte, die aus einer vorhandenen Konfiguration kommen, landen spaeter in
+# Befehlen - nur, was nach Adresse, Port und Schluessel aussieht, kommt durch.
+valid_host()  { [[ "$1" =~ ^[A-Za-z0-9._:-]{1,253}$ ]]; }
+valid_port()  { [[ "$1" =~ ^[0-9]{1,5}$ ]]; }
+valid_token() { [[ "$1" =~ ^[A-Za-z0-9._~+/=-]{8,250}$ ]]; }
+
+# Gruppe, die das ganze Journal lesen darf.
+journal_group() {
+    if getent group systemd-journal >/dev/null 2>&1; then echo "systemd-journal"
+    elif getent group adm >/dev/null 2>&1; then echo "adm"
+    fi
+}
+
+remove_account() {
+    local acct="$1" entry
+    entry="$(getent passwd "$acct" || true)"
+    [[ -n "$entry" ]] || return 0
+    if [[ "$(printf '%s' "$entry" | cut -d: -f5)" != "$ACCOUNT_MARK" ]]; then
+        log_info "Konto \"$acct\" bleibt - es war schon vor RIMPERIO da."
+        return 0
+    fi
+    pkill -KILL -u "$acct" 2>/dev/null || true
+    sleep 1
+    if userdel "$acct" 2>/dev/null; then
+        log_info "Dienstkonto \"$acct\" entfernt."
+    else
+        log_warn "Dienstkonto \"$acct\" ließ sich nicht entfernen - bitte selbst: userdel $acct"
+    fi
+}
+
+# Konto und /opt/RMM/rimperio gehen erst, wenn nicht auch noch der
+# Fernwartungs-Agent darunter laeuft.
+cleanup_shared() {
+    local acct="$1"
+    [[ -d "$BASE_DIR" ]] || return 0
+    if rmm_agent_here; then
+        log_info "Der Fernwartungs-Agent bleibt eingerichtet - Konto und $BASE_DIR bleiben."
+        return 0
+    fi
+    if [[ -n "$acct" && "$acct" != "root" ]]; then remove_account "$acct"; fi
+    rm -rf "$BASE_DIR"
+    rmdir /opt/RMM 2>/dev/null || true
+    log_info "Verzeichnis entfernt: $BASE_DIR"
+}
+
+stop_and_remove_unit() {
+    local name="$1" file="$2"
+    # `timeout` davor: reagiert der Dienst nicht mehr, wartet systemctl sonst
+    # bis zu 90 Sekunden pro Aufruf. Nach 20 s wird nachgeholfen.
+    if ! timeout 20 systemctl stop "$name" 2>/dev/null; then
+        timeout 10 systemctl kill -s KILL "$name" 2>/dev/null || true
+    fi
+    timeout 15 systemctl disable "$name" 2>/dev/null || true
+    rm -f "$file"
+    timeout 15 systemctl daemon-reload 2>/dev/null || true
+    timeout 15 systemctl reset-failed "$name" 2>/dev/null || true
+}
+
+# Aeltere Fassung (root, /opt/rimperio-agent, Dienst rimperio-agent): anhalten,
+# Leseposition und Geraetenummer uebernehmen - der Agent macht genau dort
+# weiter -, danach Dienst und Verzeichnis entfernen.
+stop_legacy() {
+    local name
+    for name in rimperio-agent "$SERVICE_NAME"; do
+        # Nur den aelteren Log-Agent (Python-Skript unter /opt/rimperio-agent) -
+        # install-agent.sh hat ihn womoeglich schon in rimperio-log-agent umbenannt.
+        if grep -qs 'rimperio_agent.py' "/etc/systemd/system/${name}.service"; then
+            timeout 20 systemctl stop "$name" 2>/dev/null || timeout 10 systemctl kill -s KILL "$name" 2>/dev/null || true
+        fi
+    done
+}
+
+migrate_legacy_state() {
+    [[ -d "$LEGACY_DIR" ]] || return 0
+    local moved=""
+    # Die alten Dateien gehoeren root (lesen als root), geschrieben wird als Konto.
+    if [[ ! -e "$AGENT_CURSOR" && -f "${LEGACY_DIR}/cursor" ]]; then
+        write_as_account "$AGENT_CURSOR" < "${LEGACY_DIR}/cursor"
+        moved="Leseposition"
+    fi
+    if [[ ! -e "$AGENT_ID_FILE" && -f "${LEGACY_DIR}/agent_id" ]]; then
+        tr -dc '0-9' < "${LEGACY_DIR}/agent_id" | write_as_account "$AGENT_ID_FILE"
+        moved="${moved:+$moved und }Gerätenummer"
+    fi
+    if [[ -n "$moved" ]]; then log_info "Aus der älteren Installation übernommen: $moved."; fi
+}
+
+remove_legacy() {
+    if legacy_unit_is_log_agent; then
+        stop_and_remove_unit rimperio-agent "$LEGACY_UNIT"
+        log_info "Älterer Dienst rimperio-agent (Log-Agent als root) entfernt."
+    fi
+    if [[ -d "$LEGACY_DIR" ]]; then
+        rm -rf "$LEGACY_DIR"
+        log_info "Älteres Verzeichnis entfernt: $LEGACY_DIR"
+    fi
+    rm -rf "/var/lib/rimperio-agent" 2>/dev/null || true   # Altstand vor v2026.07.18.16
+}
+
+# Ohne --fqdn/--token: die Werte der vorhandenen Installation nehmen (Update
+# ohne neue Anmeldung). Der gespeicherte Schluessel ist schon der eigene des
+# Geraets - er wird nicht noch einmal getauscht.
+EXISTING_TOKEN=""
+load_existing_settings() {
+    [[ -n "$(existing_config)" ]] || return 0
+    [[ -z "$FQDN" && -z "$TOKEN" ]] || return 0
+    local token fqdn ip port level
+    token="$(read_agent_config agent_token)"
+    fqdn="$(read_agent_config server_fqdn)"
+    ip="$(read_agent_config server_ip)"
+    port="$(read_agent_config server_port)"
+    level="$(read_agent_config min_level)"
+    [[ -n "$token" ]] || return 0
+    # Die Datei gehoert dem Dienstkonto - was darin steht, wird geprueft, bevor
+    # es in Befehle wandert, die als root laufen.
+    if ! valid_token "$token" || { [[ -n "$fqdn" ]] && ! valid_host "$fqdn"; } \
+        || { [[ -n "$ip" ]] && ! valid_host "$ip"; } || { [[ -n "$port" ]] && ! valid_port "$port"; } \
+        || [[ -z "$fqdn$ip" ]]; then
+        log_warn "Die vorhandene Konfiguration sieht nicht richtig aus - bitte --fqdn und --token angeben."
+        return 0
+    fi
+    FQDN="${fqdn:-$ip}"
+    if [[ -z "$IPFB" ]]; then IPFB="$ip"; fi
+    if [[ -z "$PORT" ]]; then PORT="$port"; fi
+    if [[ "$(read_agent_config skip_tls_verify)" == "true" ]]; then INSECURE="true"; fi
+    case "$level" in
+        info|warning|error) if [[ "$MINLEVEL_EXPLICIT" != "true" ]]; then MINLEVEL="$level"; fi ;;
+    esac
+    TOKEN="$token"
+    EXISTING_TOKEN="$token"
+    log_info "Einstellungen der vorhandenen Installation übernommen (Server ${FQDN:-$IPFB}) - keine neue Anmeldung nötig."
+}
+
+# ==============================================================================
 #  HTTPS-MODUS  (Python systemd-Dienst -> /api/agents/ingest)
 # ==============================================================================
 
@@ -394,10 +659,10 @@ ensure_https_deps() {
     [[ -z "$PYTHON_BIN" ]] && fail "python3 weiterhin nicht verfügbar."
     command -v systemctl >/dev/null 2>&1 || fail "systemd (systemctl) nicht gefunden - HTTPS-Modus benötigt systemd."
     command -v journalctl >/dev/null 2>&1 || fail "journalctl nicht gefunden - HTTPS-Agent liest Logs aus journald."
+    command -v runuser >/dev/null 2>&1 || fail "runuser fehlt (util-linux) - der Agent läuft unter einem eigenen Konto, dafür wird es gebraucht."
 }
 
 write_agent_script() {
-    mkdir -p "$AGENT_DIR"
     cat > "$AGENT_SCRIPT" << 'PYEOF'
 #!/usr/bin/env python3
 # ==============================================================================
@@ -418,12 +683,14 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-CONFIG_FILE = os.environ.get("RIMPERIO_CONFIG", "/opt/rimperio-agent/config.json")
-CURSOR_FILE = os.environ.get("RIMPERIO_CURSOR", "/opt/rimperio-agent/cursor")
+# Der Dienst laeuft als eigenes Konto (nicht root): Konfiguration lesen,
+# Leseposition und Geraetenummer schreiben - mehr darf er nicht.
+CONFIG_FILE = os.environ.get("RIMPERIO_CONFIG", "/opt/RMM/rimperio/etc/log-agent.json")
+CURSOR_FILE = os.environ.get("RIMPERIO_CURSOR", "/opt/RMM/rimperio/var/log-agent.cursor")
 # Hier merkt sich der Agent, welcher Geraeteeintrag auf dem Server ihm gehoert.
 # Beim Deinstallieren wird genau dieser abgeraeumt - und nicht der eines
 # Rechners, der zufaellig genauso heisst.
-AGENT_ID_FILE = os.environ.get("RIMPERIO_AGENT_ID", "/opt/rimperio-agent/agent_id")
+AGENT_ID_FILE = os.environ.get("RIMPERIO_AGENT_ID", "/opt/RMM/rimperio/var/log-agent.id")
 # Pro Anfrage bis zu 500 Eintraege (der Server nimmt bis 5000). Weniger
 # Anfragen = weit weg vom Limit des Servers (600 Anfragen/Minute).
 BATCH_SIZE = 500
@@ -816,13 +1083,16 @@ def main():
 if __name__ == "__main__":
     main()
 PYEOF
-    chmod 700 "$AGENT_SCRIPT"
+    # Gehoert root: das Dienstkonto darf sein Programm lesen, nicht aendern.
+    chown root:root "$AGENT_SCRIPT"
+    chmod 0644 "$AGENT_SCRIPT"
 }
 
 write_agent_config() {
     local skip="false"
     [[ "$INSECURE" == "true" ]] && skip="true"
-    cat > "$AGENT_CONFIG" << EOF
+    # Das Dienstkonto schreibt selbst (0600) - das Token darf nur es lesen.
+    write_as_account "$AGENT_CONFIG" << EOF
 {
   "mode": "https",
   "server_fqdn": "${FQDN}",
@@ -835,33 +1105,57 @@ write_agent_config() {
   "poll_interval": 5
 }
 EOF
-    chmod 600 "$AGENT_CONFIG"
 }
 
 write_systemd_unit() {
+    local jgroup groups_line=""
+    jgroup="$(journal_group)"
+    if [[ -n "$jgroup" ]]; then
+        groups_line="SupplementaryGroups=${jgroup}"
+    else
+        log_warn "Weder die Gruppe systemd-journal noch adm gefunden - das Konto sieht womöglich nicht alle Logs."
+    fi
     cat > "$SYSTEMD_UNIT" << EOF
+# RIMPERIO Log-Agent v${AGENT_VERSION} - angelegt von install-linux.sh.
+# Laeuft als Dienstkonto "${AGENT_USER}", nicht als root: liest das Journal ueber
+# die Gruppe ${jgroup:-systemd-journal}, schreibt nur nach ${BASE_DIR}/var.
 [Unit]
-Description=RIMPERIO Agent v${AGENT_VERSION} (HTTPS Log Forwarder)
+Description=RIMPERIO Log-Agent v${AGENT_VERSION} (HTTPS)
 After=network-online.target
 Wants=network-online.target
+RequiresMountsFor=${BASE_DIR}
 
 [Service]
 Type=simple
+User=${AGENT_USER}
+Group=${AGENT_GROUP}
+${groups_line}
+Environment=RIMPERIO_CONFIG=${AGENT_CONFIG}
+Environment=RIMPERIO_CURSOR=${AGENT_CURSOR}
+Environment=RIMPERIO_AGENT_ID=${AGENT_ID_FILE}
 ExecStart=${PYTHON_BIN} ${AGENT_SCRIPT}
+WorkingDirectory=${BASE_DIR}/var
 Restart=always
 RestartSec=10
-User=root
 NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=${BASE_DIR}/var
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    chmod 0644 "$SYSTEMD_UNIT"
     systemctl daemon-reload
 }
 
 configure_https() {
     ensure_https_deps
-    log_info "Konfiguriere HTTPS-Agent (Python systemd-Dienst)..."
+    log_info "Konfiguriere HTTPS-Agent (Python systemd-Dienst, eigenes Dienstkonto)..."
+
+    # Update: ohne --fqdn/--token gelten die Werte der vorhandenen Installation.
+    load_existing_settings
 
     # FQDN (Pflicht, DNS-basiert) - wird auch teilautomatisch immer noch abgefragt
     ask FQDN "RIMPERIO Server FQDN (DNS, z.B. rimperio.example.com)" "$FQDN"
@@ -886,6 +1180,15 @@ configure_https() {
     ask MINLEVEL "Log-Level (info/warning/error)" "$MINLEVEL"
     case "$MINLEVEL" in warning|error) : ;; *) MINLEVEL="info" ;; esac
 
+    # Die Werte landen in Befehlen und in der Konfiguration - nur Gueltiges.
+    valid_host "$FQDN" || fail "Ungültige Server-Adresse: \"$FQDN\""
+    valid_port "$PORT" || fail "Ungültiger Port: \"$PORT\""
+    [[ -z "$IPFB" ]] || valid_host "$IPFB" || fail "Ungültige Fallback-IP: \"$IPFB\""
+    valid_token "$TOKEN" || fail "Der Zugangsschlüssel enthält unerwartete Zeichen."
+
+    # Dienstkonto (nie root) - ohne Angabe wie der Fernwartungs-Agent, sonst "rimperio".
+    choose_account
+
     # DNS/Erreichbarkeit informativ pruefen (kein harter Abbruch)
     if resolve_host "$FQDN"; then
         log_success "FQDN auflösbar: $FQDN"
@@ -895,13 +1198,24 @@ configure_https() {
     check_tcp_reachable "$FQDN" "$PORT" && log_success "HTTPS ${FQDN}:${PORT} erreichbar" \
         || log_warn "HTTPS ${FQDN}:${PORT} derzeit nicht erreichbar - Dienst wird dennoch eingerichtet."
 
-    # Eigenen Schluessel holen, bevor die Konfiguration geschrieben wird.
-    enroll_own_token
+    # Eigenen Schluessel holen, bevor die Konfiguration geschrieben wird -
+    # ausser er stammt schon aus der vorhandenen Installation.
+    if [[ -n "$EXISTING_TOKEN" && "$TOKEN" == "$EXISTING_TOKEN" ]]; then
+        REUSED_TOKEN="true"
+        log_info "Der Geräteschlüssel der vorhandenen Installation bleibt."
+    else
+        enroll_own_token
+    fi
 
+    ensure_account
+    prepare_dirs
+    stop_legacy
+    migrate_legacy_state
     write_agent_script
     write_agent_config
     write_systemd_unit
-    log_success "HTTPS-Agent eingerichtet: $AGENT_DIR"
+    remove_legacy
+    log_success "HTTPS-Agent eingerichtet: $BASE_DIR (Dienstkonto \"$AGENT_USER\")"
 }
 
 # ==============================================================================
@@ -984,12 +1298,23 @@ PYENROLL
 }
 
 start_https_service() {
-    log_info "Starte RIMPERIO Agent-Dienst..."
+    log_info "Starte RIMPERIO Log-Agent-Dienst..."
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R "$BASE_DIR" "$SYSTEMD_UNIT" 2>/dev/null || true   # SELinux
+    fi
     systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || true
     systemctl restart "$SERVICE_NAME"
     sleep 2
-    systemctl is-active --quiet "$SERVICE_NAME" && log_success "Dienst läuft: $SERVICE_NAME" \
+    systemctl is-active --quiet "$SERVICE_NAME" \
         || fail "Dienst konnte nicht gestartet werden. Prüfe: journalctl -u ${SERVICE_NAME} -n 50"
+    local pid uid
+    pid="$(systemctl show -p MainPID "$SERVICE_NAME" 2>/dev/null | cut -d= -f2)"
+    uid="$(awk '/^Uid:/{print $2}' "/proc/${pid:-0}/status" 2>/dev/null || true)"
+    if [[ "$uid" == "0" ]]; then
+        systemctl stop "$SERVICE_NAME" || true
+        fail "Der Dienst lief als root - das darf nicht sein. Bitte $SYSTEMD_UNIT prüfen."
+    fi
+    log_success "Dienst läuft: $SERVICE_NAME (als \"$AGENT_USER\", nicht als root)"
 }
 
 # ==============================================================================
@@ -997,9 +1322,11 @@ start_https_service() {
 # ==============================================================================
 
 send_test_message() {
-    if [[ -f "$AGENT_CONFIG" ]] && command -v python3 >/dev/null 2>&1; then
+    local cfg
+    cfg="$(existing_config)"
+    if [[ -n "$cfg" ]] && command -v python3 >/dev/null 2>&1; then
         log_info "Sende HTTPS-Test-Nachrichten..."
-        if python3 - "$AGENT_CONFIG" "$(hostname)" "$AGENT_VERSION" <<'PYEOF'
+        if python3 - "$cfg" "$(hostname)" "$AGENT_VERSION" <<'PYEOF'
 import json, ssl, socket, sys, urllib.request, urllib.error
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 hostname, version = sys.argv[2], sys.argv[3]
@@ -1076,7 +1403,8 @@ handle_existing_installation() {
     is_installed || return 0
     log_warn "Es scheint bereits eine RIMPERIO-Installation vorhanden zu sein."
     syslog_installed && echo "  - Syslog-Konfiguration: $CONFIG_FILE"
-    https_installed && echo "  - HTTPS-Dienst: $SERVICE_NAME ($AGENT_DIR)"
+    [[ -f "$SYSTEMD_UNIT" ]] && echo "  - HTTPS-Dienst: $SERVICE_NAME ($BASE_DIR, Konto $(unit_user "$SYSTEMD_UNIT"))"
+    legacy_installed && echo "  - Ältere Fassung (läuft als root): $LEGACY_DIR - wird übernommen"
     local choice="1"
     ask choice "1) Neu konfigurieren  2) Deinstallieren  3) Abbrechen" "1"
     case "$choice" in
@@ -1133,26 +1461,19 @@ uninstall() {
     # Server-Purge zuerst, solange Token/Config noch vorhanden sind
     [[ "$do_purge_server" == true ]] && purge_server_entry
 
-    # HTTPS-Dienst + Verzeichnis (inkl. cursor) entfernen.
-    # `timeout` davor: reagiert der Dienst nicht mehr, wartet systemctl sonst
-    # bis zu 90 Sekunden pro Aufruf - und die Deinstallation sieht aus, als
-    # haenge sie. Nach 20 s wird nachgeholfen.
+    # HTTPS-Dienst + Dateien (inkl. Leseposition) entfernen. Das Dienstkonto
+    # merken, bevor die Unit weg ist. Den Fernwartungs-Agent (Dienst
+    # rimperio-agent) nie anfassen - nur den aelteren Log-Agent gleichen Namens.
+    local acct=""
+    acct="$(unit_user "$SYSTEMD_UNIT")"
+    if [[ -z "$acct" && -d "${BASE_DIR}/var" ]]; then acct="$(stat -c %U "${BASE_DIR}/var" 2>/dev/null || true)"; fi
     if [[ -f "$SYSTEMD_UNIT" ]] || systemctl list-unit-files 2>/dev/null | grep -q "^${SERVICE_NAME}.service"; then
-        if ! timeout 20 systemctl stop "$SERVICE_NAME" 2>/dev/null; then
-            log_warn "Der Dienst liess sich nicht sauber stoppen - wird abgeschossen."
-            timeout 10 systemctl kill -s KILL "$SERVICE_NAME" 2>/dev/null || true
-        fi
-        timeout 15 systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-        rm -f "$SYSTEMD_UNIT"
-        timeout 15 systemctl daemon-reload 2>/dev/null || true
-        timeout 15 systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
+        stop_and_remove_unit "$SERVICE_NAME" "$SYSTEMD_UNIT"
         log_info "HTTPS-Dienst entfernt: $SERVICE_NAME"
     fi
-    if [[ -d "$AGENT_DIR" ]]; then
-        rm -rf "$AGENT_DIR"
-        log_info "Agent-Verzeichnis entfernt: $AGENT_DIR"
-    fi
-    rm -rf "/var/lib/rimperio-agent" 2>/dev/null || true   # Altstand vor v2026.07.18.16
+    rm -f "$AGENT_SCRIPT" "$AGENT_CONFIG" "$AGENT_CURSOR" "${AGENT_CURSOR}.tmp" "$AGENT_ID_FILE" "${AGENT_ID_FILE}.tmp"
+    remove_legacy
+    cleanup_shared "$acct"
 
     # Syslog-Konfiguration entfernen
     if [[ -f "$CONFIG_FILE" ]]; then
@@ -1206,7 +1527,14 @@ purge_server_entry() {
     host_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     mac_addr=$(ip link show 2>/dev/null | awk '$1=="link/ether"{print $2; exit}')
     [[ -z "$mac_addr" ]] && mac_addr=$(cat /sys/class/net/*/address 2>/dev/null | grep -v '^00:00:00:00:00:00$' | head -1)
-    agent_id="$(cat "${AGENT_DIR}/agent_id" 2>/dev/null | tr -dc '0-9')"
+    # Die Datei gehoert dem Dienstkonto: keinem Symlink folgen, nur Ziffern nehmen.
+    agent_id=""
+    if [[ -f "$AGENT_ID_FILE" && ! -L "$AGENT_ID_FILE" ]]; then
+        agent_id="$(head -c 32 "$AGENT_ID_FILE" 2>/dev/null || true)"
+    elif [[ -f "${LEGACY_DIR}/agent_id" ]]; then
+        agent_id="$(head -c 32 "${LEGACY_DIR}/agent_id" 2>/dev/null || true)"
+    fi
+    agent_id="$(printf '%s' "$agent_id" | tr -dc '0-9')"
 
     local url_base
     [[ "$api_port" == "443" ]] && url_base="https://${api_host}" || url_base="https://${api_host}:${api_port}"
@@ -1268,8 +1596,8 @@ print_summary() {
         [[ "${PORT:-443}" != "443" ]] && url_host="${FQDN}:${PORT}"
         echo "Modus:         HTTPS (verschlüsselt + Token)"
         echo "Ziel:          https://${url_host}/api/agents/ingest"
-        echo "Installation:  $AGENT_DIR"
-        echo "Dienst:        $SERVICE_NAME"
+        echo "Installation:  $BASE_DIR (Programm lib/, Konfiguration etc/, Zustand var/)"
+        echo "Dienst:        $SERVICE_NAME - läuft als \"$AGENT_USER\", nicht als root"
         echo ""
         echo "  systemctl status ${SERVICE_NAME}     # Status"
         echo "  journalctl -u ${SERVICE_NAME} -f     # Dienst-Logs"

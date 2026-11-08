@@ -41,6 +41,13 @@
         <pre class="rmm-pre">{{ cmdMsi }}</pre>
         <h3 class="card-title mt-4">Linux</h3>
         <pre class="rmm-pre">{{ cmdLinux }}</pre>
+        <p class="rmm-muted mt-2">
+          Der Agent läuft unter dem Dienstkonto <code>rimperio</code>, <strong>nicht als root</strong>
+          (anderes Konto: <code>--user NAME</code>; fehlt es, wird es angelegt). Alles liegt unter
+          <code>/opt/RMM/rimperio</code>. Updates und Neustart spielt er über ein festes Hilfsskript per
+          <code>sudo</code> ein (<code>--sudo limited</code>, Standard); <code>--sudo full</code> erlaubt
+          Befehlen aus der Oberfläche zusätzlich <code>sudo</code>, <code>--sudo none</code> nimmt alle Rechte.
+        </p>
       </div>
     </section>
 
@@ -117,7 +124,7 @@ const cmdWindows = computed(() =>
 const cmdMsi = computed(() =>
   `msiexec /i rimperio-agent.msi SERVER=${server} SECRET=${k.value} SITE=Standard /qn`)
 const cmdLinux = computed(() =>
-  `curl -sSL ${raw}/linux/install-agent.sh | sudo bash -s -- \\\n  --server ${server} --secret ${k.value} --site Standard`)
+  `curl -sSL ${raw}/linux/install-agent.sh | sudo bash -s -- \\\n  --server ${server} --secret ${k.value} --site Standard --user rimperio`)
 
 async function load() {
   try {

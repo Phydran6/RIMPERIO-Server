@@ -2,6 +2,22 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.08.17.00.00 — Linux: eigenes Dienstkonto statt root, alles unter `/opt/RMM/rimperio`
+
+### Changed
+- **Linux-Agents laufen nicht mehr als root.** Fernwartungs-Agent (`installer/linux/install-agent.sh`) und Log-Agent (`logship/install-linux.sh`) laufen unter einem eigenen Dienstkonto — Standard `rimperio`, wählbar mit `--user` (der Log-Agent fragt im manuellen Modus danach). Fehlt das Konto, legt der Installer es an: Systemkonto ohne Anmeldung und ohne Passwort, im Kommentarfeld „RIMPERIO Agent“ — nur solche Konten entfernt die Deinstallation wieder. root lehnen beide ab. Fernwartungs- und Log-Agent teilen sich ein Konto.
+- **Alles unter `/opt/RMM/rimperio`:** `bin/rimperio-agent`, `lib/rimperio-helper`, `lib/log-agent.py` (root, 0755/0644), `etc/agent.json`, `etc/log-agent.json`, `var/` (Dienstkonto, 0600/0700). Außerhalb nur, was systemd und sudo verlangen: die Unit-Dateien und `/etc/sudoers.d/rimperio-agent`. Die Ordner über dem Hilfsskript müssen root gehören und dürfen für andere nicht beschreibbar sein — der Installer prüft das.
+- **Fernwartung: root nur über ein Hilfsskript.** Paketlisten auffrischen, freigegebene Updates einspielen, Neustart und Deinstallation laufen über `lib/rimperio-helper` per `sudo -n`. Die sudo-Regel erlaubt dem Konto nur dieses Skript; es prüft jede Angabe selbst (Paketnamen ohne Pfade, Optionen und Paketdateien, `--only-upgrade`, Minuten als Zahl) und ignoriert die Umgebung des Aufrufers. `--sudo limited` (Standard), `full` (zusätzlich `sudo` für Befehle aus der Oberfläche) oder `none` (keine Updates, kein Neustart aus der Ferne). Befehle aus der Oberfläche laufen als Dienstkonto. Fehlen die Rechte, sagt das Ergebnis es im Klartext.
+- **Deinstallation aus der Oberfläche unter Linux:** Das Hilfsskript übergibt an eine kurzlebige systemd-Unit (sonst beendete das Stoppen des Dienstes auch das Skript) und entfernt Dienst, Programm, Konfiguration, sudo-Regel und — wenn nicht noch der Log-Agent darunter läuft — Konto und `/opt/RMM/rimperio`.
+- **Docker** über die Gruppe `docker`, nur für den Dienst (`SupplementaryGroups`, `--no-docker` lässt sie weg). Kann der Agent ein Compose-Projekt nicht lesen (Dateien oder `.env` gehören root), erneuert er den Container über die Docker-API.
+- **Log-Agent:** Dienst heißt `rimperio-log-agent`. Journal über die Gruppe `systemd-journal`, `ProtectSystem=strict`, `NoNewPrivileges`, schreiben nur nach `var/`.
+- **Aktualisieren ohne neue Anmeldung:** Ein zweiter Lauf beider Installer behält die Anmeldung (`--secret` bzw. `--fqdn`/`--token` nicht nötig).
+- **Ältere Installationen werden übernommen:** Fernwartung (root, `/usr/local/bin`, `/etc/rimperio`) samt Anmeldung; Log-Agent (root, `/opt/rimperio-agent`) samt Schlüssel, Leseposition und Gerätenummer. Ein älterer Log-Agent unter dem Dienstnamen `rimperio-agent` wird beim Einrichten der Fernwartung umbenannt statt überschrieben.
+- `rimperio-agent setup`/`install` verweisen unter Linux auf den Installer. `enroll`, `once` und `run` starten sich, mit sudo gerufen, unter dem Dienstkonto neu. Die Inventur nennt `agent_user`.
+
+### Fixed
+- **Log-Agent und Fernwartung schlossen sich aus:** Beide Dienste hießen `rimperio-agent`. Wer den Log-Agent nach der Fernwartung installierte, überschrieb deren Dienst; `install-linux.sh uninstall` stoppte und löschte ihn mit.
+
 ## Unveröffentlicht — Sicherheitsdurchsicht
 
 ### Security

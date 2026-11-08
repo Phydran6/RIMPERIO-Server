@@ -12,7 +12,7 @@
 #
 # Autor:        Phydran6
 # Kontakt:      Phydran6
-# Version:      2026.09.15.20.00.00
+# Version:      2026.11.08.17.00.00
 # Changelog:    docs/changelog/database.md
 #
 # Beschreibung:
@@ -45,7 +45,12 @@ NC='\033[0m'
 REPO_SLUG="${RIMPERIO_REPO_SLUG:-Phydran6/RIMPERIO-Server}"
 BRANCH="${RIMPERIO_BRANCH:-main}"
 SERVER_DIR_DEFAULT="/opt/rimperio"
-AGENT_DIR="/opt/rimperio-agent"
+# Linux-Agent (HTTPS): laeuft als eigenes Dienstkonto, alles unter /opt/RMM/rimperio.
+AGENT_BASE="/opt/RMM/rimperio"
+AGENT_UNIT="/etc/systemd/system/rimperio-log-agent.service"
+AGENT_CONFIG="$AGENT_BASE/etc/log-agent.json"
+# Aeltere Fassung (bis 2026.11.07, lief als root).
+AGENT_DIR_LEGACY="/opt/rimperio-agent"
 AGENT_SYSLOG_CONF="/etc/rsyslog.d/99-rimperio.conf"
 # Watchtower ist raus - es hat Container eigenmaechtig ausgetauscht.
 # Tugtainer prueft und meldet, eingespielt wird auf Ansage.
@@ -139,7 +144,7 @@ heading() {
 # ==============================================================================
 
 server_installed() { [[ -f "${1:-$SERVER_DIR_DEFAULT}/docker-compose.yml" ]]; }
-agent_installed()  { [[ -d "$AGENT_DIR" || -f "$AGENT_SYSLOG_CONF" ]]; }
+agent_installed()  { [[ -f "$AGENT_UNIT" || -d "$AGENT_DIR_LEGACY" || -f "$AGENT_SYSLOG_CONF" ]]; }
 
 show_status() {
     local s="nicht installiert" a="nicht installiert"
@@ -147,8 +152,10 @@ show_status() {
         s="installiert in $SERVER_DIR_DEFAULT"
         [[ -f "$SERVER_DIR_DEFAULT/VERSION" ]] && s="$s (Version $(tr -d '[:space:]' < "$SERVER_DIR_DEFAULT/VERSION"))"
     fi
-    if [[ -d "$AGENT_DIR" ]]; then
-        a="installiert (HTTPS, $AGENT_DIR)"
+    if [[ -f "$AGENT_UNIT" ]] && grep -q "$AGENT_BASE/" "$AGENT_UNIT"; then
+        a="installiert (HTTPS, $AGENT_BASE, Konto $(sed -n 's/^User=//p' "$AGENT_UNIT" | head -n1))"
+    elif [[ -d "$AGENT_DIR_LEGACY" ]]; then
+        a="installiert (HTTPS, ältere Fassung als root in $AGENT_DIR_LEGACY - 5) stellt um)"
     elif [[ -f "$AGENT_SYSLOG_CONF" ]]; then
         a="installiert (Syslog, $AGENT_SYSLOG_CONF)"
     fi
@@ -422,7 +429,18 @@ agent_install() {
         choose lvl "Auswahl" "1" "1|2|3"
         case "$lvl" in 2) lvl="warning" ;; 3) lvl="error" ;; *) lvl="info" ;; esac
 
-        args=(install --mode https --fqdn "$fqdn" --port "$port" --min-level "$lvl")
+        # Der Agent laeuft nicht als root, sondern unter einem eigenen Konto.
+        echo ""
+        echo "  Der Agent läuft nicht als root, sondern unter einem eigenen Dienstkonto."
+        echo "  Fehlt es, wird es angelegt (ohne Anmeldung, ohne Passwort)."
+        local user=""
+        while true; do
+            ask user "Dienstkonto" "rimperio"
+            [[ "$user" != "root" && "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] && break
+            log_warn "Bitte ein eigenes Konto (nicht root): Kleinbuchstaben, Ziffern, _ und -."
+        done
+
+        args=(install --mode https --fqdn "$fqdn" --port "$port" --min-level "$lvl" --user "$user")
         [[ -n "$ip" ]] && args+=(--ip "$ip")
         echo ""
         if yes_no "Selbstsigniertes Zertifikat auf dem Server? (dann wird es akzeptiert)" "n"; then
@@ -464,7 +482,9 @@ agent_uninstall() {
     heading "Linux-Agent deinstallieren - nur auf diesem Rechner"
     agent_installed || fail "Auf diesem Rechner ist kein Agent eingerichtet."
     echo ""
-    echo "  Entfernt werden:  Dienst rimperio-agent, $AGENT_DIR, rsyslog-Weiterleitung"
+    echo "  Entfernt werden:  Dienst rimperio-log-agent, seine Dateien unter $AGENT_BASE"
+    echo "                    (samt Dienstkonto, wenn sonst nichts darunter läuft),"
+    echo "                    ältere Fassungen, rsyslog-Weiterleitung"
     echo "  Es bleiben:       das Gerät und seine Logs auf dem RIMPERIO-Server"
     local args=(uninstall --yes)
     run_step "agent/logship/install-linux.sh" "${args[*]}" "${args[@]}"
@@ -480,7 +500,7 @@ agent_purge() {
     echo ""
 
     local args=(uninstall-purge --yes) shown=(uninstall-purge --yes)
-    if [[ ! -f "$AGENT_DIR/config.json" ]]; then
+    if [[ ! -f "$AGENT_CONFIG" && ! -f "$AGENT_DIR_LEGACY/config.json" ]]; then
         # Syslog-Agent: kennt weder Server-Adresse fuer HTTPS noch Token.
         log_info "Für das Abmelden am Server werden Adresse und Token gebraucht."
         # Ohne --port naehme install-linux.sh den Syslog-Port (514) aus der
