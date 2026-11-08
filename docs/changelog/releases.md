@@ -11,6 +11,24 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.08.18.00.00 (2026-11-08) – Linux-Agents ohne root, alles unter /opt/RMM/rimperio
+
+- **Kein root mehr auf den Rechnern:** Fernwartungs- und Log-Agent laufen unter Linux als
+  eigenes Dienstkonto (Standard `rimperio`, wählbar mit `--user`, beim automatischen
+  Einbinden per SSH direkt in der Oberfläche). Fehlt das Konto, legt der Installer es an.
+- **Ein Ort:** Programm, Hilfsskript, Konfiguration und Zustand liegen unter
+  `/opt/RMM/rimperio`; außerhalb nur die Unit-Dateien und die sudo-Regel.
+- **Rechte nur, wo nötig:** Updates, Neustart und Deinstallation gehen über ein festes
+  Hilfsskript per sudo, das jede Angabe prüft und jede Aufgabe ins Journal schreibt
+  (`--sudo limited`, Standard). `full` erlaubt Befehlen aus der Oberfläche sudo, `none`
+  nimmt alle Rechte.
+- **Aktualisieren ohne neue Anmeldung**; ältere Installationen, die als root liefen, werden
+  übernommen — samt Anmeldung, Schlüssel und Leseposition.
+- **Behoben:** Log- und Fernwartungs-Agent hießen als Dienst gleich und schlossen sich aus;
+  die Einzeiler auf „Systeme im Netz“ zeigten auf einen alten Pfad.
+- **Bitte einmal neu ausrollen:** den Linux-Installer über die vorhandenen Agents laufen
+  lassen (ohne Schlüssel — die Anmeldung bleibt).
+
 ## v2026.11.07.02.30.00 (2026-11-07) – Agent sauber deinstallieren
 
 - **Deinstallieren heißt jetzt: alles weg.** Am Rechner (MSI oder

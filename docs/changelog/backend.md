@@ -7,6 +7,9 @@ FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 ### Changed
 - **Linux per SSH einbinden — Agent nicht mehr als root** (`app/onboard.py`, `POST /api/discovery/devices/{id}/onboard`): neues Feld `service_user` (Standard `rimperio`; root und ungültige Namen gibt es als 422). Der Installer richtet den Log-Agent unter diesem Konto ein, alles unter `/opt/RMM/rimperio`; die Schrittliste meldet danach, unter welchem Konto der Dienst läuft (root wäre eine Warnung). Im Tagebuch steht das Konto bei `onboard.ok`.
 
+### Fixed
+- **Log-Agent neben dem Fernwartungs-Agent wurde abgewiesen (403).** Die Anmeldung (`/api/agents/enroll`) bindet den Geräteschlüssel über den Hostnamen an das vorhandene Gerät, die Lieferung (`/api/agents/ingest`) suchte das Gerät aber über Hostname *und* IP. Meldet der Log-Agent eine andere IP als der Fernwartungs-Agent (der eine die Richtung zum Server, der andere die Standardroute — über VPN, Proxy oder auf dem Server selbst), entstand eine zweite Gerätekarte, für die der Schlüssel nicht liefern durfte. Jetzt gilt: Ein gebundener Geräteschlüssel mit passendem Hostnamen liefert für sein Gerät.
+
 ## Unveröffentlicht — Sicherheitsdurchsicht
 
 ### Security

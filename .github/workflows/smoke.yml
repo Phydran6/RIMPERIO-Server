@@ -106,6 +106,12 @@ jobs:
           B=http://localhost
           fail=0
           check() { if eval "$2"; then echo "ok   $1"; else echo "::error title=Smoke::$1"; fail=1; fi; }
+          # wie check - bei einem Fehler zeigt DIAGNOSE (3. Angabe) zusätzlich, was los ist
+          check_or_diag() {
+            if eval "$2"; then echo "ok   $1"; return 0; fi
+            echo "::error title=Smoke::$1"; fail=1
+            { eval "$3" 2>&1 || true; } | head -n 9 | while IFS= read -r l; do echo "::warning title=Diagnose::$l"; done || true
+          }
           api() { curl -sS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
           # wait_for BEDINGUNG SEKUNDEN
           wait_for() { local i; for i in $(seq 1 "$2"); do eval "$1" && return 0; sleep 1; done; return 1; }
@@ -172,21 +178,24 @@ jobs:
           check "Hilfsskript: installiert nichts Neues" 'sudo -u rimperio sudo -n $H pkg-upgrade hello >/dev/null 2>&1; ! dpkg -s hello >/dev/null 2>&1'
           check "setup verweist auf den Installer" '! sudo $A_BIN setup -server x -secret y >/dev/null 2>&1'
 
-          # --- 2. Befehle, Checks, Patch- und Docker-Suche über den laufenden Dienst
-          api -X POST "$B/api/rmm/agents/$UID_/commands" -d '{"shell":"sh","command":"echo hallo-rimperio; echo konto=$(id -un)","timeout":30}' >/dev/null
+          # --- 2. Befehle, Checks, Patch- und Docker-Suche über den laufenden Dienst.
+          #        Hier kein Neustart: Der Server reiht nach der Anmeldung selbst
+          #        eine Patch-Suche ein, und ein Neustart bräche sie ab (der Auftrag
+          #        stünde dann bis zur Frist auf "läuft"). Der Takt ist 60 s.
+          CMD=$(api -X POST "$B/api/rmm/agents/$UID_/commands" -d '{"shell":"sh","command":"echo hallo-rimperio; echo konto=$(id -un)","timeout":30}' | jq -r .id)
           api -X POST "$B/api/rmm/checks" -d '{"name":"Platte","type":"disk","params":{"max":99},"interval_sec":60}' >/dev/null
           api -X POST "$B/api/rmm/scripts" -d '{"name":"Uptime","shell":"sh","body":"uptime","platform":"linux"}' >/dev/null
-          kick
-          wait_for first_done 90 || true
-          kick                                  # zweiter Takt: Check nach Checkliste
+          cmd_by_id() { api "$B/api/rmm/agents/$UID_/commands" | jq -c --argjson i "$CMD" '.[] | select(.id==$i)'; }
+          cmd_list() { api "$B/api/rmm/agents/$UID_/commands" | jq -r '.[] | [.id, .kind, .status, ((.stderr // "")[0:90])] | @tsv'; }
+          wait_for '[ "$(cmd_by_id | jq -r .status)" = done ]' 150 || true
           A=$(api "$B/api/rmm/agents/$UID_")
           check "Agent online"            '[ "$(echo "$A" | jq -r .online)" = true ]'
           check "Messwerte da"            '[ "$(echo "$A" | jq -r .last_cpu)" != null ]'
           check "Inventur da"             '[ "$(echo "$A" | jq -r ".inventory | length")" -gt 0 ]'
           check "Inventur nennt das Konto" '[ "$(echo "$A" | jq -r .inventory.agent_user)" = rimperio ]'
-          check "Befehl ausgeführt"       'api "$B/api/rmm/agents/$UID_/commands" | jq -e ".[0].status==\"done\" and (.[0].stdout|test(\"hallo-rimperio\"))" >/dev/null'
-          check "Befehl läuft als Dienstkonto, nicht root" 'api "$B/api/rmm/agents/$UID_/commands" | jq -e ".[0].stdout|test(\"konto=rimperio\")" >/dev/null'
-          check "Check-Ergebnis da"       'wait_for check_results 90'
+          check_or_diag "Befehl ausgeführt" 'cmd_by_id | jq -e ".status==\"done\" and (.stdout|test(\"hallo-rimperio\"))" >/dev/null' 'cmd_list'
+          check "Befehl läuft als Dienstkonto, nicht root" 'cmd_by_id | jq -e ".stdout|test(\"konto=rimperio\")" >/dev/null'
+          check "Check-Ergebnis da"       'wait_for check_results 150'
           check "Skripte lesbar"          'api "$B/api/rmm/scripts" | jq -e "length==1" >/dev/null'
           check "Übersicht"               'api "$B/api/rmm/summary" | jq -e ".agents_total==1 and .agents_online==1" >/dev/null'
           check "Telemetrie"              'api "$B/api/rmm/agents/$UID_/telemetry?hours=1" | jq -e "length>=1" >/dev/null'
@@ -194,13 +203,12 @@ jobs:
           check "Gerät in der Geräteliste mit RMM" 'api "$B/api/agents" | jq -e "[.items[] | select(.agent_uid==\"$UID_\")] | length==1" >/dev/null'
 
           # Patchmanagement: Paketlisten über das Hilfsskript (sudo), Docker über die Gruppe docker.
-          T0=$(date '+%Y-%m-%d %H:%M:%S')
+          # Die Suche reiht nur ein, was nicht schon wartet oder läuft.
           api -X POST "$B/api/patching/agents/$UID_/scan" >/dev/null
-          kick
-          wait_for 'cmd_done patch_scan && cmd_done docker_scan' 300 || true
-          check "Patch-Suche verarbeitet"   'cmd_done patch_scan'
-          check "Paketlisten per sudo und Hilfsskript" 'sudo journalctl -t sudo --since "$T0" --no-pager | grep -q "rimperio-helper pkg-refresh"'
-          check "Docker-Suche verarbeitet"  'api "$B/api/patching/agents/$UID_/docker" | jq -e ".available==true and (.containers|length)>=3" >/dev/null'
+          wait_for 'cmd_done patch_scan && cmd_done docker_scan' 480 || true
+          check_or_diag "Patch-Suche verarbeitet" 'cmd_done patch_scan' 'cmd_list; sudo journalctl -u rimperio-agent -n 5 --no-pager -o cat'
+          check_or_diag "Paketlisten per sudo und Hilfsskript" 'sudo journalctl -t rimperio-helper --no-pager | grep -q "Aufgabe von rimperio: pkg-refresh"' 'sudo journalctl -t rimperio-helper -t sudo -n 8 --no-pager -o cat'
+          check_or_diag "Docker-Suche verarbeitet" 'api "$B/api/patching/agents/$UID_/docker" | jq -e ".available==true and (.containers|length)>=3" >/dev/null' 'cmd_list'
           check "Patch-Center Übersicht"    'api "$B/api/patching/overview" | jq -e ".agents|length==1" >/dev/null'
           check "Richtlinie, Quellen, SNMP, Eingang" 'api "$B/api/patching/policies" | jq -e "length>=1" >/dev/null && api "$B/api/patching/sources" | jq -e ".sources|length>=8" >/dev/null && api "$B/api/snmp/templates" | jq -e "length>=10" >/dev/null && api "$B/api/notifications" | jq -e ".items|type==\"array\"" >/dev/null'
           check "App-Schnittstelle Level 3" 'api "$B/api/app/patching/summary" | jq -e ".needs_approval>=0" >/dev/null && api "$B/api/app/bootstrap" | jq -e ".server.api_level>=3" >/dev/null'
@@ -245,12 +253,12 @@ jobs:
           install_rmm --secret "$INVITE4"
           install_log --token "$INVITE5" --user rimperio
           check "Log-Agent läuft als rimperio"   '[ "$(runs_as rimperio-log-agent)" = rimperio ]'
-          check "Log-Agent unter /opt/RMM/rimperio" 'sudo test -f /opt/RMM/rimperio/lib/log-agent.py && [ "$(sudo stat -c "%U %a" /opt/RMM/rimperio/etc/log-agent.json)" = "rimperio 600" ]'
+          check_or_diag "Log-Agent unter /opt/RMM/rimperio" 'sudo test -f /opt/RMM/rimperio/lib/log-agent.py && [ "$(sudo stat -c "%U %a" /opt/RMM/rimperio/etc/log-agent.json)" = "rimperio 600" ]' 'sudo ls -la /opt/RMM/rimperio/lib /opt/RMM/rimperio/etc'
           check "Beide Dienste laufen"           'systemctl is-active --quiet rimperio-agent && systemctl is-active --quiet rimperio-log-agent'
           check "Anderes Konto wird abgewiesen"  '! log_raw --token rmp_abcdef0123456789 --user anders >/dev/null 2>&1 && ! getent passwd anders >/dev/null'
           sleep 3
           logger -t smoke "logagent-rimperio-test"
-          check "Log-Agent liest das Journal ohne root" 'wait_for "log_arrived logagent-rimperio-test" 90'
+          check_or_diag "Log-Agent liest das Journal ohne root" 'wait_for "log_arrived logagent-rimperio-test" 90' 'sudo journalctl -u rimperio-log-agent -n 9 --no-pager -o cat'
           uninstall_log
           check "Log-Agent weg, Fernwartung bleibt" '! test -e /etc/systemd/system/rimperio-log-agent.service && systemctl is-active --quiet rimperio-agent && getent passwd rimperio >/dev/null'
           uninstall_rmm
@@ -287,7 +295,7 @@ jobs:
           check "Log-Agent übernommen: Altlasten weg" '! test -e /opt/rimperio-agent && ! grep -qs rimperio_agent.py /etc/systemd/system/rimperio-agent.service /etc/systemd/system/rimperio-log-agent.service'
           sleep 3
           logger -t smoke "logagent-migriert-test"
-          check "Übernommener Log-Agent liefert"   'wait_for "log_arrived logagent-migriert-test" 90'
+          check_or_diag "Übernommener Log-Agent liefert" 'wait_for "log_arrived logagent-migriert-test" 90' 'sudo journalctl -u rimperio-log-agent -n 9 --no-pager -o cat'
           uninstall_log
           uninstall_rmm
           check "Zum Schluss alles weg"            'all_gone && ! test -e /etc/systemd/system/rimperio-log-agent.service'

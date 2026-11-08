@@ -29,6 +29,7 @@ package core
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -58,6 +59,12 @@ func helperUninstall() []string {
 	if exitErr(r) != nil {
 		if hint := privilegeHint(r); hint != "" {
 			notes = append(notes, hint)
+			// Ohne Rechte (--sudo none) bleibt der Dienst stehen - die nun
+			// ungültige Anmeldung muss aber nicht liegen bleiben.
+			if err := RemoveConfig(); err == nil {
+				notes = append(notes, "Konfiguration gelöscht. Dienst und Programm entfernt: sudo "+
+					filepath.Join(HomeDir(), "bin", "rimperio-agent")+" uninstall")
+			}
 		} else {
 			notes = append(notes, "Deinstallation unvollständig: "+strings.TrimSpace(r.Stderr))
 		}

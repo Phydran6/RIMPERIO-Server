@@ -1,7 +1,7 @@
 ﻿# ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.09.15.20.00.00
+# Version:     2026.11.08.17.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - FastAPI Hauptanwendung
 # ==============================================================================
@@ -784,10 +784,24 @@ async def ingest_logs(
     device_type = data.device_type or _agent_type_fallback(
         agent_token.device_type, request.headers.get("user-agent"))
 
-    result = await db.execute(
-        select(Agent).where(Agent.hostname == data.hostname, Agent.ip_address == device_ip)
-    )
-    agent = result.scalars().first()
+    agent = None
+    # Ein gebundener Geraeteschluessel gehoert zu genau einem Geraet. Nennt die
+    # Lieferung dessen Hostnamen, ist es dieses Geraet - auch wenn die IP eine
+    # andere ist. Die Anmeldung bindet ueber den Hostnamen; stehen Log- und
+    # Fernwartungs-Agent auf einem Rechner, meldet der eine die IP Richtung
+    # Server, der andere die der Standardroute (VPN, Proxy, Server auf dem
+    # eigenen Host). Vorher entstand dann eine zweite Geraetekarte, fuer die der
+    # Schluessel nicht liefern durfte - jede Lieferung endete mit 403.
+    if agent_token.agent_id is not None and (agent_token.kind or "agent").lower() == "agent":
+        bound = await db.get(Agent, agent_token.agent_id)
+        if bound is not None and (bound.hostname or "").lower() == (data.hostname or "").lower():
+            agent = bound
+
+    if agent is None:
+        result = await db.execute(
+            select(Agent).where(Agent.hostname == data.hostname, Agent.ip_address == device_ip)
+        )
+        agent = result.scalars().first()
 
     if agent is None and proxy_ip and proxy_ip != device_ip:
         # Altbestand: bis 2026.09.15 wurde bei HTTPS-Agents die IP von Caddy

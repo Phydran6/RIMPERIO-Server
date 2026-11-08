@@ -488,6 +488,9 @@ cmd_uninstall() {
     echo "RIMPERIO-Agent entfernt."
 }
 
+# Jede Aufgabe steht im Journal (journalctl -t rimperio-helper) - auch abgelehnte.
+logger -t rimperio-helper -p authpriv.notice -- "Aufgabe von ${SUDO_USER:-root}: $*" 2>/dev/null || true
+
 case "${1:-}" in
     pkg-refresh) shift; cmd_pkg_refresh "$@" ;;
     pkg-upgrade) shift; cmd_pkg_upgrade "$@" ;;
@@ -597,23 +600,28 @@ write_sudoers() {
         rm -f "$SUDOERS"
         return 0
     fi
-    local tmp
+    local tmp tty_line
     tmp="$(mktemp)"
-    {
-        echo "# RIMPERIO-Agent: Rechte des Dienstkontos \"$AGENT_USER\" — angelegt von install-agent.sh."
-        echo "# Updates, Neustart und Deinstallation gehen nur über das Hilfsskript; es prüft"
-        echo "# jede Angabe selbst. Die Datei verschwindet mit dem Agent."
-        echo "Defaults:$AGENT_USER !requiretty"
-        echo "$AGENT_USER ALL=(root) NOPASSWD: $HELPER"
-        if [ "$SUDO_MODE" = full ]; then
-            echo "# --sudo full: Befehle aus der Oberfläche dürfen sudo benutzen (wie root)."
-            echo "$AGENT_USER ALL=(ALL:ALL) NOPASSWD: ALL"
+    # "!requiretty" hilft auf alten RHEL-Ständen (Dienste haben kein Terminal);
+    # sudo-rs (Ubuntu ab 25.10) kennt die Option nicht - dann ohne.
+    for tty_line in "Defaults:$AGENT_USER !requiretty" ""; do
+        {
+            echo "# RIMPERIO-Agent: Rechte des Dienstkontos \"$AGENT_USER\" — angelegt von install-agent.sh."
+            echo "# Updates, Neustart und Deinstallation gehen nur über das Hilfsskript; es prüft"
+            echo "# jede Angabe selbst. Die Datei verschwindet mit dem Agent."
+            if [ -n "$tty_line" ]; then echo "$tty_line"; fi
+            echo "$AGENT_USER ALL=(root) NOPASSWD: $HELPER"
+            if [ "$SUDO_MODE" = full ]; then
+                echo "# --sudo full: Befehle aus der Oberfläche dürfen sudo benutzen (wie root)."
+                echo "$AGENT_USER ALL=(ALL:ALL) NOPASSWD: ALL"
+            fi
+        } > "$tmp"
+        if visudo -cf "$tmp" >/dev/null 2>&1; then break; fi
+        if [ -z "$tty_line" ]; then
+            rm -f "$tmp"
+            die "Die sudo-Regel wäre ungültig (visudo) — nichts geändert."
         fi
-    } > "$tmp"
-    if ! visudo -cf "$tmp" >/dev/null 2>&1; then
-        rm -f "$tmp"
-        die "Die sudo-Regel wäre ungültig (visudo) — nichts geändert."
-    fi
+    done
     install -m 0440 -o root -g root "$tmp" "$SUDOERS"
     rm -f "$tmp"
     if ! grep -Eqs '^[[:space:]]*[#@]includedir[[:space:]]+/etc/sudoers\.d' /etc/sudoers; then

@@ -104,6 +104,9 @@ Paketnamen, keine Dateien oder Pfade, Minuten als Zahl):
 | `full` | zusätzlich `sudo` für alles | dürfen `sudo …` benutzen |
 | `none` | nichts davon — keine Updates, kein Neustart aus der Ferne | laufen als Dienstkonto, ohne root |
 
+Jede Aufgabe des Hilfsskripts — auch eine abgelehnte — steht im Journal:
+`journalctl -t rimperio-helper`.
+
 Inventur, Messwerte, Checks und die Suche nach Updates brauchen keine Rechte. Docker:
 Gibt es die Gruppe `docker`, bekommt der Dienst sie dazu (für Container-Updates — sie ist
 so mächtig wie root); `--no-docker` lässt das weg.
