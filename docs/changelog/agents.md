@@ -2,6 +2,17 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.18.21.00.00
+
+### Fixed
+- **Linux: Log-Agent überschrieb den RMM-Agent.** Beide richteten den systemd-Dienst `rimperio-agent` ein. Wer zuerst den RMM-Agent und danach den Log-Agent installierte (etwa über `server/setup.sh` auf dem RIMPERIO-Server), dem ersetzte der Log-Agent den Dienst: der Rechner schickte nur noch Logs, Update-Suche und Patch-Läufe kamen nie an. Und die Deinstallation des Log-Agents entfernte den RMM-Dienst gleich mit.
+  - Log-Agent heißt jetzt `rimperio-logship` und liegt unter `/opt/rimperio-logship`. Alte Installationen ziehen beim nächsten Aufruf des Installers (auch beim Deinstallieren) selbst um, `agent_id` und Leseposition bleiben erhalten. Ein Dienst `rimperio-agent` wird nur entfernt, wenn er nachweislich das Python-Skript des Log-Agents startet.
+  - `install-agent.sh` (RMM) zieht einen vorgefundenen alten Log-Agent ebenfalls um, statt an ihm zu scheitern oder ihn zu übersehen.
+- **`install-agent.sh` darf mehrfach laufen.** Ist der Agent schon angemeldet (`/etc/rimperio/agent.json`), wird nur das Programm erneuert und der Dienst neu gestartet — ohne zweite Anmeldung, `--secret` ist dann nicht nötig. Das Programm wird über eine temporäre Datei ersetzt (kein „Text file busy“ bei laufendem Agent). Am Ende prüft der Installer, ob der Dienst wirklich läuft.
+
+### Changed
+- Oberfläche: *Log-Quellen* heißt auch auf der Seite so und sagt, dass Patchen den RIMPERIO-Agent unter *Geräte → Rechner* braucht.
+
 ## Unveröffentlicht — Sicherheitsdurchsicht
 
 ### Security

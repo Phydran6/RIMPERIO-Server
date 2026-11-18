@@ -58,19 +58,29 @@ curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/
 `--proto udp\|tcp` *(Syslog)* · `--min-level info\|warning\|error` · `--insecure` · `--yes` · `--timeout <s>`
 (alle auch als `RIMPERIO_*`-Umgebungsvariable).
 
-Alles liegt unter `/opt/rimperio-agent/`, der Dienst heißt `rimperio-agent`:
+Alles liegt unter `/opt/rimperio-logship/`, der Dienst heißt `rimperio-logship`:
 
 Status des Dienstes:
 
 ```bash
-systemctl status rimperio-agent
+systemctl status rimperio-logship
 ```
 
 Protokoll live mitlesen:
 
 ```bash
-journalctl -u rimperio-agent -f
+journalctl -u rimperio-logship -f
 ```
+
+> **Nicht verwechseln:** Dieser Log-Agent schickt **nur Logs**. Patchen, Checks und
+> Inventur macht der [RMM-Agent](../README.md) (Dienst `rimperio-agent`, Einrichtung
+> unter *Geräte → Rechner*). Beide dürfen auf demselben Rechner laufen.
+>
+> Bis 2026.11.18 hieß auch der Dienst des Log-Agents `rimperio-agent`. Wer beide
+> installierte, dem überschrieb der Log-Agent den RMM-Agent: es kamen nur noch Logs
+> an, gepatcht wurde nichts. Beide Installer ziehen einen alten Log-Agent jetzt
+> selbst nach `rimperio-logship` um; den RMM-Agent danach einfach noch einmal mit
+> dem Befehl aus *Geräte → Rechner* installieren.
 
 ---
 
@@ -214,7 +224,7 @@ Nur hier: Agent weg, Gerät und Logs bleiben auf dem Server:
 <summary>Wie findet der Server das richtige Gerät?</summary>
 
 Der Agent merkt sich beim ersten Senden seine Gerätenummer
-(`/opt/rimperio-agent/agent_id` bzw. `%ProgramData%\RIMPERIO-Agent\agent_id`) und nennt
+(`/opt/rimperio-logship/agent_id` bzw. `%ProgramData%\RIMPERIO-Agent\agent_id`) und nennt
 sie beim Abmelden. Fehlt sie, sucht der Server nach MAC, dann Hostname + IP, dann
 Hostname allein. Welcher Weg gegriffen hat, steht in der Antwort (`matched_by`).
 </details>
@@ -228,7 +238,7 @@ Hostname allein. Welcher Weg gegriffen hat, steht in der Antwort (`matched_by`).
 | Installer bleibt stehen | Behoben: Rückfragen haben jetzt ein Zeitlimit (60 s, `RIMPERIO_ASK_TIMEOUT`), ohne Terminal wird gar nicht gefragt. `--yes` überspringt alles. |
 | Deinstallation hängt | Behoben: `systemctl stop` bekommt 20 s, dann wird der Dienst abgeschossen; der Server-Aufruf hat 20 s Zeitlimit. |
 | `HTTP 401` beim Senden | Token stimmt nicht oder wurde zurückgezogen. Im Web-UI neu holen. |
-| Keine Logs, Dienst läuft | `journalctl -u rimperio-agent -f` ansehen. Meist DNS oder eine Firewall auf 443. |
+| Keine Logs, Dienst läuft | `journalctl -u rimperio-logship -f` ansehen. Meist DNS oder eine Firewall auf 443. |
 | Zertifikat wird abgelehnt | Bei eigener CA: `--insecure` bzw. `-Insecure`. Besser: die CA auf dem Rechner bekannt machen. |
 | Gerät steht doppelt im Web-UI | Der Rechner hat die IP gewechselt. Einmal `uninstall-purge` räumt alle Einträge des Hostnamens ab. |
 
