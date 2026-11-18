@@ -2,7 +2,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.10.10.22.00.00
+# Version:     2026.11.18.21.00.00
 # Changelog:   docs/changelog/agents.md
 # Beschreibung: RIMPERIO Linux Agent - Installer (teilautomatisch)
 #
@@ -48,19 +48,29 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-AGENT_VERSION="2026.10.10.22.00.00"
+AGENT_VERSION="2026.11.18.21.00.00"
 
 # --- Pfade: Syslog-Modus (rsyslog) ---
 CONFIG_FILE="/etc/rsyslog.d/99-rimperio.conf"
 QUEUE_PREFIX="/var/spool/rsyslog/rimperio_queue"
 
-# --- Pfade: HTTPS-Modus (alles unter /opt/rimperio-agent/*) ---
-AGENT_DIR="/opt/rimperio-agent"
+# --- Pfade: HTTPS-Modus (alles unter /opt/rimperio-logship/*) ---
+# Bis 2026.11.18 lag der Log-Agent unter /opt/rimperio-agent und sein Dienst
+# hiess "rimperio-agent" - genau wie der Dienst des RMM-Agents (Patchen,
+# Checks). Wer beide installierte, dem ueberschrieb der Log-Agent den Dienst
+# des RMM-Agents: danach kamen nur noch Logs an, gepatcht wurde nichts. Jetzt hat der Log-Agent einen
+# eigenen Namen; migrate_legacy() zieht alte Installationen um.
+AGENT_DIR="/opt/rimperio-logship"
 AGENT_SCRIPT="${AGENT_DIR}/rimperio_agent.py"
 AGENT_CONFIG="${AGENT_DIR}/config.json"
 AGENT_CURSOR="${AGENT_DIR}/cursor"
-SERVICE_NAME="rimperio-agent"
+SERVICE_NAME="rimperio-logship"
 SYSTEMD_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
+
+# --- Altstand (vor 2026.11.18) ---
+LEGACY_DIR="/opt/rimperio-agent"
+LEGACY_SERVICE="rimperio-agent"
+LEGACY_UNIT="/etc/systemd/system/${LEGACY_SERVICE}.service"
 
 # --- Defaults / Verhalten ---
 PROMPT_TIMEOUT="${RIMPERIO_TIMEOUT:-5}"   # Sekunden Countdown bis Auto-Start
@@ -216,6 +226,42 @@ parse_args() {
 syslog_installed() { [[ -f "$CONFIG_FILE" ]] && grep -q "RIMPERIO Agent v" "$CONFIG_FILE"; }
 https_installed()  { [[ -f "$SYSTEMD_UNIT" ]] || [[ -f "$AGENT_SCRIPT" ]]; }
 is_installed()     { syslog_installed || https_installed; }
+
+# ==============================================================================
+# Altstand umziehen: Dienst rimperio-agent -> rimperio-logship
+# ==============================================================================
+# Der Dienstname "rimperio-agent" gehoert dem RMM-Agent (Go-Programm unter
+# /usr/local/bin/rimperio-agent). Entfernt wird hier nur ein Dienst, der
+# nachweislich der alte Log-Agent ist (startet rimperio_agent.py) - den
+# RMM-Agent fasst dieses Skript nie an.
+
+legacy_unit_is_logship() {
+    [[ -f "$LEGACY_UNIT" ]] && grep -q "rimperio_agent.py" "$LEGACY_UNIT"
+}
+
+migrate_legacy() {
+    local moved=false
+    if legacy_unit_is_logship; then
+        log_info "Alter Dienstname gefunden: ${LEGACY_SERVICE} (Log-Agent) - ziehe um nach ${SERVICE_NAME}."
+        timeout 20 systemctl stop "$LEGACY_SERVICE" 2>/dev/null \
+            || timeout 10 systemctl kill -s KILL "$LEGACY_SERVICE" 2>/dev/null || true
+        timeout 15 systemctl disable "$LEGACY_SERVICE" >/dev/null 2>&1 || true
+        rm -f "$LEGACY_UNIT"
+        timeout 15 systemctl daemon-reload 2>/dev/null || true
+        timeout 15 systemctl reset-failed "$LEGACY_SERVICE" 2>/dev/null || true
+        moved=true
+    fi
+    if [[ -f "${LEGACY_DIR}/rimperio_agent.py" ]]; then
+        if [[ -e "$AGENT_DIR" ]]; then
+            rm -rf "$LEGACY_DIR"          # neuer Stand ist schon da
+        else
+            mv "$LEGACY_DIR" "$AGENT_DIR" # agent_id und cursor bleiben erhalten
+        fi
+        moved=true
+    fi
+    [[ "$moved" == true ]] && log_success "Umzug fertig: ${AGENT_DIR}, Dienst ${SERVICE_NAME}. Der RMM-Agent (falls vorhanden) bleibt unberührt."
+    return 0
+}
 
 # ==============================================================================
 # Server-Konfig aus vorhandener Installation lesen (fuer Purge-Defaults)
@@ -418,12 +464,12 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-CONFIG_FILE = os.environ.get("RIMPERIO_CONFIG", "/opt/rimperio-agent/config.json")
-CURSOR_FILE = os.environ.get("RIMPERIO_CURSOR", "/opt/rimperio-agent/cursor")
+CONFIG_FILE = os.environ.get("RIMPERIO_CONFIG", "/opt/rimperio-logship/config.json")
+CURSOR_FILE = os.environ.get("RIMPERIO_CURSOR", "/opt/rimperio-logship/cursor")
 # Hier merkt sich der Agent, welcher Geraeteeintrag auf dem Server ihm gehoert.
 # Beim Deinstallieren wird genau dieser abgeraeumt - und nicht der eines
 # Rechners, der zufaellig genauso heisst.
-AGENT_ID_FILE = os.environ.get("RIMPERIO_AGENT_ID", "/opt/rimperio-agent/agent_id")
+AGENT_ID_FILE = os.environ.get("RIMPERIO_AGENT_ID", "/opt/rimperio-logship/agent_id")
 # Pro Anfrage bis zu 500 Eintraege (der Server nimmt bis 5000). Weniger
 # Anfragen = weit weg vom Limit des Servers (600 Anfragen/Minute).
 BATCH_SIZE = 500
@@ -441,7 +487,7 @@ MIN_PRIO = {"debug": 7, "info": 6, "notice": 5, "warning": 4, "error": 3, "criti
 
 
 def log(msg):
-    print("[rimperio-agent] " + msg, flush=True)
+    print("[rimperio-logship] " + msg, flush=True)
 
 
 def load_config():
@@ -841,13 +887,16 @@ EOF
 write_systemd_unit() {
     cat > "$SYSTEMD_UNIT" << EOF
 [Unit]
-Description=RIMPERIO Agent v${AGENT_VERSION} (HTTPS Log Forwarder)
+Description=RIMPERIO Log-Agent v${AGENT_VERSION} (HTTPS Log Forwarder)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 ExecStart=${PYTHON_BIN} ${AGENT_SCRIPT}
+Environment=RIMPERIO_CONFIG=${AGENT_CONFIG}
+Environment=RIMPERIO_CURSOR=${AGENT_CURSOR}
+Environment=RIMPERIO_AGENT_ID=${AGENT_DIR}/agent_id
 Restart=always
 RestartSec=10
 User=root
@@ -1092,6 +1141,7 @@ handle_existing_installation() {
 
 do_install() {
     require_root
+    migrate_legacy
     interactive_gate
     handle_existing_installation
 
@@ -1298,9 +1348,11 @@ main() {
     echo "=============================================="
 
     case "$ACTION" in
-        uninstall)        require_root; uninstall "" ;;
-        uninstall-purge)  require_root; uninstall "purge" ;;
-        test)             send_test_message ;;
+        uninstall)        require_root; migrate_legacy; uninstall "" ;;
+        uninstall-purge)  require_root; migrate_legacy; uninstall "purge" ;;
+        test)             [[ -f "$AGENT_CONFIG" || ! -f "${LEGACY_DIR}/config.json" ]] \
+                              || AGENT_CONFIG="${LEGACY_DIR}/config.json"
+                          send_test_message ;;
         *)                do_install ;;
     esac
 }

@@ -1,7 +1,7 @@
 <!-- ==============================================================================
      Name:        Phydran6
      Kontakt:     Phydran6
-     Version:     2026.08.02.14.00.00
+     Version:     2026.11.18.21.00.00
      Changelog:   docs/changelog/frontend.md
      Beschreibung: RIMPERIO - Geräteübersicht. Klick auf eine Karte öffnet die
                    Log-Ansicht des Geräts.
@@ -11,9 +11,15 @@
   <div class="page">
     <div class="page-header">
       <div>
-        <h2 class="page-title">Geräte</h2>
+        <h2 class="page-title">Log-Quellen</h2>
         <p class="page-subtitle">
           {{ total.toLocaleString('de-DE') }} erfasst · {{ onlineCount }} gerade online
+        </p>
+        <!-- Zwei Agents, leicht zu verwechseln: dieser Log-Agent patcht nicht. -->
+        <p class="text-sm mt-1" style="color: var(--color-text-muted)">
+          Hier stehen Rechner, die nur Logs schicken. Patchen, Checks und Inventur
+          brauchen den RIMPERIO-Agent:
+          <router-link to="/rmm" class="underline">Geräte → Rechner</router-link>.
         </p>
       </div>
       <button class="btn btn-secondary btn-sm" :disabled="loading" @click="loadAgents">
