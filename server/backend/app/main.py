@@ -1,7 +1,7 @@
 ﻿# ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.11.07.23.00.00
+# Version:     2026.11.08.17.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - FastAPI Hauptanwendung
 # ==============================================================================
@@ -33,7 +33,7 @@ from . import tokens
 from . import updater
 from . import watchdog
 from . import rmm
-from . import proxy_detect, public_url
+from . import proxy_detect
 from .config import settings, validate_security_settings
 from .database import get_db, async_session, engine
 from .limiter import limiter, agent_key, client_ip as real_client_ip
@@ -86,7 +86,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # versuchen, unverschluesselt anzuklopfen. Nur setzen, wenn die Anfrage
         # wirklich ueber HTTPS kam: sonst sperrt man sich auf einer reinen
         # HTTP-Installation selbst aus.
-        if public_url.effective_scheme(request) == "https":
+        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        if forwarded_proto == "https":
             response.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
@@ -95,22 +96,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # =============================================================================
 # App-Instanz
 # =============================================================================
-# API-Dokumentation: Frueher offen fuer jeden im Netz - ein vollstaendiger
-# Lageplan aller Endpunkte samt Parametern, noch bevor sich jemand anmeldet.
-# Jetzt nur fuer Administratoren (Ticket aus der Oberflaeche, siehe
-# api_docs unten). RIMPERIO_API_DOCS=public stellt das alte Verhalten her,
-# =off schaltet die Doku ganz ab.
-API_DOCS_MODE = (os.getenv("RIMPERIO_API_DOCS", "admin").strip().lower() or "admin")
-if API_DOCS_MODE not in ("admin", "public", "off"):
-    API_DOCS_MODE = "admin"
-
 app = FastAPI(
     title="RIMPERIO",
     description="Zentraler Log-Server",
     version=settings.app_version,
-    docs_url="/api/docs" if API_DOCS_MODE == "public" else None,
-    openapi_url="/api/openapi.json" if API_DOCS_MODE == "public" else None,
-    redoc_url=None,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    # Swagger/ReDoc nur mit Auth erreichbar machen würde redoc_url/docs_url=None erfordern
+    # Für interne Tools lassen wir es offen, aber per Caddy-Auth absicherbar
 )
 
 # Rate-Limiter am App registrieren
@@ -564,29 +557,11 @@ async def ensure_discovery_table():
 
 @app.on_event("startup")
 async def apply_saved_caddy_config():
-    """Laedt eine gespeicherte Caddyfile (falls vorhanden) nach dem Start.
-
-    Im Hintergrund: das Laden wartet, bis Caddy da ist (Caddy startet nach dem
-    Backend). Wuerde der Start darauf warten, waere die API so lange tot.
-    """
-    async def run() -> None:
-        # Oeffentliche Adresse (Einstellungen -> HTTPS) in den Speicher holen -
-        # QR-Code, SSO und Agent-Befehle lesen sie ohne Datenbankzugriff.
-        try:
-            from . import public_url
-            from .database import async_session as _session
-            async with _session() as db:
-                await public_url.load(db)
-        except Exception as exc:
-            logging.getLogger("rimperio.startup").warning("Öffentliche Adresse nicht geladen: %s", exc)
-        try:
-            await caddy_router.ensure_caddy_config_on_startup()
-        except Exception as exc:
-            logging.getLogger("rimperio.startup").warning("Caddy-Config beim Start nicht geladen: %s", exc)
-        # Danach dauerhaft: startet Caddy neu, kommt die gespeicherte Config zurueck.
-        await caddy_router.watch_caddy()
-
-    _spawn(run())
+    """Laedt eine gespeicherte Caddyfile (falls vorhanden) nach dem Start."""
+    try:
+        await caddy_router.ensure_caddy_config_on_startup()
+    except Exception as exc:
+        logging.getLogger("rimperio.startup").warning("Caddy-Config beim Start nicht geladen: %s", exc)
 
 
 @app.on_event("startup")
@@ -809,10 +784,24 @@ async def ingest_logs(
     device_type = data.device_type or _agent_type_fallback(
         agent_token.device_type, request.headers.get("user-agent"))
 
-    result = await db.execute(
-        select(Agent).where(Agent.hostname == data.hostname, Agent.ip_address == device_ip)
-    )
-    agent = result.scalars().first()
+    agent = None
+    # Ein gebundener Geraeteschluessel gehoert zu genau einem Geraet. Nennt die
+    # Lieferung dessen Hostnamen, ist es dieses Geraet - auch wenn die IP eine
+    # andere ist. Die Anmeldung bindet ueber den Hostnamen; stehen Log- und
+    # Fernwartungs-Agent auf einem Rechner, meldet der eine die IP Richtung
+    # Server, der andere die der Standardroute (VPN, Proxy, Server auf dem
+    # eigenen Host). Vorher entstand dann eine zweite Geraetekarte, fuer die der
+    # Schluessel nicht liefern durfte - jede Lieferung endete mit 403.
+    if agent_token.agent_id is not None and (agent_token.kind or "agent").lower() == "agent":
+        bound = await db.get(Agent, agent_token.agent_id)
+        if bound is not None and (bound.hostname or "").lower() == (data.hostname or "").lower():
+            agent = bound
+
+    if agent is None:
+        result = await db.execute(
+            select(Agent).where(Agent.hostname == data.hostname, Agent.ip_address == device_ip)
+        )
+        agent = result.scalars().first()
 
     if agent is None and proxy_ip and proxy_ip != device_ip:
         # Altbestand: bis 2026.09.15 wurde bei HTTPS-Agents die IP von Caddy
@@ -955,40 +944,7 @@ async def ingest_logs(
 
 @app.get("/api")
 async def root():
-    return {"name": "RIMPERIO", "version": settings.app_version}
-
-
-# =============================================================================
-# API-Dokumentation (nur fuer Administratoren)
-# =============================================================================
-# Ein Link in der Oberflaeche (Ueber RIMPERIO) holt ein Ticket und oeffnet
-# /api/docs?token=... Die Seite laedt das Schema mit demselben Ticket nach.
-# Das Ticket gilt 60 Sekunden; danach einfach neu aus der Oberflaeche oeffnen.
-_DOCS_HINT = (
-    "<!doctype html><meta charset='utf-8'><title>RIMPERIO API</title>"
-    "<body style='font-family:sans-serif;max-width:40em;margin:3em auto'>"
-    "<h1>API-Dokumentation</h1><p>Die Dokumentation ist nur für Administratoren "
-    "sichtbar. Bitte in der Oberfläche unter <b>Über RIMPERIO → API-Dokumentation</b> "
-    "öffnen (der Link gilt eine Minute).</p></body>")
-
-if API_DOCS_MODE == "admin":
-    from fastapi.openapi.docs import get_swagger_ui_html
-    from fastapi.responses import HTMLResponse, JSONResponse
-    from urllib.parse import quote as _quote
-    from .auth import admin_from_token as _admin_from_token
-
-    @app.get("/api/openapi.json", include_in_schema=False)
-    async def openapi_schema(token: str = Query("")):
-        if not await _admin_from_token(token, purpose="api-docs"):
-            raise HTTPException(status_code=401, detail="Nur für Administratoren (Ticket fehlt oder abgelaufen).")
-        return JSONResponse(app.openapi())
-
-    @app.get("/api/docs", include_in_schema=False)
-    async def api_docs(token: str = Query("")):
-        if not token or not await _admin_from_token(token, purpose="api-docs"):
-            return HTMLResponse(_DOCS_HINT, status_code=401)
-        return get_swagger_ui_html(openapi_url=f"/api/openapi.json?token={_quote(token)}",
-                                   title="RIMPERIO API")
+    return {"name": "RIMPERIO", "version": settings.app_version, "docs": "/api/docs"}
 
 
 # =============================================================================

@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.11.07.12.00.00
+// Version:      2026.11.08.17.00.00
 //
 // Beschreibung: Tests für die Paketlisten-Parser, die Image-Zerlegung, die
 //               Ausnahme-Labels und den Neuaufbau einer Container-Konfiguration.
@@ -13,6 +13,8 @@ package core
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -142,5 +144,24 @@ func TestSanitizeIDs(t *testing.T) {
 	got := sanitizeIDs([]string{"openssl", "linux-image-6.1.0-27-amd64", "a; rm -rf /", "8f1c2e3a-1b2c-4d5e-8f90-123456789abc", "openssl-libs.x86_64"})
 	if len(got) != 4 {
 		t.Errorf("Unsichere ID durchgelassen oder sichere verworfen: %v", got)
+	}
+}
+
+func TestComposeReadable(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "compose.yml")
+	if err := os.WriteFile(file, []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{"com.docker.compose.project.config_files": file}
+	if !composeReadable(labels, dir) {
+		t.Error("lesbares Projekt nicht erkannt")
+	}
+	labels["com.docker.compose.project.config_files"] = file + "," + filepath.Join(dir, "fehlt.yml")
+	if composeReadable(labels, dir) {
+		t.Error("fehlende Compose-Datei hätte den Weg über die API erzwingen müssen")
+	}
+	if composeReadable(map[string]string{}, filepath.Join(dir, "gibt-es-nicht")) {
+		t.Error("fehlendes Projektverzeichnis nicht erkannt")
 	}
 }

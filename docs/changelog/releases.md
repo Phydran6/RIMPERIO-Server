@@ -11,6 +11,32 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.20.22.00.00 (2026-11-20) – SSH-Einbindung mit RMM-Agent, Linux-Agents ohne root
+
+- **Automatisch einbinden (SSH) richtet jetzt auch den RMM-Agent ein.** Bisher kam nur
+  der Log-Agent auf das System, es erschien deshalb nur als Log-Quelle. Jetzt landen beide
+  Agents darauf, und das System taucht unter *Geräte → Rechner* auf. Der Haken lässt sich
+  im Einbinden-Dialog abwählen.
+- **Fehler beim Einbinden stehen im Backend-Log** (`docker logs rimperio-app-backend`).
+- **Bitte einmal neu einbinden:** Systeme, die schon per SSH eingebunden sind, auf „Systeme
+  im Netz“ erneut automatisch einbinden. Der alte Log-Agent (root, `/opt/rimperio-logship`
+  oder `/opt/rimperio-agent`) wird dabei übernommen.
+- **Kein root mehr auf den Rechnern:** Fernwartungs- und Log-Agent laufen unter Linux als
+  eigenes Dienstkonto (Standard `rimperio`, wählbar mit `--user`, beim automatischen
+  Einbinden per SSH direkt in der Oberfläche). Fehlt das Konto, legt der Installer es an.
+- **Ein Ort:** Programm, Hilfsskript, Konfiguration und Zustand liegen unter
+  `/opt/RMM/rimperio`; außerhalb nur die Unit-Dateien und die sudo-Regel.
+- **Rechte nur, wo nötig:** Updates, Neustart und Deinstallation gehen über ein festes
+  Hilfsskript per sudo, das jede Angabe prüft und jede Aufgabe ins Journal schreibt
+  (`--sudo limited`, Standard). `full` erlaubt Befehlen aus der Oberfläche sudo, `none`
+  nimmt alle Rechte.
+- **Aktualisieren ohne neue Anmeldung**; ältere Installationen, die als root liefen, werden
+  übernommen — samt Anmeldung, Schlüssel und Leseposition.
+- **Behoben:** Log- und Fernwartungs-Agent hießen als Dienst gleich und schlossen sich aus;
+  die Einzeiler auf „Systeme im Netz“ zeigten auf einen alten Pfad.
+- **Bitte einmal neu ausrollen:** den Linux-Installer über die vorhandenen Agents laufen
+  lassen (ohne Schlüssel — die Anmeldung bleibt).
+
 ## v2026.11.07.23.00.00 (2026-11-07) – Oberfläche als RMM, HTTPS hinter NPM, App-QR
 
 - **Neues Menü:** nach RMM-Arbeitsbereichen gegliedert (Geräte, Überwachung,

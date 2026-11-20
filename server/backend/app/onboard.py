@@ -1,12 +1,17 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.10.08.22.00.00
+# Version:     2026.11.20.22.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Linux-Systeme selbst einbinden (ueber SSH).
 # ==============================================================================
 """
 Ein Linux-System per SSH einbinden, ohne dort von Hand etwas zu tun.
+
+Der Agent laeuft danach **nicht als root**, sondern unter einem eigenen
+Dienstkonto (Standard ``rimperio``, in der Oberflaeche waehlbar; fehlt es,
+legt der Installer es an). Alles liegt unter ``/opt/RMM/rimperio``. ``sudo``
+braucht nur die Einrichtung selbst.
 
 Was passiert
 ------------
@@ -23,9 +28,15 @@ Was passiert
    (SFTP). Das Zielsystem muss dafuer weder ins Internet noch den RIMPERIO-Server
    erreichen; der kurze Agent-Dienst ist im Installer selbst enthalten.
 5. **Installer ausfuehren** mit einer Einladung, die der Server vorher erzeugt
-   hat. Der Installer tauscht sie in einen eigenen Geraeteschluessel - wie beim
-   Einzeiler von Hand.
-6. **Warten**, bis wirklich Logs ankommen. Erst dann gilt das Geraet als
+   hat, und dem gewaehlten Dienstkonto. Der Installer tauscht die Einladung in
+   einen eigenen Geraeteschluessel - wie beim Einzeiler von Hand.
+6. **RMM-Agent einrichten** (Patchen, Checks, Inventur, Befehle) mit
+   ``install-agent.sh`` und einer zweiten Einladung, unter demselben
+   Dienstkonto. Das Programm laedt das Zielsystem selbst aus dem GitHub-Release
+   (curl oder wget). Ohne diesen Schritt erschien das Geraet nur als
+   Log-Quelle.
+7. **Nachsehen**, unter welchem Konto die Dienste laufen - root waere ein Fehler.
+8. **Warten**, bis wirklich Logs ankommen. Erst dann gilt das Geraet als
    eingebunden.
 
 Zugangsdaten
@@ -47,8 +58,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import hashlib
 import logging
+import re
 import secrets
 import shlex
 import time
@@ -56,7 +69,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import discovery, journal, tokens
@@ -71,6 +84,24 @@ DELIVERY_POLL = 5
 
 # Laufzeit der Einladung: knapp, sie wird ja sofort benutzt.
 ENROLL_HOURS = 1
+
+# Dienstkonto, unter dem der Agent auf dem Ziel laeuft - nie root.
+DEFAULT_SERVICE_USER = "rimperio"
+SERVICE_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+# So heisst der Dienst des Log-Agents (agent/logship/install-linux.sh).
+LOG_AGENT_SERVICE = "rimperio-log-agent"
+# ... und der des RMM-Agents (agent/installer/linux/install-agent.sh).
+RMM_AGENT_SERVICE = "rimperio-agent"
+
+# Installer im Host-Installationsverzeichnis, jeweils mit einem Text, der
+# sicher darin steht (falsche Datei = Abbruch statt Ausfuehren).
+LOG_INSTALLER = ("agent/logship/install-linux.sh", "RIMPERIO Linux Agent")
+RMM_INSTALLER = ("agent/installer/linux/install-agent.sh", "RIMPERIO-Agent (Fernwartung)")
+
+
+def valid_service_user(name: str) -> bool:
+    """Linux-Kontoname ohne Sonderzeichen - und nicht root."""
+    return bool(SERVICE_USER_RE.match(name or "")) and name != "root"
 
 
 # =============================================================================
@@ -233,13 +264,29 @@ def parse_os_release(text: str) -> Dict[str, str]:
 
 def build_install_command(script_path: str, *, fqdn: str, token: str,
                           ip_fallback: str = "", port: int = 443,
-                          insecure: bool = False, min_level: str = "info") -> str:
+                          insecure: bool = False, min_level: str = "info",
+                          service_user: str = DEFAULT_SERVICE_USER) -> str:
     """Die Argumentzeile fuer install-linux.sh. Werte werden sicher gequotet."""
+    if not valid_service_user(service_user):
+        raise OnboardError(f"Ungültiges Dienstkonto „{service_user}“ (nicht root, nur a-z, 0-9, _ und -).")
     args = ["bash", script_path, "--mode", "https", "--yes",
             "--fqdn", fqdn, "--token", token, "--port", str(port),
-            "--min-level", min_level]
+            "--min-level", min_level, "--user", service_user]
     if ip_fallback:
         args += ["--ip", ip_fallback]
+    if insecure:
+        args += ["--insecure"]
+    return " ".join(shlex.quote(a) for a in args)
+
+
+def build_rmm_install_command(script_path: str, *, fqdn: str, token: str,
+                              insecure: bool = False, site: str = "Standard",
+                              service_user: str = DEFAULT_SERVICE_USER) -> str:
+    """Die Argumentzeile fuer install-agent.sh (RMM-Agent). Werte sicher gequotet."""
+    if not valid_service_user(service_user):
+        raise OnboardError(f"Ungültiges Dienstkonto „{service_user}“ (nicht root, nur a-z, 0-9, _ und -).")
+    args = ["bash", script_path, "--server", f"https://{fqdn}", "--secret", token,
+            "--site", site or "Standard", "--user", service_user]
     if insecure:
         args += ["--insecure"]
     return " ".join(shlex.quote(a) for a in args)
@@ -318,16 +365,17 @@ def is_running(device_id: int) -> bool:
 # =============================================================================
 def _run_ssh(device: dict, creds: Credentials, fingerprint: str, enroll_token: str,
              server: dict, state: OnboardState,
-             factory: SessionFactory = _default_factory) -> str:
+             factory: SessionFactory = _default_factory,
+             service_user: str = DEFAULT_SERVICE_USER,
+             rmm_token: str = "") -> str:
     """Verbindet, prueft, installiert. Gibt den Hostnamen des Ziels zurueck.
 
     Laeuft im Thread-Executor (paramiko blockiert). Wirft OnboardError mit einer
-    Meldung fuer die Oberflaeche.
+    Meldung fuer die Oberflaeche. Ohne ``rmm_token`` nur der Log-Agent.
     """
     host = device["ip_address"]
     is_root = creds.username == "root"
     session: Optional[SshSession] = None
-    remote_script = f"/tmp/rimperio-install-{secrets.token_hex(6)}.sh"
     try:
         try:
             session = factory(host, 22, creds, fingerprint)
@@ -359,47 +407,94 @@ def _run_ssh(device: dict, creds: Credentials, fingerprint: str, enroll_token: s
         else:
             state.step("Als root angemeldet")
 
+        downloader = session.run("command -v curl || command -v wget", timeout=20)
+        if rmm_token and not downloader.ok:
+            raise OnboardError(
+                "Weder curl noch wget gefunden. Der RMM-Agent lädt sein Programm aus dem "
+                "GitHub-Release — bitte curl installieren (z. B. apt install curl).")
+
         hostname = session.run("hostname -f 2>/dev/null || hostname", timeout=20).text or host
         state.agent_hostname = hostname
 
-        # Installer uebertragen und ausfuehren - der Inhalt kommt vom Server.
-        session.put_file(_installer_source(), remote_script, mode=0o700)
-        state.step("Installer übertragen")
+        # Beide Installer kommen vom Server, nicht aus dem Netz - so laeuft genau
+        # der Stand, zu dem dieser Server passt. Gelesen wird vorab: fehlt einer,
+        # bricht das Einbinden ab, bevor auf dem Ziel etwas geaendert ist.
+        log_installer = _installer_source(*LOG_INSTALLER)
+        rmm_installer = _installer_source(*RMM_INSTALLER) if rmm_token else ""
 
-        command = build_install_command(
-            remote_script, fqdn=server["fqdn"], token=enroll_token,
-            ip_fallback=server["ip_fallback"], insecure=server["insecure"])
-        result = session.run(command, sudo=not is_root,
-                             sudo_password=creds.effective_sudo(), timeout=180)
-        # Aufraeumen, egal wie es ausging - im Skript steht die Einladung.
-        session.run(f"rm -f {shlex.quote(remote_script)}", sudo=not is_root,
-                    sudo_password=creds.effective_sudo(), timeout=20)
-        if not result.ok:
-            tail = "\n".join(result.text.splitlines()[-8:])
-            raise OnboardError(f"Der Installer ist fehlgeschlagen:\n{tail}")
-        state.step("Agent installiert und gestartet")
+        # 1) Log-Agent
+        _run_installer(
+            session, state, log_installer, is_root, creds,
+            lambda path: build_install_command(
+                path, fqdn=server["fqdn"], token=enroll_token,
+                ip_fallback=server["ip_fallback"], insecure=server["insecure"],
+                service_user=service_user),
+            what="Log-Agent", timeout=180)
+        _check_account(session, state, LOG_AGENT_SERVICE, "Log-Agent")
+
+        # 2) RMM-Agent (Patchen, Checks, Inventur, Befehle)
+        if rmm_token:
+            _run_installer(
+                session, state, rmm_installer, is_root, creds,
+                lambda path: build_rmm_install_command(
+                    path, fqdn=server["fqdn"], token=rmm_token,
+                    insecure=server["insecure"], service_user=service_user),
+                what="RMM-Agent", timeout=300,
+                failed_hint="Der Log-Agent läuft bereits; nur der RMM-Agent fehlt. ")
+            _check_account(session, state, RMM_AGENT_SERVICE, "RMM-Agent")
         return hostname
     finally:
         if session is not None:
             session.close()
 
 
-_installer_cache: Optional[str] = None
+def _run_installer(session: SshSession, state: OnboardState, content: str, is_root: bool,
+                   creds: Credentials, build_command: Callable[[str], str], *, what: str,
+                   timeout: float, failed_hint: str = "") -> None:
+    """Ein Installer: uebertragen, ausfuehren, wieder loeschen.
 
-
-def _installer_source() -> str:
-    """Den Inhalt von agent/logship/install-linux.sh - vom Host-Installationsverzeichnis.
-
-    Der Backend-Container hat die agents/ nicht im Image; er liest sie ueber den
-    Host (pid:host + privileged). Gelesen wird einmal und gemerkt.
+    ``build_command`` bekommt den Pfad auf dem Ziel und liefert die Befehlszeile.
     """
-    global _installer_cache
-    if _installer_cache:
-        return _installer_cache
+    remote_script = f"/tmp/rimperio-install-{secrets.token_hex(6)}.sh"
+    command = build_command(remote_script)   # prueft das Dienstkonto vor dem Uebertragen
+    session.put_file(content, remote_script, mode=0o700)
+    try:
+        result = session.run(command, sudo=not is_root,
+                             sudo_password=creds.effective_sudo(), timeout=timeout)
+    finally:
+        # Aufraeumen, egal wie es ausging - im Aufruf stand die Einladung.
+        session.run(f"rm -f {shlex.quote(remote_script)}", sudo=not is_root,
+                    sudo_password=creds.effective_sudo(), timeout=20)
+    if not result.ok:
+        tail = "\n".join(result.text.splitlines()[-8:])
+        logger.warning("Einbinden: %s-Installer fehlgeschlagen (Exit %s):\n%s",
+                       what, result.exit_code, result.text[-4000:])
+        raise OnboardError(f"{failed_hint}Der Installer des {what}s ist fehlgeschlagen:\n{tail}")
+    state.step(f"{what} installiert und gestartet (unter /opt/RMM/rimperio)")
+
+
+def _check_account(session: SshSession, state: OnboardState, service: str, what: str) -> None:
+    """Unter welchem Konto laeuft der Dienst? root waere ein Fehler."""
+    runs_as = session.run(
+        f"systemctl show -p User {service} 2>/dev/null | cut -d= -f2", timeout=20).text
+    if runs_as and runs_as != "root":
+        state.step(f"{what} läuft als Dienstkonto „{runs_as}“, nicht als root")
+    else:
+        state.step(f"Achtung: Der {what} läuft als „{runs_as or 'root'}“ — bitte auf dem System prüfen.",
+                   ok=False)
+
+
+def _installer_source(relative: str, marker: str) -> str:
+    """Den Inhalt eines Installers aus dem Host-Installationsverzeichnis.
+
+    Der Backend-Container hat agent/ nicht im Image; er liest es ueber den
+    Host (pid:host + privileged). Bei jedem Einbinden frisch gelesen - sonst
+    verteilte ein Backend nach einem Update der Dateien noch den alten Stand.
+    """
     from . import hostexec
 
     paths = hostexec.host_paths()
-    candidate = f"{paths['install_dir']}/agent/logship/install-linux.sh"
+    candidate = f"{paths['install_dir']}/{relative}"
     content = None
     try:
         # synchroner Aufruf im Executor-Thread - eigener Loop
@@ -411,12 +506,11 @@ def _installer_source() -> str:
             content = loop.run_until_complete(hostexec.read_host_file(candidate))
         finally:
             loop.close()
-    if not content or "RIMPERIO Linux Agent" not in content:
+    if not content or marker not in content:
         raise OnboardError(
             "Der Linux-Installer ließ sich auf dem Server nicht finden "
             f"({candidate}). Im gehärteten Betrieb ist das automatische "
             "Einbinden nicht möglich — bitte den Einzeiler von Hand nutzen.")
-    _installer_cache = content
     return content
 
 
@@ -425,21 +519,26 @@ def _installer_source() -> str:
 # =============================================================================
 async def start(device_id: int, creds: Credentials, fingerprint: str,
                 actor: str, source_ip: str,
-                factory: SessionFactory = _default_factory) -> bool:
+                factory: SessionFactory = _default_factory,
+                service_user: str = DEFAULT_SERVICE_USER,
+                with_rmm: bool = True) -> bool:
     """Startet das Einbinden im Hintergrund. False, wenn fuer dieses Geraet schon einer laeuft."""
     lock = _lock_for(device_id)
     if lock.locked() or is_running(device_id):
         creds.wipe()
         return False
     STATES[device_id] = OnboardState(device_id=device_id)
-    task = asyncio.create_task(_orchestrate(device_id, creds, fingerprint, actor, source_ip, factory))
+    task = asyncio.create_task(_orchestrate(device_id, creds, fingerprint, actor, source_ip, factory,
+                                            service_user, with_rmm))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return True
 
 
 async def _orchestrate(device_id: int, creds: Credentials, fingerprint: str,
-                       actor: str, source_ip: str, factory: SessionFactory) -> None:
+                       actor: str, source_ip: str, factory: SessionFactory,
+                       service_user: str = DEFAULT_SERVICE_USER,
+                       with_rmm: bool = True) -> None:
     from .database import async_session
 
     state = STATES[device_id]
@@ -447,26 +546,40 @@ async def _orchestrate(device_id: int, creds: Credentials, fingerprint: str,
     async with _lock_for(device_id):
         try:
             async with async_session() as session:
-                device, enroll_token, server = await _prepare(session, device_id, actor)
+                device, enroll_token, rmm_token, server = await _prepare(
+                    session, device_id, actor, with_rmm=with_rmm)
 
             loop = asyncio.get_running_loop()
             hostname = await loop.run_in_executor(
-                None, _run_ssh, device, creds, fingerprint, enroll_token, server, state, factory)
+                None, functools.partial(
+                    _run_ssh, device, creds, fingerprint, enroll_token, server, state, factory,
+                    service_user, rmm_token=rmm_token))
 
             state.phase = "Warte auf die erste Logzeile…"
             delivering = await _await_delivery(hostname, device["ip_address"])
-            state.ok = True
-            state.step("Logs kommen an — eingebunden" if delivering
-                       else "Agent läuft. Es kam noch keine Logzeile an — das kann einen Moment dauern.",
+            state.step("Logs kommen an" if delivering
+                       else "Log-Agent läuft. Es kam noch keine Logzeile an — das kann einen Moment dauern.",
                        ok=delivering)
+            rmm_ok = None
+            if with_rmm:
+                rmm_ok = await _rmm_enrolled(hostname)
+                state.step("RMM-Agent angemeldet — erscheint unter Geräte → Rechner" if rmm_ok
+                           else "Der RMM-Agent ist installiert, aber auf dem Server nicht als angemeldet zu sehen.",
+                           ok=rmm_ok)
+            state.ok = True
+            state.step("Eingebunden")
 
             async with async_session() as session:
                 await journal.record(
                     session, category="discovery", event="onboard.ok",
-                    message=f"{hostname} ({device['ip_address']}) per SSH eingebunden.",
+                    message=f"{hostname} ({device['ip_address']}) per SSH eingebunden"
+                            + (" (Log- und RMM-Agent)." if with_rmm else " (nur Log-Agent)."),
                     actor=actor, source_ip=source_ip, target=hostname, ok=True,
                     duration_ms=int((time.monotonic() - started) * 1000),
-                    detail={"delivering": delivering, "has_name": server["has_name"]})
+                    detail={"delivering": delivering, "rmm": rmm_ok, "has_name": server["has_name"],
+                            "service_user": service_user})
+            logger.info("Einbinden: %s (%s) fertig - Logs: %s, RMM: %s",
+                        hostname, device["ip_address"], delivering, rmm_ok)
         except OnboardError as exc:
             await _fail(state, device_id, actor, source_ip, str(exc))
         except Exception as exc:
@@ -478,8 +591,12 @@ async def _orchestrate(device_id: int, creds: Credentials, fingerprint: str,
             state.finished_at = datetime.utcnow().isoformat()
 
 
-async def _prepare(session: AsyncSession, device_id: int, actor: str):
-    """Geraet laden, Einladung erzeugen, Serveradresse bestimmen."""
+async def _prepare(session: AsyncSession, device_id: int, actor: str, *, with_rmm: bool = True):
+    """Geraet laden, Einladungen erzeugen, Serveradresse bestimmen.
+
+    Je Agent eine eigene Einladung fuer genau eine Anmeldung: Log-Agent und
+    RMM-Agent tauschen sie jeweils gegen ihren eigenen Schluessel.
+    """
     device_row = await session.get(DiscoveredDevice, device_id)
     if not device_row:
         raise OnboardError("System nicht gefunden — vermutlich aus der Liste entfernt.")
@@ -504,8 +621,32 @@ async def _prepare(session: AsyncSession, device_id: int, actor: str):
         device_type="linux_agent", expires_in_hours=ENROLL_HOURS, max_uses=1,
         created_by=f"onboard:{actor}"[:50],
         note=f"Automatisch beim Einbinden von {device['ip_address']} erzeugt.")
+    rmm_plain = ""
+    if with_rmm:
+        _, rmm_plain = await tokens.create(
+            session, name=f"onboard-rmm:{device['ip_address']}"[:100], kind="enroll",
+            device_type="linux_agent", expires_in_hours=ENROLL_HOURS, max_uses=1,
+            created_by=f"onboard:{actor}"[:50],
+            note=f"Automatisch beim Einbinden von {device['ip_address']} erzeugt (RMM-Agent).")
     await session.commit()
-    return device, plain, server
+    return device, plain, rmm_plain, server
+
+
+async def _rmm_enrolled(hostname: str) -> bool:
+    """Hat sich der RMM-Agent dieses Rechners in den letzten Minuten angemeldet?"""
+    from .database import async_session
+
+    names = {hostname.lower(), hostname.split(".")[0].lower()}
+    since = datetime.utcnow() - timedelta(minutes=10)
+    try:
+        async with async_session() as session:
+            rows = (await session.execute(
+                select(Agent).where(func.lower(Agent.hostname).in_(names),
+                                    Agent.rmm_token_hash.isnot(None)))).scalars().all()
+    except Exception as exc:
+        logger.warning("Einbinden: RMM-Anmeldung nicht prüfbar: %s", exc)
+        return False
+    return any(a.rmm_last_seen and a.rmm_last_seen >= since for a in rows)
 
 
 async def _await_delivery(hostname: str, ip: str) -> bool:
@@ -542,6 +683,9 @@ async def _fail(state: OnboardState, device_id: int, actor: str, source_ip: str,
     state.error = message
     state.ok = False
     state.step(message, ok=False)
+    # Auch ins Container-Log: Bisher stand ein Abbruch nur in der Oberflaeche und
+    # im Tagebuch, `docker logs rimperio-app-backend` blieb leer.
+    logger.warning("Einbinden von Gerät %s fehlgeschlagen: %s", device_id, message)
     try:
         async with async_session() as session:
             await journal.record(

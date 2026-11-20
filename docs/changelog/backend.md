@@ -2,6 +2,19 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.20.22.00.00
+
+### Fixed
+- **Automatisch einbinden (SSH) richtete nur den Log-Agent ein.** Ein so eingebundenes System erschien nur als Log-Quelle, Patchen, Checks und Befehle gab es nicht. `app/onboard.py` installiert jetzt nach dem Log-Agent auch den RMM-Agent (`agent/installer/linux/install-agent.sh`) mit einer eigenen Einladung (einmalig, 1 h) und unter demselben Dienstkonto, prüft das Konto beider Dienste und meldet, ob sich der RMM-Agent angemeldet hat. Abschaltbar mit `with_rmm: false` in `POST /api/discovery/devices/{id}/onboard`. Vorab wird geprüft, ob curl oder wget da ist (der RMM-Agent lädt sein Programm aus dem GitHub-Release).
+- **Abbrüche beim Einbinden standen nicht im Container-Log.** Sie landeten nur in der Oberfläche und im Tagebuch, `docker logs rimperio-app-backend` blieb leer. Jetzt als Warnung, bei einem fehlgeschlagenen Installer mit dessen Ausgabe.
+- Die Installer werden bei jedem Einbinden frisch vom Host gelesen statt einmal pro Backend-Lauf gemerkt.
+
+### Changed
+- **Linux per SSH einbinden — Agent nicht mehr als root** (`app/onboard.py`, `POST /api/discovery/devices/{id}/onboard`): neues Feld `service_user` (Standard `rimperio`; root und ungültige Namen gibt es als 422). Der Installer richtet den Log-Agent unter diesem Konto ein, alles unter `/opt/RMM/rimperio`; die Schrittliste meldet danach, unter welchem Konto der Dienst läuft (root wäre eine Warnung). Im Tagebuch steht das Konto bei `onboard.ok`.
+
+### Fixed
+- **Log-Agent neben dem Fernwartungs-Agent wurde abgewiesen (403).** Die Anmeldung (`/api/agents/enroll`) bindet den Geräteschlüssel über den Hostnamen an das vorhandene Gerät, die Lieferung (`/api/agents/ingest`) suchte das Gerät aber über Hostname *und* IP. Meldet der Log-Agent eine andere IP als der Fernwartungs-Agent (der eine die Richtung zum Server, der andere die Standardroute — über VPN, Proxy oder auf dem Server selbst), entstand eine zweite Gerätekarte, für die der Schlüssel nicht liefern durfte. Jetzt gilt: Ein gebundener Geräteschlüssel mit passendem Hostnamen liefert für sein Gerät.
+
 ## 2026.11.07.23.00.00
 
 ### Fixed

@@ -2,7 +2,7 @@
 # Datei:        .github/workflows/ci.yml
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Version:      2026.10.31.15.40.00
+# Version:      2026.11.08.17.00.00
 # Beschreibung: Baut bei jedem Push/PR die drei Teile — Backend, Agent, Frontend —
 #               damit Fehler früh auffallen.
 # ---------------------------------------------------------------------------
@@ -44,12 +44,25 @@ jobs:
         with:
           go-version: 'stable'
           cache-dependency-path: agent/go.sum
-      - name: Vet + Build
+      - name: Vet + Build + Test
         working-directory: agent
         run: |
           go vet ./...
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...
           CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build ./...
+          go test ./...
+      - name: Linux-Installer prüfen
+        # Syntax und grobe Fehler (shellcheck nur Stufe "error"); das erzeugte
+        # Hilfsskript wird mit herausgezogen und ebenso geprüft.
+        run: |
+          set -e
+          awk "/cat <<'HELPER'/{f=1;next} /^HELPER\$/{f=0} f" agent/installer/linux/install-agent.sh \
+            | { printf '#!/bin/bash\nAGENT_USER=rimperio\nHELPER_VERSION=ci\n'; cat; } > /tmp/rimperio-helper
+          for f in agent/installer/linux/install-agent.sh agent/logship/install-linux.sh server/setup.sh /tmp/rimperio-helper; do
+            bash -n "$f" || { echo "::error title=Installer::Syntaxfehler in $f"; exit 1; }
+          done
+          shellcheck -S error agent/installer/linux/install-agent.sh agent/logship/install-linux.sh /tmp/rimperio-helper \
+            || { echo "::error title=Installer::shellcheck meldet Fehler (siehe Log)"; exit 1; }
 
   msi:
     # Baut das MSI bei jedem Push mit und spielt Installation und Deinstallation

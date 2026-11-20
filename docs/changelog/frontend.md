@@ -2,6 +2,16 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.20.22.00.00
+
+### Changed
+- **Systeme im Netz → Automatisch einbinden (SSH):** Haken „Auch den RMM-Agent einrichten“ (Standard an). Ohne ihn erscheint das System nur als Log-Quelle.
+- **Systeme im Netz → Automatisch einbinden (SSH):** Feld „Dienstkonto für den Agent“ (Standard `rimperio`, root wird abgelehnt) mit Hinweis, dass der Agent nicht als root läuft und unter `/opt/RMM/rimperio` liegt. Der Einzeiler zum Kopieren nennt `--user`.
+- **Fernwartung → Agent hinzufügen:** Linux-Einzeiler mit `--user rimperio`, darunter Dienstkonto, Verzeichnis und `--sudo`-Stufen erklärt.
+
+### Fixed
+- Die Einzeiler auf „Systeme im Netz“ (Linux und Windows) zeigten auf `…/main/agents/…`, das es seit der Neugliederung nicht mehr gibt — jetzt `agent/logship/`.
+
 ## 2026.11.07.23.00.00
 
 ### Changed

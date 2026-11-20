@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.10.31.15.40.00
+// Version:      2026.11.08.17.00.00
 //
 // Beschreibung: Erhebt, was der Server wissen will: einmalig die Inventur
 //               (OS, Hardware, Platten, Netz) und laufend die Messwerte
@@ -71,6 +71,7 @@ type Inventory struct {
 	UptimeSecs  int            `json:"uptime_seconds"`
 	Software    []SoftwareItem `json:"software"`
 	AgentVer    string         `json:"agent_version"`
+	AgentUser   string         `json:"agent_user,omitempty"` // Konto, unter dem der Agent läuft (Linux: Dienstkonto)
 	CollectedAt time.Time      `json:"collected_at"`
 }
 
@@ -155,6 +156,7 @@ func CollectInventory() Inventory {
 		LocalIP:     LocalIP(),
 		MACs:        macAddresses(),
 		AgentVer:    Version,
+		AgentUser:   agentUser(),
 		CollectedAt: time.Now().UTC(),
 	}
 	if info, err := host.Info(); err == nil {

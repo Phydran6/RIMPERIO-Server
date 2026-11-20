@@ -131,7 +131,7 @@ Server-Adresse stehen unter *Fernwartung → Rechner → Agent hinzufügen*.
 
 ```powershell
 # als Administrator
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/installer/windows/install-agent.ps1))) `
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/installer/windows/install-agent.ps1))) `
   -Server https://rmm.example.de -Secret SCHLÜSSEL -Site Buero
 ```
 
@@ -145,11 +145,30 @@ Das MSI schreibt die Eckdaten nach `HKLM\SOFTWARE\RIMPERIO\Agent`, registriert d
 Dienst `rimperio-agent` und startet ihn. Beim **ersten Start** meldet der Dienst sich
 selbst am Server an — die Installation selbst braucht also kein Netz.
 
-**Linux:**
+**Linux** — der Agent läuft danach als eigenes Dienstkonto, **nicht als root**, und alles
+liegt unter `/opt/RMM/rimperio`:
 
 ```bash
-sudo bash install-agent.sh --server https://rmm.example.de --secret SCHLÜSSEL --site Buero
+curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/installer/linux/install-agent.sh \
+  | sudo bash -s -- --server https://rmm.example.de --secret SCHLÜSSEL --site Buero --user rimperio
 ```
+
+| Option | Bedeutung |
+|---|---|
+| `--server URL` | Adresse des RIMPERIO-Servers |
+| `--secret SCHLÜSSEL` | Zugangsschlüssel (am besten eine Einladung); beim Aktualisieren nicht nötig |
+| `--site NAME`, `--desc TEXT` | Standort und Beschreibung |
+| `--user NAME` | Dienstkonto (Standard `rimperio`; wird angelegt, wenn es fehlt; nie root) |
+| `--sudo limited\|full\|none` | Rechte: `limited` (Standard) nur Updates, Neustart, Deinstallation über das Hilfsskript; `full` zusätzlich `sudo` für Befehle aus der Oberfläche; `none` gar keine |
+| `--no-docker` | dem Dienst die Gruppe `docker` nicht geben (dann keine Container-Updates) |
+| `--insecure` | TLS-Prüfung aus (nur Labor) |
+| `--binary DATEI` | dieses Programm statt des Downloads (offline) |
+
+Alle Optionen gehen auch per Umgebung (`SERVER`, `SECRET`, `RIMPERIO_USER`,
+`RIMPERIO_SUDO` …). Was wo liegt und welche Rechte das Konto hat:
+[Linux: Dienstkonto statt root](../README.md#linux-dienstkonto-statt-root).
+Ein zweiter Lauf aktualisiert Programm, Hilfsskript und Dienst; die Anmeldung bleibt, und
+eine ältere Installation (als root unter `/usr/local/bin` und `/etc/rimperio`) wird übernommen.
 
 ---
 
@@ -186,9 +205,16 @@ Den Programmordner löscht der Agent wenige Sekunden nach dem Beenden selbst.
 **Linux:**
 
 ```bash
-sudo rimperio-agent uninstall                 # alles weg, auch /usr/local/bin/rimperio-agent
-sudo rimperio-agent uninstall -keep-record    # Eintrag auf dem Server bleibt
+sudo /opt/RMM/rimperio/bin/rimperio-agent uninstall                 # alles weg
+sudo /opt/RMM/rimperio/bin/rimperio-agent uninstall -keep-record    # Eintrag auf dem Server bleibt
+# oder per Einzeiler:
+curl -sSL https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/installer/linux/install-agent.sh \
+  | sudo bash -s -- uninstall
 ```
+
+Weg sind danach Dienst, Programm, Konfiguration und sudo-Regel. Das Dienstkonto und
+`/opt/RMM/rimperio` gehen mit, wenn der Installer das Konto angelegt hat und nicht noch
+der Log-Agent darunter läuft; ein Konto, das es vorher schon gab, bleibt.
 
 Ist der Server beim Deinstallieren nicht erreichbar, läuft die Deinstallation trotzdem
 durch — den Rechner dann in der Oberfläche entfernen (ohne Häkchen).
