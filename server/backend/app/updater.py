@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.08.14.12.00.00
+# Version:     2026.11.20.23.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Patchmanagement: Versionsvergleich, Update, Rueckfall
 # ==============================================================================
@@ -163,10 +163,15 @@ async def remote_state(force: bool = False, ref: str = "") -> dict:
             if response.status_code == 404:
                 info["error"] = f"Repository, Zweig oder Release nicht gefunden ({REPO_SLUG}@{target})."
                 return _cache_remote(info)
-            if response.status_code == 403:
-                info["error"] = ("GitHub hat die Anfrage abgelehnt (Limit fuer anonyme Abfragen). "
-                                 "Spaeter erneut versuchen oder GITHUB_TOKEN setzen.")
-                return _cache_remote(info)
+            if response.status_code in (403, 429):
+                # Anonym erlaubt GitHub 60 API-Abfragen pro Stunde und
+                # oeffentlicher IP - geteilt mit allem anderen hinter derselben
+                # Leitung. Die VERSION-Datei kommt ueber raw.githubusercontent.com,
+                # das nicht unter dieses Limit faellt. Damit bleibt der Vergleich
+                # moeglich, nur der Commit fehlt.
+                return _cache_remote(await _version_only(client, info, target, (
+                    "GitHub-API-Limit erreicht (60 anonyme Abfragen pro Stunde je IP) - "
+                    "verglichen wird nur die VERSION-Datei. Mit GITHUB_TOKEN entfällt das.")))
             response.raise_for_status()
             data = response.json()
 
@@ -194,6 +199,22 @@ async def remote_state(force: bool = False, ref: str = "") -> dict:
         info["error"] = f"Update-Pruefung fehlgeschlagen: {exc}"
 
     return _cache_remote(info)
+
+
+async def _version_only(client: "httpx.AsyncClient", info: dict, target: str, note: str) -> dict:
+    """Rueckfall ohne GitHub-API: nur die VERSION-Datei des Bezugspunkts lesen."""
+    try:
+        raw = await client.get(f"https://raw.githubusercontent.com/{REPO_SLUG}/{target}/VERSION")
+        if raw.status_code == 200 and raw.text.strip():
+            info["reachable"] = True
+            info["version"] = raw.text.strip().splitlines()[0].strip()
+            info["note"] = note
+            return info
+    except httpx.HTTPError:
+        pass
+    info["error"] = ("GitHub hat die Anfrage abgelehnt (Limit fuer anonyme Abfragen), und die "
+                     "VERSION-Datei war auch nicht lesbar. Spaeter erneut versuchen oder GITHUB_TOKEN setzen.")
+    return info
 
 
 _branch_version_cache: Optional[str] = None

@@ -1,7 +1,7 @@
 <!-- ==============================================================================
      Name:        Phydran6
      Kontakt:     Phydran6
-     Version:     2026.08.14.12.00.00
+     Version:     2026.11.20.23.00.00
      Changelog:   docs/changelog/frontend.md
      Beschreibung: RIMPERIO - Updates: Stand gegen GitHub prüfen, einspielen,
                    zurückfallen. Inklusive Warnung zum Datenbestand.
@@ -173,6 +173,9 @@
 
           <p v-if="status?.reason" class="text-xs pt-1" style="color: var(--color-text-muted)">
             {{ status.reason }}
+          </p>
+          <p v-if="status?.remote?.note" class="text-xs" style="color: var(--color-text-muted)">
+            {{ status.remote.note }}
           </p>
 
           <!-- Auf dem Zweig liegt schon mehr, nur ohne Release: sonst stuende
@@ -525,12 +528,18 @@ const canStart = computed(() => (
 /** Drei Zustaende statt zwei: hinterher, gleichauf, oder voraus. */
 const stateBadge = computed(() => {
   if (status.value?.is_downgrade) return 'badge-neutral'
-  return status.value?.update_available ? 'badge-warning' : 'badge-success'
+  if (status.value?.update_available) return 'badge-warning'
+  // Nicht vergleichbar (GitHub nicht erreichbar, API-Limit): nicht "aktuell"
+  // behaupten - das hat schon einmal ein fertiges Update versteckt.
+  if (status.value?.relation === 'unknown') return 'badge-neutral'
+  return 'badge-success'
 })
 
 const stateLabel = computed(() => {
   if (status.value?.is_downgrade) return 'Server ist voraus'
-  return status.value?.update_available ? 'Update verfügbar' : 'aktuell'
+  if (status.value?.update_available) return 'Update verfügbar'
+  if (status.value?.relation === 'unknown') return 'unbekannt'
+  return 'aktuell'
 })
 
 const applyLabel = computed(() => (

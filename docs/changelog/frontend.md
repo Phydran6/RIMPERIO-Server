@@ -2,6 +2,11 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.20.23.00.00
+
+### Fixed
+- **Updates:** Konnte der Server nicht mit GitHub vergleichen, stand trotzdem „aktuell“ da. Jetzt „unbekannt“, dazu der Hinweis, wenn nur die VERSION-Datei verglichen wurde.
+
 ## 2026.11.20.22.00.00
 
 ### Changed

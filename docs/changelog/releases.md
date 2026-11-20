@@ -11,6 +11,12 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.20.23.00.00 (2026-11-20) – Update-Prüfung trotz GitHub-API-Limit
+
+- **Updates werden auch beim GitHub-API-Limit erkannt.** Bisher stand dann „aktuell“ da,
+  obwohl ein neuer Stand bereitlag. Jetzt vergleicht der Server die VERSION-Datei über
+  einen Weg ohne Limit und zeigt „unbekannt“, wenn gar nichts lesbar ist.
+
 ## v2026.11.20.22.00.00 (2026-11-20) – SSH-Einbindung mit RMM-Agent, Linux-Agents ohne root
 
 - **Automatisch einbinden (SSH) richtet jetzt auch den RMM-Agent ein.** Bisher kam nur

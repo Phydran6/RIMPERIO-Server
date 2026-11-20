@@ -2,6 +2,11 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.20.23.00.00
+
+### Fixed
+- **Update-Prüfung verschwieg ein fertiges Update, wenn das GitHub-API-Limit erreicht war** (60 anonyme Abfragen pro Stunde je öffentlicher IP, geteilt mit allem hinter derselben Leitung). `app/updater.py` liest dann die VERSION-Datei über `raw.githubusercontent.com` (fällt nicht unter das Limit) und vergleicht damit. Nur der Commit fehlt, und ein Hinweis (`remote.note`) sagt das.
+
 ## 2026.11.20.22.00.00
 
 ### Fixed
