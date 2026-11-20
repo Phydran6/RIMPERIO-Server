@@ -128,5 +128,10 @@ func (c *Config) Save() error {
 	if err := os.WriteFile(ConfigPath(), data, 0o600); err != nil {
 		return fmt.Errorf("Konfiguration schreiben: %w", err)
 	}
+	// WriteFile setzt die Rechte nur beim Anlegen, und unter Standard-ACLs
+	// gilt umask nicht - also ausdrücklich.
+	if err := os.Chmod(ConfigPath(), 0o600); err != nil {
+		return fmt.Errorf("Rechte der Konfiguration: %w", err)
+	}
 	return nil
 }

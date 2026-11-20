@@ -500,12 +500,21 @@ prepare_dirs() {
         chown "${AGENT_USER}:${AGENT_GROUP}" "$d"
         chmod 0700 "$d"
     done
+    # Traegt /opt Standard-ACLs, erben neue Ordner sie, und umask gilt dann
+    # nicht mehr - eine neue Datei waere womoeglich fuer alle lesbar. Unsere
+    # Ordner bekommen deshalb keine geerbten ACLs (nicht rekursiv, s. o.).
+    if command -v setfacl >/dev/null 2>&1; then
+        for d in "$BASE_DIR" "${BASE_DIR}/lib" "${BASE_DIR}/etc" "${BASE_DIR}/var"; do
+            setfacl -b -k "$d" 2>/dev/null || true
+        done
+    fi
 }
 
 # In etc/ und var/ schreibt nur das Dienstkonto selbst: root schriebe einem
-# untergeschobenen Symlink hinterher. Inhalt kommt von stdin.
+# untergeschobenen Symlink hinterher. Inhalt kommt von stdin. chmod 600
+# zusaetzlich zu umask: unter Standard-ACLs gaelte umask nicht.
 write_as_account() {
-    runuser -u "$AGENT_USER" -- sh -c 'umask 077; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$1"
+    runuser -u "$AGENT_USER" -- sh -c 'umask 077; cat > "$1.new" && chmod 600 "$1.new" && mv -f "$1.new" "$1"' sh "$1"
 }
 
 # Werte, die aus einer vorhandenen Konfiguration kommen, landen spaeter in

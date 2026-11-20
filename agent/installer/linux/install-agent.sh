@@ -242,6 +242,16 @@ prepare_dirs() {
         chown "$AGENT_USER:$AGENT_GROUP" "$d"
         chmod 0700 "$d"
     done
+    strip_acls "$BASE" "$BASE/bin" "$BASE/lib" "$BASE/etc" "$BASE/var"
+}
+
+# Trägt /opt (oder /opt/RMM) Standard-ACLs, erben neue Ordner sie, und umask
+# gilt dann nicht mehr - eine neue Datei wäre womöglich für alle lesbar. Unsere
+# Ordner bekommen deshalb keine geerbten ACLs (nicht rekursiv, s. o.).
+strip_acls() {
+    command -v setfacl >/dev/null 2>&1 || return 0
+    local d
+    for d in "$@"; do setfacl -b -k "$d" 2>/dev/null || true; done
 }
 
 # Wechselt das Konto (zweiter Lauf mit anderem --user), gehört die Anmeldung
@@ -264,9 +274,10 @@ carry_old_conf() {
 }
 
 # In etc/ und var/ schreibt nur das Dienstkonto selbst: root schriebe einem
-# untergeschobenen Symlink hinterher. Inhalt kommt von stdin.
+# untergeschobenen Symlink hinterher. Inhalt kommt von stdin. chmod 600
+# zusätzlich zu umask: unter Standard-ACLs gälte umask nicht.
 write_as_account() {
-    runuser -u "$AGENT_USER" -- sh -c 'umask 077; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$1"
+    runuser -u "$AGENT_USER" -- sh -c 'umask 077; cat > "$1.new" && chmod 600 "$1.new" && mv -f "$1.new" "$1"' sh "$1"
 }
 
 # ===========================================================================
