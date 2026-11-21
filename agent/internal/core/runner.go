@@ -16,6 +16,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -43,6 +44,70 @@ type program struct {
 	checkLast map[int]time.Time // wann ein Check zuletzt lief
 	jobs      chan PendingCommand
 	snmp      *snmpScheduler
+	checkedIn bool // nach dem ersten erfolgreichen Check-in seit dem Start
+}
+
+// liveLoop hält die Warte-Verbindung zum Server offen und führt Aufträge aus,
+// sobald sie eingereiht werden — Befehle aus der Oberfläche laufen so sofort,
+// nicht erst beim nächsten Check-in. Kennt der Server die Verbindung nicht
+// (älterer Server), bleibt es beim Check-in-Takt; nach Fehlern geht es mit
+// wachsender Pause weiter.
+func (p *program) liveLoop(client *Client) {
+	pause := 5 * time.Second
+	for {
+		select {
+		case <-p.stop:
+			return
+		default:
+		}
+		cmds, err := client.Wait()
+		if err != nil {
+			wait := pause
+			if errors.Is(err, ErrNoWait) {
+				wait = 30 * time.Minute
+			} else if pause < 2*time.Minute {
+				pause *= 2
+			}
+			select {
+			case <-p.stop:
+				return
+			case <-time.After(wait):
+			}
+			continue
+		}
+		pause = 5 * time.Second
+		for _, c := range cmds {
+			p.dispatchLive(client, c)
+		}
+	}
+}
+
+// dispatchLive führt einen sofort zugestellten Auftrag aus: lange Aufträge
+// über den Hintergrund-Arbeiter, alles andere nebenher in eigener Goroutine.
+func (p *program) dispatchLive(client *Client, c PendingCommand) {
+	if c.Kind == "uninstall" {
+		return // läuft nur über den Check-in (der Server stellt sie hier nicht zu)
+	}
+	if longRunning(c.Kind) && p.jobs != nil {
+		select {
+		case p.jobs <- c:
+			logf("Auftrag #%d (%s) sofort eingereiht.", c.ID, c.Kind)
+		default:
+			_ = client.SendResults([]CommandResult{{ID: c.ID, Status: "error", ExitCode: intPtr(1),
+				Stderr: "Warteschlange des Agents ist voll — später erneut versuchen."}})
+		}
+		return
+	}
+	go func() {
+		logf("Führe Befehl #%d sofort aus (%s).", c.ID, c.Kind)
+		res := HandleCommand(c, client)
+		for attempt := 0; attempt < 5; attempt++ {
+			if err := client.SendResults([]CommandResult{res}); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Second)
+		}
+	}()
 }
 
 // worker arbeitet lange Aufträge (Patch-Suche, Installation, Docker) der Reihe
@@ -149,6 +214,9 @@ func (p *program) run() {
 	if p.cycle(client) { // sofort, nicht erst nach einem Takt
 		return // deinstalliert — der Dienst wird gleich gestoppt
 	}
+	// Erst nach dem ersten Check-in: Der räumt beim Server die Aufträge ab,
+	// die der vorige Prozess nicht mehr fertig bekommen hat.
+	go p.liveLoop(client)
 	lastInv := time.Now()
 
 	ticker := time.NewTicker(interval)
@@ -179,11 +247,13 @@ func (p *program) cycle(client *Client) (uninstalled bool) {
 		Version:   Version,
 		LocalIP:   LocalIP(),
 		Telemetry: &tel,
+		Restarted: !p.checkedIn,
 	})
 	if err != nil {
 		logf("Check-in fehlgeschlagen: %v", err)
 		return false
 	}
+	p.checkedIn = true
 
 	// Befehle ausführen (gewöhnliche Shell oder eingebaute Aktionen wie Patch).
 	// Lange Aufträge gehen an den Hintergrund-Arbeiter.

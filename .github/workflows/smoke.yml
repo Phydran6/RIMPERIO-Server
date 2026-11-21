@@ -195,6 +195,12 @@ jobs:
           check "Inventur nennt das Konto" '[ "$(echo "$A" | jq -r .inventory.agent_user)" = rimperio ]'
           check_or_diag "Befehl ausgeführt" 'cmd_by_id | jq -e ".status==\"done\" and (.stdout|test(\"hallo-rimperio\"))" >/dev/null' 'cmd_list'
           check "Befehl läuft als Dienstkonto, nicht root" 'cmd_by_id | jq -e ".stdout|test(\"konto=rimperio\")" >/dev/null'
+          # Sofort-Zustellung: Der Agent wartet per Long-Poll und holt den Befehl
+          # gleich ab, nicht erst beim nächsten Check-in (60 s).
+          LIVE=$(api -X POST "$B/api/rmm/agents/$UID_/commands" -d '{"shell":"sh","command":"echo sofort","timeout":30}' | jq -r .id)
+          live_done() { api "$B/api/rmm/agents/$UID_/commands" | jq -e --argjson i "$LIVE" '.[] | select(.id==$i) | .status=="done"' >/dev/null; }
+          check_or_diag "Befehl kommt sofort an (< 20 s)" 'wait_for live_done 20' 'cmd_list; api "$B/api/rmm/agents/$UID_" | jq -c "{live, version}"'
+          check "Agent als sofort erreichbar gemeldet" 'api "$B/api/rmm/agents/$UID_" | jq -e ".live==true" >/dev/null'
           check "Check-Ergebnis da"       'wait_for check_results 150'
           check "Skripte lesbar"          'api "$B/api/rmm/scripts" | jq -e "length==1" >/dev/null'
           check "Übersicht"               'api "$B/api/rmm/summary" | jq -e ".agents_total==1 and .agents_online==1" >/dev/null'

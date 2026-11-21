@@ -404,7 +404,12 @@ async function runAction(r, what) {
 }
 
 watch(tab, t => { router.replace({ query: { ...route.query, tab: t } }); load() })
-onMounted(() => { load(); timer = setInterval(load, 20000) })
+onMounted(() => {
+  load()
+  // Link von einem Rechner (?tab=runs&run=12): den Lauf gleich aufklappen.
+  if (route.query.run) openRun(Number(route.query.run))
+  timer = setInterval(load, 20000)
+})
 onBeforeUnmount(() => clearInterval(timer))
 </script>
 

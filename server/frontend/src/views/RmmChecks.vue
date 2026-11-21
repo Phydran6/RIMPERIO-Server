@@ -26,8 +26,10 @@
         <label>Typ
           <select v-model="form.type" class="select"><option v-for="(t, k) in TYPES" :key="k" :value="k">{{ t.label }}</option></select>
         </label>
-        <label v-for="p in TYPES[form.type].params" :key="p.key">{{ p.label }}
-          <input v-model="form.params[p.key]" class="input" :type="p.number ? 'number' : 'text'" :placeholder="p.hint || ''" />
+        <label v-for="p in TYPES[form.type].params" :key="p.key" :class="{ 'is-wide': p.key === 'body' }">{{ p.label }}
+          <select v-if="p.shell" v-model="form.params[p.key]" class="select"><option v-for="s in SHELLS" :key="s.value" :value="s.value">{{ s.label }}</option></select>
+          <textarea v-else-if="p.key === 'body'" v-model="form.params[p.key]" class="textarea rmm-code" rows="3" :placeholder="p.hint || ''"></textarea>
+          <input v-else v-model="form.params[p.key]" class="input" :type="p.number ? 'number' : 'text'" :placeholder="p.hint || ''" />
         </label>
         <label>Intervall (s)<input v-model.number="form.interval_sec" type="number" min="30" class="input" /></label>
         <label>Gilt für
@@ -97,18 +99,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
-import { fmtTime, STATUS_BADGE, STATUS_LABEL } from '../utils/rmm'
-
-// Parameter je Typ — so, wie der Agent sie erwartet (agent/internal/core/checks.go).
-const TYPES = {
-  cpu: { label: 'CPU-Last', params: [{ key: 'max', label: 'Schwelle (%)', number: true, hint: '90' }] },
-  mem: { label: 'Arbeitsspeicher', params: [{ key: 'max', label: 'Schwelle (%)', number: true, hint: '90' }] },
-  disk: { label: 'Plattenplatz', params: [{ key: 'max', label: 'Schwelle (%)', number: true, hint: '90' }, { key: 'mount', label: 'Laufwerk (leer = alle)', hint: 'C:\\ oder /' }] },
-  service: { label: 'Dienst läuft', params: [{ key: 'name', label: 'Dienstname', hint: 'Spooler / nginx' }] },
-  port: { label: 'Port erreichbar', params: [{ key: 'host', label: 'Host', hint: '127.0.0.1' }, { key: 'port', label: 'Port', number: true, hint: '443' }] },
-  ping: { label: 'Ping', params: [{ key: 'host', label: 'Host', hint: '8.8.8.8' }] },
-  script: { label: 'Skript (Exit-Code prüfen)', params: [{ key: 'shell', label: 'Shell', hint: 'powershell / bash' }, { key: 'body', label: 'Skript' }, { key: 'expect_exit', label: 'Erwarteter Exit-Code', number: true, hint: '0' }] },
-}
+import { CHECK_TYPES as TYPES, fmtTime, normalizeCheckParams, SHELLS, STATUS_BADGE, STATUS_LABEL } from '../utils/rmm'
 
 const auth = useAuthStore()
 const checks = ref([])
@@ -140,8 +131,7 @@ function open(c = null) { form.value = c ? { ...c, params: { ...c.params } } : b
 
 async function save() {
   const { id, created_at, ...body } = form.value
-  // Zahlenfelder als Zahl schicken.
-  for (const p of TYPES[body.type].params) if (p.number && body.params[p.key] !== undefined && body.params[p.key] !== '') body.params[p.key] = Number(body.params[p.key])
+  body.params = normalizeCheckParams(body.type, body.params)
   try {
     await auth.api(id ? `/api/rmm/checks/${id}` : '/api/rmm/checks', { method: id ? 'PUT' : 'POST', body })
     form.value = null

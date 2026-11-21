@@ -2,6 +2,15 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.21.01.00.00
+
+### Added
+- **Sofort-Zustellung von Aufträgen:** `POST /api/rmm/agent/wait` (Long-Poll, bis 25 s). Wird ein Auftrag eingereiht, weckt `app/agentwake.py` die wartende Anfrage; ohne Weckruf schaut sie alle 5 s selbst nach. Die Datenbankverbindung wird während des Wartens freigegeben. Aufträge werden mit `FOR UPDATE SKIP LOCKED` vergeben, damit Check-in und Warte-Anfrage nie denselben bekommen. Die Deinstallation läuft weiter nur über den Check-in. `GET /api/rmm/agents[/uid]` liefert `live`.
+- `POST /api/patching/sources/refresh-all`: alle eingeschalteten Quellen abrufen (vier gleichzeitig). `GET /api/patching/sources` liefert je Quelle `matched_open` und Gesamtzahlen unter `usage`.
+
+### Fixed
+- Meldet ein Agent nach einem Neustart `restarted`, werden seine noch als „läuft“ geführten Aufträge sofort als abgebrochen markiert, statt bis zum Ablauf der Frist (bis zu 45 min) hängen zu bleiben.
+
 ## 2026.11.20.23.00.00
 
 ### Fixed

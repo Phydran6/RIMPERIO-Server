@@ -12,6 +12,7 @@ Lesen darf jeder angemeldete Benutzer, entscheiden und einstellen nur
 Administratoren. Jede Entscheidung steht im Systemtagebuch.
 """
 
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -577,12 +578,64 @@ async def pve_snapshots(db: AsyncSession = Depends(get_db), _: User = Depends(ge
 # ==============================================================================
 # Update-Quellen
 # ==============================================================================
+# Updates, die noch nicht erledigt sind — nur für sie zählt, was eine Quelle beiträgt.
+_OPEN_ITEM_STATUSES = ("review", "auto", "needs_approval", "approved", "installing", "failed")
+
+
+async def _source_usage(db: AsyncSession, rows: List[UpdateSource]) -> Dict[str, Any]:
+    """Wie die Quellen gerade wirken: je Quelle die Zahl offener Updates, denen
+    eine ihrer Meldungen zugeordnet ist (bzw. bei CISA KEV: die sie dringend
+    macht), dazu die Gesamtzahlen für die Erklärung oben auf der Seite."""
+    items = (await db.execute(select(PatchItem.advisories, PatchItem.urgent).where(
+        PatchItem.status.in_(_OPEN_ITEM_STATUSES)))).all()
+    by_name: Dict[str, int] = {}
+    with_any, urgent = 0, 0
+    for advs, is_urgent in items:
+        names = {a.get("source") for a in (advs or []) if isinstance(a, dict) and a.get("source")}
+        for n in names:
+            by_name[n] = by_name.get(n, 0) + 1
+        with_any += 1 if names else 0
+        urgent += 1 if is_urgent else 0
+    per_source = {s.id: (urgent if s.kind == "kev" else by_name.get(s.name, 0)) for s in rows}
+    return {"per_source": per_source,
+            "totals": {"open": len(items), "with_advisories": with_any, "urgent": urgent}}
+
+
 @router.get("/sources")
 async def sources(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)) -> dict:
     await advisories.ensure_builtin(db)
-    rows = (await db.execute(select(UpdateSource).order_by(desc(UpdateSource.builtin), UpdateSource.name))).scalars()
+    rows = (await db.execute(select(UpdateSource).order_by(desc(UpdateSource.builtin), UpdateSource.name))).scalars().all()
     cfg = await advisories.load_config(db)
-    return {"sources": [advisories.public_source(s) for s in rows], "config": advisories.public_config(cfg)}
+    usage = await _source_usage(db, rows)
+    return {"sources": [{**advisories.public_source(s), "matched_open": usage["per_source"].get(s.id, 0)}
+                        for s in rows],
+            "usage": usage["totals"], "config": advisories.public_config(cfg)}
+
+
+@router.post("/sources/refresh-all")
+async def refresh_all_sources(user: User = Depends(get_current_admin)) -> dict:
+    """Alle eingeschalteten Quellen jetzt abrufen (je vier gleichzeitig)."""
+    from ..database import async_session
+
+    async with async_session() as db:
+        ids = [i for (i,) in (await db.execute(
+            select(UpdateSource.id).where(UpdateSource.enabled.is_(True)))).all()]
+    gate = asyncio.Semaphore(4)
+
+    async def one(source_id: int) -> tuple:
+        async with gate, async_session() as db:
+            s = await db.get(UpdateSource, source_id)
+            if s is None:
+                return 0, False
+            added = await advisories.refresh_source(db, s)
+            return added, (s.last_status or "").startswith("Fehler")
+
+    results = await asyncio.gather(*(one(i) for i in ids))
+    added = sum(a for a, _ in results)
+    failed = sum(1 for _, f in results if f)
+    journal.fire(category="rmm", event="source.refresh_all", actor=user.username,
+                 message=f"Alle Update-Quellen abgerufen: {added} neue Meldungen, {failed} Fehler.")
+    return {"sources": len(ids), "added": added, "failed": failed}
 
 
 @router.post("/sources", status_code=201)

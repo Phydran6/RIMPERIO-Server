@@ -2,6 +2,22 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.21.01.00.00
+
+### Changed
+- **Rechner-Detail neu gegliedert.** Reiter *Konsole*, *Skripte*, *Aufträge*, *Patches*, *Checks*, *Platten & Prozesse*, *Inventur*; der Reiter steht in der Adresse (`?tab=`).
+- **Konsole:** Befehl eingeben, **Enter** schickt ab (Umschalt+Enter = neue Zeile, ↑/↓ = frühere Befehle). Die Ausgabe erscheint direkt darunter wie in einem Terminal; solange ein Befehl läuft, fragt die Seite alle 1,5 s nach. Oben steht, ob der Agent sofort erreichbar ist oder erst beim nächsten Check-in.
+- **Shell nach System:** Auf Linux/macOS gibt es nur bash und sh, auf Windows nur PowerShell und cmd. Platzhalter passend zur Shell.
+- **Skripte:** eigener Reiter mit den Skripten der Bibliothek, die zum System des Rechners passen; „Starten“ schickt sie ab, die Ausgabe steht in der Konsole.
+- **Aufträge:** laufender Patch-Lauf mit den letzten Schritten und Link ins Patch-Center, darunter alle Aufträge (Filter: laufend, Patches & System, Befehle). Ausgaben sind lesbar: Patch-Suche als Tabelle, Installation als Zusammenfassung, JSON eingerückt (neue Komponente `CommandOutput.vue`).
+- **Patches:** Tabelle mit installierter → verfügbarer Version, Kategorie, Sicherheit/Neustart. „Updates installieren“ springt danach zu *Aufträge*.
+- **Checks:** direkt am Rechner anlegen, bearbeiten und löschen (Standard: nur dieser Rechner). Die Check-Typen liegen jetzt gemeinsam in `utils/rmm.js`.
+- **Update-Quellen:** „Alle jetzt abrufen“, eine Erklärung, wie Quellen in die Bewertung einfließen, und die Spalte „Wirkt auf“ (wie viele offene Updates eine Quelle betrifft).
+- **Patch-Center:** `?tab=runs&run=ID` öffnet den Lauf direkt.
+
+### Fixed
+- Aktionsspalten in Tabellen (Update-Quellen, Checks, Skripte, Richtlinien, Proxmox, SNMP, Patch-Center) verrutschten gegen die Zeile, weil die Zelle selbst `display:flex` bekam.
+
 ## 2026.11.20.23.00.00
 
 ### Fixed

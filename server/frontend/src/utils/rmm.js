@@ -51,13 +51,76 @@ export const STATUS_LABEL = {
 }
 
 export const SHELLS = [
-  { value: 'powershell', label: 'PowerShell (Windows)' },
-  { value: 'cmd', label: 'cmd (Windows)' },
-  { value: 'bash', label: 'bash (Linux)' },
-  { value: 'sh', label: 'sh (Linux)' },
+  { value: 'powershell', label: 'PowerShell (Windows)', platforms: ['windows'] },
+  { value: 'cmd', label: 'cmd (Windows)', platforms: ['windows'] },
+  { value: 'bash', label: 'bash (Linux)', platforms: ['linux', 'darwin'] },
+  { value: 'sh', label: 'sh (Linux)', platforms: ['linux', 'darwin'] },
 ]
 
+// Nur die Shells, die es auf dem System des Agents gibt. Unbekanntes System
+// (noch keine Inventur): alle.
+export function shellsFor(platform) {
+  const p = (platform || '').toLowerCase()
+  const list = SHELLS.filter(s => s.platforms.includes(p))
+  return list.length ? list : SHELLS
+}
+
+export const SHELL_PLACEHOLDER = {
+  powershell: 'Get-Service | Where-Object Status -eq Stopped',
+  cmd: 'ipconfig /all',
+  bash: 'df -h; systemctl --failed',
+  sh: 'uptime',
+}
+
 export const PLATFORM_LABEL = { windows: 'Windows', linux: 'Linux', darwin: 'macOS', any: 'alle' }
+
+// Check-Typen und ihre Parameter — so, wie der Agent sie erwartet
+// (agent/internal/core/checks.go). Gemeinsam für Checks-Seite und Rechner.
+export const CHECK_TYPES = {
+  cpu: { label: 'CPU-Last', params: [{ key: 'max', label: 'Schwelle (%)', number: true, hint: '90' }] },
+  mem: { label: 'Arbeitsspeicher', params: [{ key: 'max', label: 'Schwelle (%)', number: true, hint: '90' }] },
+  disk: { label: 'Plattenplatz', params: [{ key: 'max', label: 'Schwelle (%)', number: true, hint: '90' }, { key: 'mount', label: 'Laufwerk (leer = alle)', hint: 'C:\\ oder /' }] },
+  service: { label: 'Dienst läuft', params: [{ key: 'name', label: 'Dienstname', hint: 'Spooler / nginx' }] },
+  port: { label: 'Port erreichbar', params: [{ key: 'host', label: 'Host', hint: '127.0.0.1' }, { key: 'port', label: 'Port', number: true, hint: '443' }] },
+  ping: { label: 'Ping', params: [{ key: 'host', label: 'Host', hint: '8.8.8.8' }] },
+  script: { label: 'Skript (Exit-Code prüfen)', params: [{ key: 'shell', label: 'Shell', shell: true }, { key: 'body', label: 'Skript', hint: 'exit 0' }, { key: 'expect_exit', label: 'Erwarteter Exit-Code', number: true, hint: '0' }] },
+}
+
+// Zahlenfelder eines Checks als Zahl schicken (Formularfelder liefern Text).
+export function normalizeCheckParams(type, params) {
+  const out = { ...params }
+  for (const p of CHECK_TYPES[type]?.params || []) {
+    if (p.number && out[p.key] !== undefined && out[p.key] !== '') out[p.key] = Number(out[p.key])
+  }
+  return out
+}
+
+// Gilt ein Check für diesen Rechner?
+export function checkApplies(check, agent) {
+  if (check.scope_type === 'global') return true
+  if (check.scope_type === 'site') return check.scope_value === (agent.site || 'Standard')
+  return check.scope_value === agent.agent_uid
+}
+
+// --- Aufträge ------------------------------------------------------------------
+export const COMMAND_KIND_LABEL = {
+  shell: 'Befehl', patch_scan: 'Patch-Suche', patch_apply: 'Installation', docker_scan: 'Docker-Suche',
+  docker_update: 'Container-Update', health_snapshot: 'Zustandsaufnahme', reboot: 'Neustart',
+  software_inventory: 'Software-Inventur', uninstall: 'Deinstallation',
+}
+
+export function parseJSON(text) {
+  if (!text || !/^\s*[[{]/.test(text)) return null
+  try { return JSON.parse(text) } catch { return null }
+}
+
+export function fmtDuration(fromIso, toIso) {
+  if (!fromIso) return ''
+  const s = Math.max(0, Math.round(((toIso ? new Date(toIso) : new Date()) - new Date(fromIso)) / 1000))
+  if (s < 60) return `${s} s`
+  if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`
+  return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`
+}
 
 // --- Patchmanagement -----------------------------------------------------------
 export const PATCH_STATUS = {

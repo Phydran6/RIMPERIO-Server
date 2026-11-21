@@ -47,7 +47,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import advisories, ai, journal, notify, pve
+from . import advisories, agentwake, ai, journal, notify, pve
 from .database import Base, async_session, engine
 from .models import (PATCH_TABLES, Agent, CheckResult, Command, PatchItem, PatchKnowledge,
                      PatchPolicy, PatchReport, PatchRun, PveHost)
@@ -824,6 +824,9 @@ async def _queue(db: AsyncSession, agent: Agent, kind: str, payload: Any, timeou
                   timeout=timeout, kind=kind, source=source, created_by="patch")
     db.add(cmd)
     await db.flush()
+    # Der Aufrufer committet erst danach — den wartenden Agent etwas später
+    # wecken, damit er den Auftrag beim Nachsehen schon sieht.
+    agentwake.notify(agent.id, delay=1.0)
     return cmd
 
 

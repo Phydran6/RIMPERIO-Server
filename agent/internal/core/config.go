@@ -25,7 +25,7 @@ import (
 )
 
 // Version des Agents — wandert in jeden Check-in und in die Inventur.
-const Version = "2026.11.20.22.00.00"
+const Version = "2026.11.21.01.00.00"
 
 // LinuxHome ist das Installationsverzeichnis unter Linux. Darunter liegt alles:
 // bin/ (Programm), lib/ (Hilfsskript für Aufgaben, die root brauchen), etc/

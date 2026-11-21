@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,7 +67,17 @@ type CheckinRequest struct {
 	LocalIP   string     `json:"local_ip"`
 	PublicIP  string     `json:"public_ip,omitempty"`
 	Telemetry *Telemetry `json:"telemetry,omitempty"`
+	// Erster Check-in nach dem Start: Der Server bricht Aufträge ab, die
+	// noch als "läuft" stehen — der alte Prozess meldet sie nicht mehr.
+	Restarted bool `json:"restarted,omitempty"`
 }
+
+type WaitResponse struct {
+	Commands []PendingCommand `json:"commands"`
+}
+
+// ErrNoWait: Der Server kennt die Warte-Verbindung nicht (älterer Server).
+var ErrNoWait = errors.New("Server ohne Sofort-Zustellung")
 
 type PendingCommand struct {
 	ID      int    `json:"id"`
@@ -133,6 +144,10 @@ func (c *Client) doJSON(method, path, bearer string, body, out any) error {
 	defer resp.Body.Close()
 
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed) &&
+		path == "/api/rmm/agent/wait" {
+		return ErrNoWait
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("%s %s: HTTP %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
@@ -156,6 +171,17 @@ func (c *Client) Checkin(req CheckinRequest) (*CheckinResponse, error) {
 		return nil, err
 	}
 	return &res, nil
+}
+
+// Wait hält eine Verbindung offen, bis der Server einen Auftrag hat (höchstens
+// ~25 s, dann leere Liste). So kommt ein Befehl aus der Oberfläche sofort an
+// statt erst beim nächsten Check-in.
+func (c *Client) Wait() ([]PendingCommand, error) {
+	var res WaitResponse
+	if err := c.doJSON(http.MethodPost, "/api/rmm/agent/wait", c.Token, struct{}{}, &res); err != nil {
+		return nil, err
+	}
+	return res.Commands, nil
 }
 
 func (c *Client) SendInventory(inv Inventory) error {

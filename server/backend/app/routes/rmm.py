@@ -15,6 +15,7 @@ Zwei Router:
   Jeder Eingriff steht im Systemtagebuch.
 """
 
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -24,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import patchmgmt, rmm, snmpmon, tokens
+from .. import agentwake, patchmgmt, rmm, snmpmon, tokens
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
 from ..limiter import client_ip
@@ -97,6 +98,9 @@ class CheckinIn(BaseModel):
     local_ip: Optional[str] = None
     public_ip: Optional[str] = None
     telemetry: Optional[TelemetryIn] = None
+    # Erster Check-in nach dem Start des Agents: Was vorher als "läuft" galt,
+    # ist mit dem alten Prozess untergegangen.
+    restarted: bool = False
 
 
 class CommandResultIn(BaseModel):
@@ -318,6 +322,64 @@ async def unregister(request: Request, agent: Agent = Depends(current_agent),
     return {"status": "ok", "device_deleted": deleted}
 
 
+# Lange Warte-Anfrage: so lange hält der Server sie offen, wenn nichts ansteht.
+# Deutlich unter den 60 s, nach denen Proxys (nginx, Caddy) gern abbrechen.
+WAIT_SECONDS = 25.0
+# Auch ohne Weckruf schaut die Warte-Anfrage so oft selbst nach.
+WAIT_RECHECK = 5.0
+
+
+async def _claim_pending(db: AsyncSession, agent_id: int, *, live: bool = False) -> List[dict]:
+    """Holt die wartenden Aufträge und setzt sie auf "läuft". Zeilensperre mit
+    SKIP LOCKED, damit Check-in und Warte-Anfrage denselben Auftrag nicht
+    beide bekommen. Die Warte-Anfrage lässt die Deinstallation dem Check-in."""
+    q = (select(Command).where(Command.agent_id == agent_id, Command.status == "pending")
+         .order_by(Command.id).with_for_update(skip_locked=True))
+    if live:
+        q = q.where(Command.kind != "uninstall")
+    out = []
+    for c in (await db.execute(q)).scalars().all():
+        c.status, c.picked_at = "running", _now()
+        out.append({"id": c.id, "shell": c.shell, "command": c.command,
+                    "timeout": c.timeout, "kind": c.kind})
+    return out
+
+
+async def _abandon_running(db: AsyncSession, agent_id: int) -> None:
+    """Der Agent wurde neu gestartet: laufende Aufträge kommen nicht mehr zurück."""
+    rows = (await db.execute(select(Command).where(
+        Command.agent_id == agent_id, Command.status == "running"))).scalars().all()
+    for c in rows:
+        c.status, c.finished_at, c.exit_code = "error", _now(), -1
+        c.stderr = ((c.stderr or "") + "\nAbgebrochen: Der Agent wurde neu gestartet, "
+                    "bevor der Auftrag fertig war.").strip()
+
+
+@agent_router.post("/wait")
+async def wait(agent: Agent = Depends(current_agent), db: AsyncSession = Depends(get_db)) -> dict:
+    """Long-Poll für die Sofort-Zustellung. Antwortet, sobald ein Auftrag für
+    diesen Agent ansteht, spätestens nach WAIT_SECONDS mit leerer Liste. Die
+    Datenbankverbindung wird während des Wartens freigegeben (commit)."""
+    agent_id = agent.id
+    ev = agentwake.event(agent_id)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + WAIT_SECONDS
+    while True:
+        agentwake.mark_waiting(agent_id)
+        ev.clear()
+        commands = await _claim_pending(db, agent_id, live=True)
+        await db.commit()
+        if commands:
+            return {"commands": commands}
+        left = deadline - loop.time()
+        if left <= 0:
+            return {"commands": []}
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=min(left, WAIT_RECHECK))
+        except asyncio.TimeoutError:
+            pass
+
+
 @agent_router.post("/checkin")
 async def checkin(data: CheckinIn, request: Request, agent: Agent = Depends(current_agent),
                   db: AsyncSession = Depends(get_db)) -> dict:
@@ -342,15 +404,9 @@ async def checkin(data: CheckinIn, request: Request, agent: Agent = Depends(curr
             agent.boot_time = _naive(t.boot_time)
         await rmm.evaluate_thresholds(db, agent, t.cpu_percent, t.mem_percent, worst, th)
 
-    pending = (await db.execute(
-        select(Command).where(Command.agent_id == agent.id, Command.status == "pending")
-        .order_by(Command.id)
-    )).scalars().all()
-    commands = []
-    for c in pending:
-        c.status, c.picked_at = "running", _now()
-        commands.append({"id": c.id, "shell": c.shell, "command": c.command,
-                         "timeout": c.timeout, "kind": c.kind})
+    if data.restarted:
+        await _abandon_running(db, agent.id)
+    commands = await _claim_pending(db, agent.id)
 
     checks = []
     for ck in (await db.execute(select(Check).where(Check.enabled.is_(True)))).scalars():
@@ -489,6 +545,7 @@ async def _queue(db: AsyncSession, agent: Agent, user: User, *, shell: str, comm
     what = source or (command[:80] if kind == "shell" else kind)
     rmm.record(f"command.{kind}", f"{user.username} → {agent.hostname}: {what}",
                actor=user.username, target=agent.hostname, command_id=cmd.id)
+    agentwake.notify(agent.id)
     return _command(cmd)
 
 
@@ -500,7 +557,8 @@ async def list_agents(site: Optional[str] = None, db: AsyncSession = Depends(get
     if site:
         q = q.where(Agent.site == site)
     pending = await _uninstall_pending(db)
-    return [{**rmm.agent_public(a, th["offline_after"]), "uninstall_pending": a.id in pending}
+    return [{**rmm.agent_public(a, th["offline_after"]), "uninstall_pending": a.id in pending,
+             "live": agentwake.is_live(a.id)}
             for a in (await db.execute(q)).scalars()]
 
 
@@ -510,7 +568,8 @@ async def get_agent(uid: str, db: AsyncSession = Depends(get_db),
     th = await rmm.get_thresholds(db)
     agent = await _agent(db, uid)
     return {**rmm.agent_public(agent, th["offline_after"], detail=True),
-            "uninstall_pending": agent.id in await _uninstall_pending(db)}
+            "uninstall_pending": agent.id in await _uninstall_pending(db),
+            "live": agentwake.is_live(agent.id)}
 
 
 @router.patch("/agents/{uid}")

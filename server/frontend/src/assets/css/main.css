@@ -754,6 +754,12 @@ footer,
 .rmm-bar > span.is-warn { background: var(--color-warning); }
 .rmm-bar > span.is-bad { background: var(--color-danger); }
 .rmm-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+/* Als Tabellenzelle bleibt sie eine Zelle: display:flex auf einem <td> nimmt
+   sie aus dem Tabellenraster (Rahmen und Höhe verrutschen gegen die Zeile). */
+td.rmm-actions { display: table-cell; vertical-align: middle; }
+td.rmm-actions > * { margin: .15rem 0 .15rem .5rem; }
+td.rmm-actions > :first-child { margin-left: 0; }
+td.rmm-actions[style*="flex-end"] { text-align: right; }
 .rmm-remove-option { display: flex; gap: .5rem; align-items: center; font-weight: 500; cursor: pointer; }
 .rmm-remove-text { margin: .75rem 0 1rem; max-width: 48rem; }
 .rmm-badge-removing { margin-left: .5rem; }

@@ -14,11 +14,34 @@
           den passenden Updates zugeordnet (KB, CVE, Paketname) und geht mit in die KI-Prüfung.
         </p>
       </div>
-      <button v-if="auth.isAdmin" class="btn btn-primary btn-sm" @click="form = blank()"><AppIcon name="plus" :size="16" /> Eigene Quelle</button>
+      <div v-if="auth.isAdmin" class="rmm-actions">
+        <button class="btn btn-secondary btn-sm" :disabled="busy" @click="refreshAll">{{ refreshingAll ? 'Rufe alle ab …' : 'Alle jetzt abrufen' }}</button>
+        <button class="btn btn-primary btn-sm" @click="form = blank()"><AppIcon name="plus" :size="16" /> Eigene Quelle</button>
+      </div>
     </div>
 
     <p v-if="error" class="rmm-note is-error">{{ error }}</p>
     <p v-if="notice" class="rmm-note is-ok">{{ notice }}</p>
+
+    <section class="card mb-4">
+      <div class="card-header"><h2 class="card-title">So fließen die Quellen ein</h2></div>
+      <div class="card-body">
+        <ol class="src-steps">
+          <li><strong>Abrufen.</strong> Jede eingeschaltete Quelle wird im eigenen Takt (Spalte „Abruf“) automatisch geholt –
+            „Abrufen“ bzw. „Alle jetzt abrufen“ ist nur nötig, wenn man nicht warten will.</li>
+          <li><strong>Zuordnen.</strong> Aus jeder Meldung zieht RIMPERIO KB-Nummern, CVEs und Paketnamen und hängt sie an die
+            offenen Updates, die dazu passen. Die Meldungen stehen dann im Patch-Center beim Update.</li>
+          <li><strong>Bewerten.</strong> Die zugeordneten Meldungen gehen in die KI-Einschätzung (bekannte Probleme, Rückzüge).
+            Eine Lücke aus CISA KEV macht ein Update <em>dringend</em> – es überspringt die Rückstellung.</li>
+        </ol>
+        <p class="rmm-muted src-usage">
+          Gerade offen: <strong>{{ usage.open }}</strong> Update(s) ·
+          davon <strong>{{ usage.with_advisories }}</strong> mit mindestens einer Meldung ·
+          <strong>{{ usage.urgent }}</strong> dringend (CISA KEV).
+          Die Spalte „Wirkt auf“ zeigt, wie viele offene Updates eine Quelle betrifft.
+        </p>
+      </div>
+    </section>
 
     <section v-if="form" class="card mb-4">
       <div class="card-header"><h2 class="card-title">Eigene Quelle</h2></div>
@@ -76,7 +99,7 @@
       <div class="card-header"><h2 class="card-title">Quellen</h2></div>
       <div class="rmm-table-wrap">
         <table class="table">
-          <thead><tr><th></th><th>Quelle</th><th>Gilt für</th><th>Abruf</th><th>Stand</th><th>Meldungen</th><th></th></tr></thead>
+          <thead><tr><th></th><th>Quelle</th><th>Gilt für</th><th>Abruf</th><th>Stand</th><th>Meldungen</th><th>Wirkt auf</th><th></th></tr></thead>
           <tbody>
             <tr v-for="src in sources" :key="src.id" :style="src.enabled ? '' : 'opacity:.55'">
               <td><input type="checkbox" :checked="src.enabled" :disabled="!auth.isAdmin" @change="toggle(src)" /></td>
@@ -86,7 +109,15 @@
               <td>{{ src.platforms.join(', ') }}</td>
               <td>{{ src.interval_minutes }} min</td>
               <td class="rmm-muted">{{ fmtAgo(src.last_fetch_at) }}<div :style="src.last_status.startsWith('Fehler') ? 'color:var(--color-danger)' : ''">{{ src.last_status }}</div></td>
-              <td><a href="#" @click.prevent="showItems(src)">{{ src.item_count }}</a></td>
+              <td><a href="#" title="Meldungen dieser Quelle unten anzeigen" @click.prevent="showItems(src)">{{ src.item_count }}</a></td>
+              <td>
+                <template v-if="!src.enabled"><span class="rmm-muted">aus</span></template>
+                <template v-else-if="src.matched_open">
+                  <strong>{{ src.matched_open }}</strong>
+                  <div class="rmm-muted">{{ src.kind === 'kev' ? 'dringend gemacht' : 'offene Update(s)' }}</div>
+                </template>
+                <span v-else class="rmm-muted" :title="src.kind === 'kev' ? 'Kein offenes Update schließt gerade eine aktiv ausgenutzte Lücke.' : 'Gerade passt keine Meldung dieser Quelle zu einem offenen Update.'">–</span>
+              </td>
               <td class="rmm-actions" style="justify-content:flex-end">
                 <button v-if="auth.isAdmin" class="btn btn-secondary btn-sm" :disabled="busy" @click="refresh(src)">Abrufen</button>
                 <button v-if="auth.isAdmin && !src.builtin" class="btn btn-danger btn-sm" @click="remove(src)">Löschen</button>
@@ -136,6 +167,8 @@ const testResults = ref([])
 const error = ref('')
 const notice = ref('')
 const busy = ref(false)
+const refreshingAll = ref(false)
+const usage = ref({ open: 0, with_advisories: 0, urgent: 0 })
 
 const blank = () => ({ name: '', kind: 'rss', url: '', platforms: ['windows', 'linux', 'docker'], interval_minutes: 360, note: '', language: 'de' })
 
@@ -148,6 +181,7 @@ async function load() {
     const data = await auth.api('/api/patching/sources')
     sources.value = data.sources
     cfg.value = data.config
+    if (data.usage) usage.value = data.usage
     await loadAdvisories()
   })
 }
@@ -163,6 +197,16 @@ async function toggle(src) {
 }
 async function refresh(src) {
   await guard(async () => { const r = await auth.api(`/api/patching/sources/${src.id}/refresh`, { method: 'POST' }); notice.value = `${src.name}: ${r.added} neue Meldung(en).`; await load() })
+}
+async function refreshAll() {
+  refreshingAll.value = true
+  try {
+    await guard(async () => {
+      const r = await auth.api('/api/patching/sources/refresh-all', { method: 'POST' })
+      notice.value = `${r.sources} Quelle(n) abgerufen: ${r.added} neue Meldung(en)` + (r.failed ? `, ${r.failed} mit Fehler (siehe Spalte „Stand“).` : '.')
+      await load()
+    })
+  } finally { refreshingAll.value = false }
 }
 async function remove(src) {
   if (!confirm(`Quelle „${src.name}“ samt Meldungen löschen?`)) return
@@ -197,4 +241,6 @@ onMounted(load)
 .pol-check span { display: inline-flex; gap: .25rem; align-items: center; margin-right: .5rem; }
 .src-list { list-style: none; margin: 0; padding: 0 1rem 1rem; display: flex; flex-direction: column; gap: .6rem; font-size: .875rem; }
 .src-list .rmm-muted { overflow-wrap: anywhere; }
+.src-steps { margin: 0 0 .75rem; padding-left: 1.2rem; display: flex; flex-direction: column; gap: .4rem; font-size: .875rem; }
+.src-usage { margin: 0; }
 </style>

@@ -2,6 +2,12 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.21.01.00.00 — Befehle kommen sofort an
+
+### Added
+- **Warte-Verbindung zum Server** (`liveLoop` in `runner.go`): Der Agent hält neben dem Check-in eine Long-Poll-Anfrage offen und führt Aufträge aus, sobald sie eingereiht werden — nicht erst beim nächsten Check-in (bis 60 s). Lange Aufträge gehen wie bisher an den Hintergrund-Arbeiter. Ältere Server ohne diese Schnittstelle: Der Agent bleibt beim Check-in-Takt.
+- Der erste Check-in nach dem Start meldet `restarted`; der Server bricht dann Aufträge ab, die der vorige Prozess nicht mehr fertig bekommen hat.
+
 ## 2026.11.20.22.00.00 — Linux: eigenes Dienstkonto statt root, alles unter `/opt/RMM/rimperio`
 
 ### Fixed
