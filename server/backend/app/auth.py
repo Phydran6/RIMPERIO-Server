@@ -9,7 +9,7 @@ import hashlib
 import hmac
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt
@@ -152,7 +152,12 @@ def clear_mfa_failures(user: User) -> None:
     user.mfa_locked_until = None
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)) -> User:
+# Was ein Konto mit Startpasswort darf, bevor es ein eigenes gesetzt hat.
+PASSWORD_CHANGE_ALLOWED = ("/api/auth/me", "/api/auth/change-password", "/api/auth/logout")
+
+
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme),
+                           db: AsyncSession = Depends(get_db)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Ungültige Anmeldedaten",
@@ -177,6 +182,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     # Abdruck)? Dann gilt die Sitzung nicht mehr.
     if not _fingerprint_ok(payload, user):
         raise credentials_exception
+    if getattr(user, "must_change_password", False) and request.url.path not in PASSWORD_CHANGE_ALLOWED:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Bitte zuerst das Startpasswort ändern.",
+                            headers={"X-Password-Change-Required": "1"})
     return user
 
 async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:

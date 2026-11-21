@@ -39,7 +39,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import journal, sso
+from .. import journal, sso, sso_m365
 from ..auth import get_current_admin
 from ..config import settings
 from ..database import get_db
@@ -259,6 +259,42 @@ async def test_connection(db: AsyncSession = Depends(get_db), _=Depends(get_curr
         "message": ("Der Anbieter antwortet und liefert seine Schlüssel. Ob das "
                     "Client-Geheimnis stimmt, zeigt die erste Anmeldung."),
     }
+
+
+# =============================================================================
+# Automatische Einrichtung: Microsoft-Anmeldung -> App-Registrierung anlegen
+# =============================================================================
+@admin_router.post("/m365/start")
+async def m365_start(request: Request, db: AsyncSession = Depends(get_db),
+                     admin=Depends(get_current_admin)):
+    """Holt einen Gerätecode bei Microsoft. Danach /m365/status abfragen."""
+    config = await sso.load_config(db)
+    base = _base_url(request)
+    redirect = (config.get("redirect_uri") or "").strip() or f"{base.rstrip('/')}/api/auth/sso/callback"
+    try:
+        result = await sso_m365.start(redirect, admin.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    journal.fire(category="settings", event="sso.m365.setup.started", actor=admin.username,
+                 message="Automatische Einrichtung der Microsoft-365-Anmeldung gestartet.",
+                 source_ip=real_client_ip(request))
+    return result
+
+
+@admin_router.get("/m365/status/{flow}")
+async def m365_status(flow: str, _=Depends(get_current_admin)):
+    try:
+        return await sso_m365.status(flow)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@admin_router.delete("/m365/{flow}")
+async def m365_cancel(flow: str, _=Depends(get_current_admin)):
+    sso_m365.cancel(flow)
+    return {"cancelled": True}
 
 
 router.include_router(admin_router)

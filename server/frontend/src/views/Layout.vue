@@ -12,8 +12,8 @@
        genau eine Seite; die Reiterleisten in der Einstellungsseite sind weg.
      * Nur noch zwei Ebenen: Bereich -> Seite. Vorher drei, und es war immer
        nur ein Bereich offen - beim Wechsel klappte der andere weg.
-     * Bereiche lassen sich einzeln zuklappen, das merkt sich der Browser.
-       Der Bereich der aktuellen Seite ist immer offen.
+     * Ab Werk sind alle Bereiche zugeklappt; aufgeklappte merkt sich der
+       Browser. Der Bereich der aktuellen Seite geht von selbst auf.
      * Suchfeld oben: tippt man "dns", "patch" oder "app", bleiben nur die
        passenden Punkte stehen, Enter oeffnet den ersten.
      * Eingeklappt bleibt eine Icon-Leiste mit allen Seiten (Tooltip = Name).
@@ -279,7 +279,9 @@ const query = ref('')
 const searchInput = ref(null)
 
 const COLLAPSE_KEY = 'rimperio.sidebarCollapsed'
-const CLOSED_SECTIONS_KEY = 'rimperio.sidebarClosedSections'
+// Gemerkt werden die GEÖFFNETEN Bereiche: ab Werk ist alles zugeklappt,
+// nur der Bereich der aktuellen Seite geht von selbst auf.
+const OPEN_SECTIONS_KEY = 'rimperio.sidebarOpenSections'
 
 function readStored(key, fallback = '') {
   try {
@@ -351,42 +353,42 @@ const visibleSections = computed(() => {
     .filter(section => section.items.length)
 })
 
-function readClosed() {
+function readOpen() {
   try {
-    const parsed = JSON.parse(readStored(CLOSED_SECTIONS_KEY, '[]'))
+    const parsed = JSON.parse(readStored(OPEN_SECTIONS_KEY, '[]'))
     return new Set(Array.isArray(parsed) ? parsed : [])
   } catch {
     return new Set()
   }
 }
 
-const closedSections = ref(readClosed())
+const openSections = ref(readOpen())
 
-function storeClosed(next) {
-  closedSections.value = next
-  writeStored(CLOSED_SECTIONS_KEY, JSON.stringify([...next]))
+function storeOpen(next) {
+  openSections.value = next
+  writeStored(OPEN_SECTIONS_KEY, JSON.stringify([...next]))
 }
 
 function isSectionOpen(section) {
   if (section.flat || isCollapsed.value || searching.value) return true
-  return !closedSections.value.has(section.key)
+  return openSections.value.has(section.key)
 }
 
 function toggleSection(key) {
   if (searching.value) return
-  const next = new Set(closedSections.value)
+  const next = new Set(openSections.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
-  storeClosed(next)
+  storeOpen(next)
 }
 
 // Der Bereich der geöffneten Seite geht beim Seitenwechsel auf - sonst sucht
 // man die Markierung in einem zugeklappten Bereich.
 watch(() => active.value.section?.key, (key) => {
-  if (key && closedSections.value.has(key)) {
-    const next = new Set(closedSections.value)
-    next.delete(key)
-    storeClosed(next)
+  if (key && !openSections.value.has(key)) {
+    const next = new Set(openSections.value)
+    next.add(key)
+    storeOpen(next)
   }
 }, { immediate: true })
 
@@ -854,14 +856,11 @@ function handleLogout() {
   padding-inline: 0.5rem;
 }
 
+/* Sprache und Design untereinander, je eine volle Zeile - nicht nebeneinander gequetscht. */
 .footer-tools {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 0.125rem;
-}
-
-.footer-tools.is-stacked {
-  grid-template-columns: 1fr;
 }
 
 .footer-row {

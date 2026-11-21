@@ -16,7 +16,7 @@
       </div>
       <div class="rmm-actions">
         <button class="btn btn-secondary btn-sm" @click="load"><AppIcon name="refresh" :size="16" /> Aktualisieren</button>
-        <button v-if="auth.isAdmin" class="btn btn-primary btn-sm" @click="showAdd = !showAdd">
+        <button v-if="auth.isAdmin" class="btn btn-primary btn-sm" @click="toggleAdd">
           <AppIcon name="plus" :size="16" /> Agent hinzufügen
         </button>
       </div>
@@ -25,22 +25,34 @@
     <p v-if="error" class="rmm-note is-error">{{ error }}</p>
 
     <section v-if="showAdd" class="card mb-4">
-      <div class="card-header"><h2 class="card-title">Agent hinzufügen</h2></div>
+      <div class="card-header">
+        <h2 class="card-title">Agent hinzufügen</h2>
+        <button class="btn-icon" title="Schließen" aria-label="Schließen" @click="showAdd = false"><AppIcon name="close" :size="18" /></button>
+      </div>
       <div class="card-body">
         <p class="rmm-muted mb-3">
-          Zur Anmeldung braucht der Agent einen <strong>Zugangsschlüssel</strong> – am besten eine
-          <router-link to="/agent-tokens">Einladung</router-link> (zählbar, läuft ab), alternativ den Generalschlüssel.
-          Denselben Schlüssel nutzen auch die Log-Agents.
+          RIMPERIO hat dafür eben eine <strong>Einladung</strong> erzeugt (gültig {{ INVITE_DAYS }} Tage, für bis zu
+          {{ INVITE_USES }} Rechner) und in die Befehle eingesetzt — einfach kopieren und auf dem Rechner ausführen.
+          Ein eigener Schlüssel (etwa der Generalschlüssel) lässt sich unten eintragen.
+          Alle Schlüssel: <router-link to="/agent-tokens">Zugangsschlüssel</router-link>.
         </p>
-        <label class="rmm-muted">Zugangsschlüssel für die Befehle unten
-          <input v-model="key" class="input rmm-code" placeholder="ZUGANGSSCHLÜSSEL" />
-        </label>
-        <h3 class="card-title mt-4">Windows (PowerShell als Administrator)</h3>
-        <pre class="rmm-pre">{{ cmdWindows }}</pre>
-        <h3 class="card-title mt-4">Windows per MSI (GPO, Intune)</h3>
-        <pre class="rmm-pre">{{ cmdMsi }}</pre>
-        <h3 class="card-title mt-4">Linux</h3>
-        <pre class="rmm-pre">{{ cmdLinux }}</pre>
+        <div class="agent-key">
+          <label class="rmm-muted flex-1">Zugangsschlüssel (automatisch erzeugt, änderbar)
+            <input v-model="key" class="input rmm-code" placeholder="wird erzeugt …" />
+          </label>
+          <button class="btn btn-secondary btn-sm" :disabled="keyBusy" @click="newInvite">{{ keyBusy ? 'Erzeuge…' : 'Neu erzeugen' }}</button>
+          <button class="btn btn-secondary btn-sm" :disabled="!key" @click="copy('key', key)">{{ copied === 'key' ? 'Kopiert ✓' : 'Kopieren' }}</button>
+        </div>
+        <p v-if="keyNote" class="rmm-muted mt-1">{{ keyNote }}</p>
+        <template v-for="c in commands" :key="c.id">
+          <div class="cmd-head mt-4">
+            <h3 class="card-title">{{ c.title }}</h3>
+            <button class="btn btn-primary btn-sm" @click="copy(c.id, c.text)">
+              <AppIcon :name="copied === c.id ? 'check' : 'copy'" :size="14" /> {{ copied === c.id ? 'Kopiert' : 'Kopieren' }}
+            </button>
+          </div>
+          <pre class="rmm-pre cmd-pre" title="Klicken zum Kopieren" @click="copy(c.id, c.text)">{{ c.text }}</pre>
+        </template>
         <p class="rmm-muted mt-2">
           Der Agent läuft unter dem Dienstkonto <code>rimperio</code>, <strong>nicht als root</strong>
           (anderes Konto: <code>--user NAME</code>; fehlt es, wird es angelegt). Alles liegt unter
@@ -105,6 +117,11 @@ const filter = ref('')
 const site = ref('')
 const showAdd = ref(false)
 const key = ref('')
+const keyBusy = ref(false)
+const keyNote = ref('')
+const copied = ref('')
+const INVITE_DAYS = 7
+const INVITE_USES = 25
 let timer = null
 
 const online = computed(() => agents.value.filter(a => a.online).length)
@@ -126,6 +143,54 @@ const cmdMsi = computed(() =>
 const cmdLinux = computed(() =>
   `curl -sSL ${raw}/linux/install-agent.sh | sudo bash -s -- \\\n  --server ${server} --secret ${k.value} --site Standard --user rimperio`)
 
+const commands = computed(() => [
+  { id: 'win', title: 'Windows (PowerShell als Administrator)', text: cmdWindows.value },
+  { id: 'msi', title: 'Windows per MSI (GPO, Intune)', text: cmdMsi.value },
+  { id: 'linux', title: 'Linux', text: cmdLinux.value },
+])
+
+async function toggleAdd() {
+  showAdd.value = !showAdd.value
+  // Beim Öffnen gleich einen Schlüssel erzeugen - selbst ausdenken muss den niemand.
+  if (showAdd.value && !key.value) await newInvite()
+}
+
+async function newInvite() {
+  keyBusy.value = true
+  keyNote.value = ''
+  try {
+    const stamp = new Date().toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })
+    const data = await auth.api('/api/agent-tokens', { method: 'POST', body: {
+      name: 'Rechner hinzufügen ' + stamp, kind: 'enroll',
+      expires_in_hours: INVITE_DAYS * 24, max_uses: INVITE_USES,
+      note: 'Automatisch beim Öffnen von „Agent hinzufügen“ erzeugt.' } })
+    key.value = data.token
+    keyNote.value = 'Der Schlüssel ist nur jetzt lesbar — danach steht er nur noch als Prüfsumme in der Datenbank.'
+  } catch (e) {
+    keyNote.value = 'Konnte keinen Schlüssel erzeugen: ' + e.message + ' — bitte einen vorhandenen eintragen.'
+  } finally {
+    keyBusy.value = false
+  }
+}
+
+async function copy(id, text) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // Ohne Zwischenablage-Recht (http://): über ein verstecktes Textfeld.
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    try { document.execCommand('copy') } catch { /* dann eben markieren */ }
+    area.remove()
+  }
+  copied.value = id
+  setTimeout(() => { if (copied.value === id) copied.value = '' }, 2000)
+}
+
 async function load() {
   try {
     agents.value = await auth.api('/api/rmm/agents')
@@ -140,3 +205,11 @@ async function load() {
 onMounted(() => { load(); timer = setInterval(load, 30000) })
 onUnmounted(() => clearInterval(timer))
 </script>
+
+<style scoped>
+.agent-key { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-end; }
+.agent-key label { display: flex; flex-direction: column; gap: .25rem; min-width: 16rem; }
+.cmd-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.cmd-pre { cursor: copy; }
+.cmd-pre:hover { border-color: var(--color-primary); }
+</style>

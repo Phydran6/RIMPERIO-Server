@@ -9,6 +9,7 @@ import io
 import json
 import base64
 import logging
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
@@ -200,6 +201,64 @@ async def login_mfa(
         actor=user.username, source_ip=real_client_ip(request),
         detail={"role": user.role, "mfa": True})
     return Token(access_token=issue_access_token(user))
+
+
+# =============================================================================
+# Startpasswort
+# =============================================================================
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+def _hint_text() -> str:
+    install_dir = os.getenv("RIMPERIO_INSTALL_DIR", "/opt/rimperio")
+    return (f"Das Startpasswort für „admin“ hat der Installer am Ende in der Konsole angezeigt. "
+            f"Es steht außerdem in {install_dir}/.env (Zeile RIMPERIO_ADMIN_INITIAL_PASSWORD, "
+            f"nur als root lesbar: sudo grep INITIAL {install_dir}/.env) bzw. im Protokoll: "
+            f"sudo docker logs rimperio-app-backend 2>&1 | grep Startpasswort")
+
+
+@router.get("/initial-hint")
+async def initial_hint(db: AsyncSession = Depends(get_db)):
+    """Oeffentlich: Steht das Startpasswort noch? Dann zeigt die Anmeldeseite,
+    WO man es findet - nie das Passwort selbst."""
+    pending = (await db.execute(select(User.id).where(User.must_change_password.is_(True)).limit(1))).first()
+    return {"pending": bool(pending), "username": "admin" if pending else None,
+            "hint": _hint_text() if pending else ""}
+
+
+@router.post("/change-password", response_model=Token)
+@limiter.limit("10/minute")
+async def change_password(request: Request, data: ChangePasswordRequest,
+                          db: AsyncSession = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    """Eigenes Passwort aendern. Liefert eine neue Sitzung - die alte gilt nach
+    der Aenderung nicht mehr (Abdruck im Token)."""
+    if (current_user.auth_source or "local") != "local":
+        raise HTTPException(status_code=400, detail="Dieses Konto hat hier kein Passwort.")
+    if not verify_password(data.current_password, current_user.password_hash):
+        await journal.record(
+            db, category="auth", event="password.change.failed", level="warning",
+            message=f"Passwortänderung für '{current_user.username}' abgelehnt: altes Passwort falsch.",
+            actor=current_user.username, source_ip=real_client_ip(request), ok=False)
+        raise HTTPException(status_code=403, detail="Das aktuelle Passwort stimmt nicht.")
+    new = data.new_password or ""
+    if len(new) < 10:
+        raise HTTPException(status_code=400, detail="Das neue Passwort braucht mindestens 10 Zeichen.")
+    if new == data.current_password or new.lower() in ("admin", "password", "passwort", current_user.username.lower()):
+        raise HTTPException(status_code=400, detail="Bitte ein anderes, eigenes Passwort wählen.")
+    current_user.password_hash = get_password_hash(new)
+    was_initial = bool(current_user.must_change_password)
+    current_user.must_change_password = False
+    await db.commit()
+    await db.refresh(current_user)
+    await journal.record(
+        db, category="auth", event="password.changed", level="warning",
+        message=(f"'{current_user.username}' hat das Startpasswort ersetzt." if was_initial
+                 else f"'{current_user.username}' hat das eigene Passwort geändert."),
+        actor=current_user.username, source_ip=real_client_ip(request))
+    return Token(access_token=issue_access_token(current_user))
 
 
 @router.get("/me", response_model=UserResponse)

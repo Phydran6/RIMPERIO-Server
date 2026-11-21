@@ -25,10 +25,16 @@
       <button v-for="t in TABS" :key="t.key" :class="{ 'is-active': tab === t.key }" @click="tab = t.key">{{ t.label }}</button>
     </nav>
 
-    <!-- Assistent ---------------------------------------------------------- -->
-    <section v-if="wizard" class="card mb-4">
-      <div class="card-header"><h2 class="card-title">Gerät hinzufügen</h2></div>
-      <div class="card-body rmm-form">
+    <!-- Assistent ----------------------------------------------------------
+         Eigenes Fenster über der Seite: die Reiter darunter bleiben, wie sie
+         sind, und Abbrechen (X, Esc, Klick daneben) schließt nur das Fenster. -->
+    <div v-if="wizard" class="modal-backdrop" @click.self="closeWizard">
+      <div class="modal max-w-3xl">
+      <div class="card-header">
+        <h2 class="card-title">Gerät hinzufügen</h2>
+        <button class="btn-icon" aria-label="Abbrechen" title="Abbrechen" @click="closeWizard"><AppIcon name="close" :size="18" /></button>
+      </div>
+      <div class="card-body rmm-form overflow-y-auto">
         <label>Adresse (IP oder Name)<input v-model="wizard.host" class="input" placeholder="192.168.1.20" /></label>
         <label>Zugangsdaten
           <select v-model="wizard.credential_id" class="select">
@@ -45,7 +51,7 @@
         <div class="is-wide rmm-actions">
           <button class="btn btn-secondary btn-sm" :disabled="busy || !wizard.host" @click="probe">Testen</button>
           <span class="rmm-muted" v-if="wizard.poller !== 'server'">Der Test läuft vom Server aus. Erreicht nur der Agent das Gerät, einfach ohne Test speichern — der erste Wert kommt nach ≤ 1 Minute.</span>
-          <button class="btn btn-ghost btn-sm" @click="credForm = blankCred(); tab = 'credentials'">Neue Zugangsdaten</button>
+          <button class="btn btn-ghost btn-sm" @click="credForm = { ...blankCred(), forWizard: true }">Neue Zugangsdaten</button>
         </div>
         <div v-if="probeResult" class="is-wide">
           <p v-if="probeResult.ok" class="rmm-note is-ok">
@@ -65,10 +71,11 @@
         </label>
         <div class="is-wide rmm-actions">
           <button class="btn btn-primary btn-sm" :disabled="busy || !wizard.host || !wizard.name" @click="saveDevice">Speichern</button>
-          <button class="btn btn-ghost btn-sm" @click="wizard = null; probeResult = null">Abbrechen</button>
+          <button class="btn btn-ghost btn-sm" @click="closeWizard">Abbrechen</button>
         </div>
       </div>
-    </section>
+      </div>
+    </div>
 
     <!-- Geräte -------------------------------------------------------------- -->
     <section v-if="tab === 'devices'" class="card">
@@ -104,7 +111,7 @@
             <tr v-if="!discovered.length"><td colspan="5" class="rmm-muted">Die <router-link to="/discovery">Netzwerksuche</router-link> hat keine weiteren SNMP-Geräte gefunden.</td></tr>
             <tr v-for="d in discovered" :key="d.id">
               <td class="rmm-code">{{ d.ip }}</td><td>{{ d.snmp?.sys_name || d.hostname || '–' }}</td>
-              <td>{{ d.os_guess || d.kind }}</td><td class="rmm-muted">{{ d.snmp?.sys_descr?.slice(0, 80) || 'Port 161 offen' }}</td>
+              <td>{{ d.os_guess || d.kind }}</td><td class="rmm-muted">{{ d.snmp?.sys_descr?.slice(0, 80) || 'Port 161 offen' }}<div v-if="d.snmp?.credential">antwortet mit {{ d.snmp.credential }}</div></td>
               <td><button v-if="auth.isAdmin" class="btn btn-secondary btn-sm" @click="startWizard(d)">Überwachen</button></td>
             </tr>
           </tbody>
@@ -113,10 +120,13 @@
     </section>
 
     <!-- Zugangsdaten ---------------------------------------------------- -->
-    <section v-if="tab === 'credentials'">
-      <div v-if="credForm" class="card mb-4">
-        <div class="card-header"><h2 class="card-title">{{ credForm.id ? credForm.name : 'Neue Zugangsdaten' }}</h2></div>
-        <div class="card-body rmm-form">
+    <div v-if="credForm" class="modal-backdrop" @click.self="credForm = null">
+      <div class="modal max-w-3xl">
+        <div class="card-header">
+          <h2 class="card-title">{{ credForm.id ? credForm.name : 'Neue Zugangsdaten' }}</h2>
+          <button class="btn-icon" aria-label="Abbrechen" title="Abbrechen" @click="credForm = null"><AppIcon name="close" :size="18" /></button>
+        </div>
+        <div class="card-body rmm-form overflow-y-auto">
           <label>Name<input v-model="credForm.name" class="input" /></label>
           <label>Version<select v-model="credForm.version" class="select"><option value="2c">v2c</option><option value="1">v1</option><option value="3">v3</option></select></label>
           <label>Port<input v-model.number="credForm.port" type="number" class="input" /></label>
@@ -138,6 +148,9 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <section v-if="tab === 'credentials'">
       <div class="card">
         <div class="card-header"><h2 class="card-title">Zugangsdaten</h2><button v-if="auth.isAdmin" class="btn btn-secondary btn-sm" @click="credForm = blankCred()">Neu</button></div>
         <div class="rmm-table-wrap">
@@ -238,9 +251,20 @@ async function load() {
 
 function startWizard(d = null) {
   probeResult.value = null
-  wizard.value = { host: d?.ip || '', name: d?.snmp?.sys_name || d?.hostname || '', credential_id: credentials.value[0]?.id ?? null,
+  // Hat die Netzwerksuche schon passende Zugangsdaten gefunden, sind sie vorgewählt.
+  const found = d?.snmp?.credential_id
+  wizard.value = { host: d?.ip || '', name: d?.snmp?.sys_name || d?.hostname || '',
+    credential_id: (found && credentials.value.some(c => c.id === found)) ? found : (credentials.value[0]?.id ?? null),
     poller: 'server', site: 'Standard', interval_sec: 300, templates: ['system', 'interfaces'], discovered_device_id: d?.id || null }
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+function closeWizard() {
+  wizard.value = null
+  probeResult.value = null
+}
+function onKey(e) {
+  if (e.key !== 'Escape') return
+  if (credForm.value) credForm.value = null
+  else if (wizard.value) closeWizard()
 }
 async function probe() {
   await guard(async () => {
@@ -259,9 +283,11 @@ async function saveDevice() {
 }
 async function saveCred() {
   await guard(async () => {
-    const { id, community_set, auth_pass_set, priv_pass_set, ...body } = credForm.value
-    await auth.api(id ? `/api/snmp/credentials/${id}` : '/api/snmp/credentials', { method: id ? 'PUT' : 'POST', body })
+    const { id, community_set, auth_pass_set, priv_pass_set, forWizard, ...body } = credForm.value
+    const saved = await auth.api(id ? `/api/snmp/credentials/${id}` : '/api/snmp/credentials', { method: id ? 'PUT' : 'POST', body })
     credForm.value = null; notice.value = 'Zugangsdaten gespeichert.'; await load()
+    // Aus dem Assistenten heraus angelegt: gleich dort auswählen.
+    if (forWizard && wizard.value && saved?.id) wizard.value.credential_id = saved.id
   })
 }
 async function removeCred(c) {
@@ -287,8 +313,8 @@ async function removeTpl(t) {
 }
 
 watch(tab, load)
-onMounted(() => { load(); timer = setInterval(() => { if (tab.value === 'devices') load() }, 30000) })
-onBeforeUnmount(() => clearInterval(timer))
+onMounted(() => { window.addEventListener('keydown', onKey); load(); timer = setInterval(() => { if (tab.value === 'devices') load() }, 30000) })
+onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('keydown', onKey) })
 </script>
 
 <style scoped>

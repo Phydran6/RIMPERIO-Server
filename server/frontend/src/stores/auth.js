@@ -101,6 +101,12 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = await api('/api/auth/me')
   }
 
+  /** Neue Sitzung übernehmen (z.B. nach dem Ändern des Passworts). */
+  function adoptToken(value) {
+    token.value = value
+    localStorage.setItem('token', value)
+  }
+
   function logout() {
     token.value = null
     user.value = null
@@ -116,6 +122,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
     const res = await fetch(url, { ...options, headers })
     if (res.status === 401) { logout(); window.location.href = '/login'; throw new Error('Sitzung abgelaufen') }
+    // Startpasswort noch nicht ersetzt: alles andere sperrt der Server, also
+    // gleich auf die Seite zum Ändern.
+    if (res.status === 403 && res.headers.get('X-Password-Change-Required') === '1') {
+      if (window.location.pathname !== '/change-password') window.location.href = '/change-password'
+      throw new Error('Bitte zuerst das Startpasswort ändern.')
+    }
     if (!res.ok) throw new Error(await parseError(res) || `HTTP ${res.status}`)
     if (res.status === 204) return null
     return res.json()
@@ -173,6 +185,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, isAuthenticated, isAdmin, login, loginMfa, loginPasskey, logout, fetchUser, api,
+  return { adoptToken, token, user, isAuthenticated, isAdmin, login, loginMfa, loginPasskey, logout, fetchUser, api,
            ticket, eventStream }
 })

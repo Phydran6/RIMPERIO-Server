@@ -33,6 +33,42 @@ class RouterEntry(BaseModel):
     community: str = Field("", max_length=100)
 
 
+class NetworkEntry(BaseModel):
+    """Ein weiteres Netz (VLAN, VM-Netz, Aussenstandort) mit Beschreibung."""
+    name: str = Field("", max_length=100)
+    range: str = Field(..., min_length=1, max_length=100)
+    gateway: str = Field("", max_length=64)
+    note: str = Field("", max_length=500)
+    enabled: bool = True
+
+    @field_validator("range")
+    @classmethod
+    def _check_range(cls, value: str) -> str:
+        value = value.strip()
+        try:
+            discovery.range_size(value)
+        except ValueError as exc:
+            raise ValueError(f"Bereich „{value}“ ist ungültig: {exc}") from exc
+        return value
+
+    @field_validator("gateway")
+    @classmethod
+    def _check_gateway(cls, value: str) -> str:
+        value = (value or "").strip()
+        if value:
+            import ipaddress
+            try:
+                ipaddress.IPv4Address(value)
+            except ValueError as exc:
+                raise ValueError(f"Gateway „{value}“ ist keine IPv4-Adresse.") from exc
+        return value
+
+
+class NetworkTest(BaseModel):
+    range: str = Field(..., min_length=1, max_length=100)
+    gateway: str = Field("", max_length=64)
+
+
 class DiscoveryConfig(BaseModel):
     auto_scan: bool = True
     interval_hours: int = Field(24, ge=0, le=24 * 30)
@@ -43,6 +79,7 @@ class DiscoveryConfig(BaseModel):
     snmp_community: str = Field("public", max_length=100)
     snmp_probe_hosts: bool = True
     extra_ranges: List[str] = []
+    networks: List[NetworkEntry] = []
     max_hosts: int = Field(4096, ge=1, le=65536)
 
     @field_validator("extra_ranges")
@@ -103,6 +140,21 @@ async def start_scan(request: Request, admin=Depends(get_current_admin)):
     return {"started": True, "scan": discovery.STATE.as_dict()}
 
 
+@router.post("/networks/test")
+async def test_network(data: NetworkTest, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    """Stichprobe: Antwortet aus diesem Netz jemand auf Ping, TCP oder SNMP?"""
+    cfg = await discovery.load_config(db)
+    candidates = await discovery.snmp_candidates(db, cfg)
+    try:
+        result = await discovery.test_network(data.range.strip(), data.gateway, candidates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    journal.fire(category="discovery", event="discovery.network.test", actor=admin.username,
+                 message=f"Netz {data.range} getestet: {'erreichbar' if result['ok'] else 'keine Antwort'}.",
+                 ok=result["ok"])
+    return result
+
+
 @router.get("/config")
 async def get_config(db: AsyncSession = Depends(get_db), _=Depends(get_current_admin)):
     return await discovery.load_config(db)
@@ -119,6 +171,7 @@ async def put_config(data: DiscoveryConfig, request: Request,
         actor=admin.username, source_ip=real_client_ip(request),
         detail={"auto_scan": saved["auto_scan"], "interval_hours": saved["interval_hours"],
                 "extra_ranges": saved["extra_ranges"],
+                "networks": [n.get("range") for n in saved.get("networks") or []],
                 "routers": [r["host"] for r in saved["routers"]]})
     return saved
 

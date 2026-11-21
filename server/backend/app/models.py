@@ -21,6 +21,9 @@ class User(Base):
     # Woher das Konto kommt: "local" (Passwort in dieser Datenbank) oder "ldap"
     # (Anmeldung gegen das Verzeichnis, lokaler Hash ist unbrauchbar).
     auth_source = Column(String(20), default="local", nullable=False)
+    # Startpasswort: einmal damit anmelden, dann muss ein eigenes her. Bis dahin
+    # laesst die API nur Passwort aendern, /me und Abmelden durch.
+    must_change_password = Column(Boolean, default=False, nullable=False, server_default="false")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     # MFA / TOTP

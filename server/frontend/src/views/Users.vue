@@ -128,6 +128,21 @@
               minlength="6"
               class="w-full rounded px-3 py-2"
               :style="inputStyle"
+              autocomplete="new-password"
+            >
+          </div>
+          <!-- Eigenes Konto: zum Ändern das aktuelle Passwort bestätigen -->
+          <div v-if="editingUser && editingUser.id === authStore.user?.id && form.password">
+            <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">
+              Aktuelles Passwort (zur Bestätigung)
+            </label>
+            <input
+              v-model="form.current_password"
+              type="password"
+              required
+              class="w-full rounded px-3 py-2"
+              :style="inputStyle"
+              autocomplete="current-password"
             >
           </div>
           <div>
@@ -333,6 +348,7 @@ function editUser(user) {
     username: user.username,
     email: user.email || '',
     password: '',
+    current_password: '',
     role: user.role,
     is_active: user.is_active
   }
@@ -360,6 +376,7 @@ async function saveUser() {
       }
       if (form.value.password) {
         data.password = form.value.password
+        if (form.value.current_password) data.current_password = form.value.current_password
       }
       await authStore.api(`/api/users/${editingUser.value.id}`, {
         method: 'PUT',

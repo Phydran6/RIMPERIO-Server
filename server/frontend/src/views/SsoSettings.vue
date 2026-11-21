@@ -14,9 +14,9 @@
   <div class="page">
     <div class="page-header">
       <div>
-        <h2 class="page-title">Single Sign-on</h2>
+        <h2 class="page-title">Microsoft 365 / Entra ID</h2>
         <p class="page-subtitle">
-          Anmelden mit dem Firmenkonto — ohne Zusatzkosten, mit jedem Microsoft-365-Tarif.
+          Anmelden mit dem Firmenkonto (Single Sign-on über Microsoft 365) — ohne Zusatzkosten, mit jedem Tarif. Automatisch per Microsoft-Anmeldung einrichten oder die App-Registrierung von Hand eintragen.
         </p>
       </div>
       <span class="badge" :class="config.enabled ? 'badge-success' : 'badge-neutral'">
@@ -30,9 +30,66 @@
       </div>
     </div>
 
-    <!-- Warum OIDC und nicht SAML - das fragt jeder, der SAML erwartet hat -->
+    <!-- Automatisch einrichten ------------------------------------------------ -->
     <div class="card mb-4">
-      <div class="card-header"><p class="card-title">Warum OpenID Connect und nicht SAML?</p></div>
+      <div class="card-header">
+        <p class="card-title">Automatisch einrichten (empfohlen)</p>
+        <span v-if="config.setup_mode === 'auto' && config.client_id" class="badge badge-success">eingerichtet</span>
+      </div>
+      <div class="card-body space-y-3 text-sm" style="color: var(--color-text-secondary)">
+        <p>
+          Ein Fenster mit der Microsoft-Anmeldung geht auf. Mit einem Konto anmelden, das in Entra ID
+          App-Registrierungen anlegen und Admin-Zustimmungen erteilen darf (Globaler Administrator) —
+          RIMPERIO legt sich dann selbst die App-Registrierung an, trägt die Rückadresse ein, erteilt die
+          Zustimmung für alle Benutzer, macht Sie zum RIMPERIO-Administrator und schaltet die Anmeldung ein.
+          Ihr Microsoft-Token wird danach verworfen.
+        </p>
+        <p v-if="config.setup_mode === 'auto' && config.setup_at" class="hint">
+          Zuletzt eingerichtet {{ new Date(config.setup_at).toLocaleString('de-DE') }} von {{ config.setup_by }}
+          <template v-if="config.secret_expires"> · Geheimnis gültig bis {{ config.secret_expires.slice(0, 10) }}</template>
+        </p>
+
+        <div v-if="!flow" class="flex flex-wrap gap-2">
+          <button class="btn btn-primary btn-sm" :disabled="flowBusy" @click="startAuto">
+            {{ flowBusy ? 'Starte…' : (config.setup_mode === 'auto' && config.client_id ? 'Neu einrichten' : 'Mit Microsoft 365 anmelden und einrichten') }}
+          </button>
+        </div>
+
+        <div v-else class="auto-flow">
+          <template v-if="flow.status === 'waiting'">
+            <p>
+              Im Microsoft-Fenster diesen Code eingeben (er ist schon in der Zwischenablage),
+              dann anmelden und zustimmen:
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="device-code">{{ flow.user_code }}</span>
+              <button class="btn btn-secondary btn-sm" @click="copy(flow.user_code)">{{ copied ? 'Kopiert' : 'Code kopieren' }}</button>
+              <button class="btn btn-secondary btn-sm" @click="openMicrosoft">Microsoft-Fenster öffnen ↗</button>
+            </div>
+            <p class="hint">Wartet auf die Anmeldung …</p>
+          </template>
+          <ul class="flow-steps">
+            <li v-for="st in flow.steps" :key="st.id" :class="'is-' + st.status">
+              <span class="flow-mark">{{ MARKS[st.status] }}</span>
+              <span>{{ st.label }}<span v-if="st.detail" class="hint"> — {{ st.detail }}</span></span>
+            </li>
+          </ul>
+          <p v-if="flow.status === 'done'" style="color: var(--color-success)">
+            Fertig. Die Anmeldung mit Microsoft 365 ist eingeschaltet — zum Prüfen abmelden und den
+            Microsoft-Knopf auf der Anmeldeseite benutzen.
+          </p>
+          <p v-if="flow.error" style="color: var(--color-danger)">{{ flow.error }}</p>
+          <div class="flex gap-2">
+            <button v-if="['waiting', 'working'].includes(flow.status)" class="btn btn-ghost btn-sm" @click="cancelAuto">Abbrechen</button>
+            <button v-else class="btn btn-secondary btn-sm" @click="flow = null">Schließen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Warum OIDC und nicht SAML - das fragt jeder, der SAML erwartet hat -->
+    <details class="card mb-4">
+      <summary class="card-header cursor-pointer"><p class="card-title">Warum OpenID Connect und nicht SAML?</p></summary>
       <div class="card-body text-sm space-y-2" style="color: var(--color-text-secondary)">
         <p>
           Beides erledigt dieselbe Aufgabe. Der Unterschied liegt in der Rechnung:
@@ -52,11 +109,11 @@
           Google Workspace, Okta — alles, was ein Discovery-Dokument hat.
         </p>
       </div>
-    </div>
+    </details>
 
     <!-- Einrichtung im Portal -->
-    <div v-if="guide" class="card mb-4">
-      <div class="card-header"><p class="card-title">Schritt für Schritt im Entra-Portal</p></div>
+    <details v-if="guide" class="card mb-4">
+      <summary class="card-header cursor-pointer"><p class="card-title">Von Hand einrichten: Schritt für Schritt im Entra-Portal</p></summary>
       <div class="card-body">
         <div class="mb-3">
           <label class="label">Diese Rückadresse dort eintragen (Umleitungs-URI, Typ „Web")</label>
@@ -73,16 +130,16 @@
         </ol>
         <p class="hint mt-3">{{ guide.note }}</p>
       </div>
-    </div>
+    </details>
 
     <!-- Einstellung -->
     <div class="card mb-4">
-      <div class="card-header"><p class="card-title">Einstellung</p></div>
+      <div class="card-header"><p class="card-title">Einstellung (auch für die manuelle Einrichtung)</p></div>
       <div class="card-body space-y-4">
         <label class="flex items-start gap-3">
           <input v-model="config.enabled" type="checkbox" class="mt-1">
           <span>
-            <strong style="color: var(--color-text-primary)">Single Sign-on einschalten</strong>
+            <strong style="color: var(--color-text-primary)">Anmeldung mit Microsoft 365 / OpenID Connect einschalten</strong>
             <span class="hint block">
               Auf dem Anmeldeschirm erscheint dann zusätzlich ein Knopf. Die Anmeldung mit
               Benutzername und Passwort bleibt daneben bestehen — sonst könnte ein Fehler
@@ -212,7 +269,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
 
@@ -232,7 +289,67 @@ const config = reactive({
   admin_groups: '',
   admin_role_claim: '',
   allowed_domains: '',
+  setup_mode: 'manual',
+  setup_at: '',
+  setup_by: '',
+  secret_expires: '',
 })
+
+// ---------------------------------------------------------------- Automatik
+const MARKS = { ok: '✓', error: '✕', warn: '!', running: '…', pending: '·' }
+const flow = ref(null)
+const flowBusy = ref(false)
+let flowTimer = null
+let msWindow = null
+
+function openMicrosoft() {
+  const url = flow.value?.verification_uri || 'https://microsoft.com/devicelogin'
+  msWindow = window.open(url, 'rimperio-m365', 'width=520,height=720')
+}
+
+async function startAuto() {
+  flowBusy.value = true
+  message.value = ''
+  // Fenster sofort öffnen (noch im Klick), sonst blockt der Browser das Popup.
+  msWindow = window.open('about:blank', 'rimperio-m365', 'width=520,height=720')
+  try {
+    flow.value = await auth.api('/api/sso/m365/start', { method: 'POST' })
+    if (msWindow && !msWindow.closed) msWindow.location.href = flow.value.verification_uri
+    try { await navigator.clipboard.writeText(flow.value.user_code) } catch { /* Knopf zum Kopieren ist da */ }
+    pollAuto()
+  } catch (e) {
+    if (msWindow && !msWindow.closed) msWindow.close()
+    message.value = e.message
+    messageError.value = true
+  } finally {
+    flowBusy.value = false
+  }
+}
+
+function pollAuto() {
+  clearTimeout(flowTimer)
+  flowTimer = setTimeout(async () => {
+    if (!flow.value) return
+    try {
+      flow.value = await auth.api('/api/sso/m365/status/' + flow.value.flow)
+    } catch (e) {
+      flow.value = { ...flow.value, status: 'error', error: e.message }
+    }
+    if (['waiting', 'working'].includes(flow.value.status)) {
+      pollAuto()
+    } else {
+      if (msWindow && !msWindow.closed) msWindow.close()
+      await load()
+    }
+  }, 3000)
+}
+
+async function cancelAuto() {
+  clearTimeout(flowTimer)
+  if (flow.value) await auth.api('/api/sso/m365/' + flow.value.flow, { method: 'DELETE' }).catch(() => {})
+  if (msWindow && !msWindow.closed) msWindow.close()
+  flow.value = null
+}
 
 const providers = ref([])
 const guide = ref(null)
@@ -311,4 +428,19 @@ async function copy(value) {
 }
 
 onMounted(load)
+onBeforeUnmount(() => clearTimeout(flowTimer))
 </script>
+
+<style scoped>
+.auto-flow { display: flex; flex-direction: column; gap: .75rem; }
+.device-code { font-family: ui-monospace, Consolas, monospace; font-size: 1.5rem; font-weight: 700; letter-spacing: .15em; padding: .25rem .75rem; border-radius: var(--radius); background: var(--primary-soft); color: var(--color-primary); }
+.flow-steps { display: flex; flex-direction: column; gap: .3rem; }
+.flow-steps li { display: flex; gap: .5rem; }
+.flow-mark { width: 1rem; text-align: center; font-weight: 700; }
+.flow-steps li.is-ok .flow-mark { color: var(--color-success); }
+.flow-steps li.is-error .flow-mark { color: var(--color-danger); }
+.flow-steps li.is-warn .flow-mark { color: var(--color-warning); }
+.flow-steps li.is-pending { opacity: .6; }
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+</style>

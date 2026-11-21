@@ -64,6 +64,76 @@
     </div>
 
     <!-- ================================================================
+         NETZE - was durchsucht wird, und weitere Netze eintragen
+         ================================================================ -->
+    <div class="card mb-4">
+      <div class="card-header">
+        <h3 class="card-title">Durchsuchte Netze</h3>
+        <button v-if="!netForm" class="btn btn-secondary btn-sm" @click="openNetForm()">
+          <AppIcon name="plus" :size="16" /> Netz hinzufügen
+        </button>
+      </div>
+      <div class="card-body space-y-3 text-sm">
+        <ul class="net-list">
+          <li v-for="i in host.interfaces || []" :key="'if-' + i.network" class="net-row">
+            <span class="font-mono">{{ i.network }}</span>
+            <span class="badge badge-neutral">lokal · {{ i.iface }}</span>
+            <span class="net-muted">{{ config.scan_local ? 'wird durchsucht' : 'abgeschaltet (Einstellungen)' }}</span>
+          </li>
+          <li v-for="(n, idx) in config.networks || []" :key="'net-' + idx" class="net-row" :style="n.enabled === false ? 'opacity:.55' : ''">
+            <span class="font-mono">{{ n.range }}</span>
+            <strong v-if="n.name">{{ n.name }}</strong>
+            <span v-if="n.gateway" class="net-muted">Gateway {{ n.gateway }}</span>
+            <span v-if="n.note" class="net-muted">· {{ n.note }}</span>
+            <span class="flex-1" />
+            <button class="btn btn-ghost btn-sm" :disabled="netBusy" @click="retestNetwork(n)">Testen</button>
+            <button class="btn btn-ghost btn-sm" @click="toggleNetwork(idx)">{{ n.enabled === false ? 'Einschalten' : 'Pausieren' }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openNetForm(idx)">Bearbeiten</button>
+            <button class="btn btn-danger btn-sm" @click="removeNetwork(idx)">Entfernen</button>
+          </li>
+          <li v-for="r in config.extra_ranges || []" :key="'r-' + r" class="net-row">
+            <span class="font-mono">{{ r }}</span><span class="badge badge-neutral">Bereich</span>
+          </li>
+        </ul>
+        <p v-if="netTest && !netForm" class="net-note" :class="netTest.ok ? 'is-ok' : 'is-error'">{{ netTest.message }}</p>
+
+        <div v-if="netForm" class="net-form">
+          <div class="flex items-center justify-between">
+            <p class="font-medium">{{ netForm.index === null ? 'Weiteres Netz eintragen' : 'Netz bearbeiten' }}</p>
+            <button class="btn-icon" title="Abbrechen" @click="closeNetForm"><AppIcon name="close" :size="16" /></button>
+          </div>
+          <p class="hint">
+            Für Netze, an denen der Server nicht selbst hängt: VM-Netze hinter einem Router, Server-VLANs,
+            Außenstandorte per VPN. Vor der Aufnahme wird getestet, ob aus dem Netz jemand antwortet
+            (Ping, TCP, SNMP). Klappt das, startet die Suche sofort.
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><label class="label">Name</label><input v-model="netForm.name" class="input" placeholder="z.B. VM-Netz Proxmox"></div>
+            <div><label class="label">Netz / Bereich</label><input v-model="netForm.range" class="input font-mono" placeholder="10.20.0.0/24 oder 10.20.0.10-80" @keydown.enter="testAndAdd"></div>
+            <div><label class="label">Gateway (optional)</label><input v-model="netForm.gateway" class="input font-mono" placeholder="10.20.0.1">
+              <p class="hint">Wird mitgetestet und per SNMP nach seinen Nachbarn gefragt.</p></div>
+            <div><label class="label">Notiz (optional)</label><input v-model="netForm.note" class="input" placeholder="VLAN 20, Standort Lager"></div>
+          </div>
+          <div v-if="netTest" class="net-note" :class="netTest.ok ? 'is-ok' : 'is-error'">
+            <p>{{ netTest.message }}</p>
+            <p v-if="netTest.answers?.length" class="net-muted mt-1">
+              <span v-for="(a, i) in netTest.answers.slice(0, 8)" :key="a.ip">{{ i ? ' · ' : '' }}<span class="font-mono">{{ a.ip }}</span><template v-if="a.name"> ({{ a.name }})</template> – {{ a.by.join(', ') }}</span>
+              <span v-if="netTest.answers.length > 8"> · …</span>
+            </p>
+          </div>
+          <p v-if="netError" class="text-sm" style="color: var(--color-danger)">{{ netError }}</p>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-primary btn-sm" :disabled="netBusy || !netForm.range" @click="testAndAdd">
+              {{ netBusy ? 'Teste…' : 'Testen und suchen' }}
+            </button>
+            <button v-if="netTest && !netTest.ok" class="btn btn-secondary btn-sm" :disabled="netBusy" @click="storeNetwork(false)">Trotzdem speichern</button>
+            <button class="btn btn-ghost btn-sm" @click="closeNetForm">Abbrechen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================
          FILTER
          ================================================================ -->
     <div class="card mb-4">
@@ -479,8 +549,9 @@
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="label">SNMP-Community (nur lesen)</label>
+              <label class="label">SNMP-Communities (nur lesen, mehrere mit Komma)</label>
               <input v-model="form.snmp_community" type="text" class="input font-mono" autocomplete="off">
+              <p class="hint">Zusätzlich werden alle Zugangsdaten unter „SNMP-Geräte → Zugangsdaten“ (auch v3) benutzt, Communities jeweils als v2c und v1.</p>
             </div>
             <div>
               <label class="label">Höchstzahl Adressen je Suche</label>
@@ -488,7 +559,7 @@
             </div>
           </div>
           <label class="flex items-center gap-2 text-sm cursor-pointer">
-            <input v-model="form.snmp_probe_hosts" type="checkbox"> Gefundene Geräte per SNMP nach Name und Beschreibung fragen
+            <input v-model="form.snmp_probe_hosts" type="checkbox"> Jede Adresse per SNMP fragen (findet auch Geräte, die Ping sperren)
           </label>
 
           <p v-if="settingsError" class="text-sm" style="color: var(--color-danger)">{{ settingsError }}</p>
@@ -531,7 +602,7 @@ const AGENT_TYPES = {
   syslog: 'Syslog', linux_agent: 'Linux-Agent', windows_agent: 'Windows-Agent', fritzbox: 'FRITZ!Box',
 }
 const MATCHED_BY = { mac: 'der MAC-Adresse', ip: 'der IP-Adresse', hostname: 'dem Hostnamen' }
-const FOUND_BY = { icmp: 'Ping', tcp: 'TCP', arp: 'ARP-Tabelle', router: 'Router (SNMP)' }
+const FOUND_BY = { icmp: 'Ping', tcp: 'TCP', arp: 'ARP-Tabelle', router: 'Router (SNMP)', snmp: 'SNMP' }
 const NAME_SOURCES = { dns: 'DNS', 'dns-lan': 'DNS des LANs', mdns: 'mDNS', netbios: 'NetBIOS', snmp: 'SNMP' }
 
 // Namen, die andere Wege gemeldet haben, wenn sie vom angezeigten abweichen -
@@ -600,6 +671,12 @@ const form = ref({})
 const routersText = ref('')
 const rangesText = ref('')
 const settingsError = ref('')
+
+// Weitere Netze
+const netForm = ref(null)
+const netTest = ref(null)
+const netBusy = ref(false)
+const netError = ref('')
 
 let pollTimer = null
 
@@ -866,6 +943,87 @@ async function saveSettings() {
   }
 }
 
+// =============================================================================
+// Weitere Netze: eintragen -> testen -> bei Erfolg speichern und suchen
+// =============================================================================
+function openNetForm(index = null) {
+  const n = index === null ? {} : (config.value.networks || [])[index] || {}
+  netForm.value = { index, name: n.name || '', range: n.range || '', gateway: n.gateway || '', note: n.note || '', enabled: n.enabled !== false }
+  netTest.value = null
+  netError.value = ''
+}
+
+function closeNetForm() {
+  netForm.value = null
+  netTest.value = null
+  netError.value = ''
+}
+
+async function saveNetworks(networks) {
+  config.value = await auth.api('/api/discovery/config', { method: 'PUT', body: { ...config.value, networks } })
+}
+
+async function storeNetwork(scanNow) {
+  netError.value = ''
+  netBusy.value = true
+  try {
+    const { index, ...entry } = netForm.value
+    entry.range = entry.range.trim()
+    entry.gateway = entry.gateway.trim()
+    const list = [...(config.value.networks || [])]
+    if (index === null) list.push(entry)
+    else list[index] = entry
+    await saveNetworks(list)
+    const tested = netTest.value
+    closeNetForm()
+    netTest.value = tested
+    if (scanNow && !scan.value.running) await startScan()
+  } catch (e) {
+    netError.value = e.message
+  } finally {
+    netBusy.value = false
+  }
+}
+
+async function testAndAdd() {
+  if (netBusy.value || !netForm.value?.range) return
+  netError.value = ''
+  netTest.value = null
+  netBusy.value = true
+  try {
+    netTest.value = await auth.api('/api/discovery/networks/test', {
+      method: 'POST', body: { range: netForm.value.range.trim(), gateway: netForm.value.gateway.trim() },
+    })
+  } catch (e) {
+    netError.value = e.message
+  } finally {
+    netBusy.value = false
+  }
+  if (netTest.value?.ok) await storeNetwork(true)
+}
+
+async function retestNetwork(n) {
+  netBusy.value = true
+  try {
+    netTest.value = await auth.api('/api/discovery/networks/test', { method: 'POST', body: { range: n.range, gateway: n.gateway || '' } })
+  } catch (e) {
+    netTest.value = { ok: false, message: e.message }
+  } finally {
+    netBusy.value = false
+  }
+}
+
+async function toggleNetwork(index) {
+  const list = (config.value.networks || []).map((n, i) => (i === index ? { ...n, enabled: n.enabled === false } : n))
+  try { await saveNetworks(list) } catch (e) { alert(e.message) }
+}
+
+async function removeNetwork(index) {
+  const n = config.value.networks[index]
+  if (!confirm('Netz ' + (n.name || n.range) + ' nicht mehr durchsuchen? Gefundene Systeme bleiben in der Liste.')) return
+  try { await saveNetworks(config.value.networks.filter((_, i) => i !== index)) } catch (e) { alert(e.message) }
+}
+
 async function forgetMissing() {
   if (!confirm('Alle Systeme entfernen, die seit 30 Tagen keine Suche mehr gefunden hat? Ausgeblendete bleiben.')) return
   try {
@@ -900,6 +1058,15 @@ function formatTime(ts) {
 </script>
 
 <style scoped>
+.net-list { display: flex; flex-direction: column; gap: .25rem; }
+.net-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .35rem 0; border-bottom: 1px solid var(--color-border); }
+.net-row:last-child { border-bottom: 0; }
+.net-muted { color: var(--color-text-muted); }
+.net-note { padding: .5rem .75rem; border-radius: var(--radius); font-size: .8125rem; }
+.net-note.is-ok { background: var(--success-soft); color: var(--color-success); }
+.net-note.is-error { background: var(--danger-soft); color: var(--color-danger); }
+.net-form { display: flex; flex-direction: column; gap: .75rem; padding: .875rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-bg); }
+
 .search-wrap {
   position: relative;
 }

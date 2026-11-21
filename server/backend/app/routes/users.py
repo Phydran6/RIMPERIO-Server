@@ -109,6 +109,9 @@ async def update_user(user_id: int, data: UserUpdate, request: Request,
         changed.append("aktiv" if data.is_active else "deaktiviert")
     if data.password:
         user.password_hash = get_password_hash(data.password)
+        # Ein Admin, der ein Passwort fuer jemand anderen setzt, vergibt ein
+        # Startpasswort - das muss der Benutzer beim naechsten Mal ersetzen.
+        user.must_change_password = not is_self
         changed.append("Passwort")
 
     await db.commit()

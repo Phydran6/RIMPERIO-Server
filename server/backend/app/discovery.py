@@ -74,7 +74,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import hostexec, hostnames, journal, snmp
-from .models import Agent, DiscoveredDevice, Setting
+from .models import Agent, DiscoveredDevice, Setting, SnmpCredential
 
 logger = logging.getLogger("rimperio.discovery")
 
@@ -99,6 +99,10 @@ DEFAULT_CONFIG: dict = {
     "snmp_probe_hosts": True,
     # Zusaetzliche Bereiche: "10.20.0.0/24", "10.20.0.5", "10.20.0.10-10.20.0.50"
     "extra_ranges": [],
+    # Weitere Netze mit Beschreibung: [{"name", "range", "gateway", "note", "enabled"}].
+    # Vom Server nicht direkt angebunden (VLANs, VM-Netze hinter einem Router,
+    # Aussenstandorte per VPN). Werden vor der Aufnahme getestet.
+    "networks": [],
     # Obergrenze, damit niemand aus Versehen ein /8 absucht.
     "max_hosts": 4096,
 }
@@ -717,7 +721,8 @@ async def run_scan(trigger: str = "manual", actor: str = "system") -> dict:
         try:
             async with async_session() as session:
                 cfg = await load_config(session)
-            found, nets, summary = await _discover(cfg)
+                candidates = await snmp_candidates(session, cfg)
+            found, nets, summary = await _discover(cfg, candidates)
             STATE.phase = "Speichern"
             async with async_session() as session:
                 new_count = await _store(session, found, nets, now)
@@ -747,7 +752,211 @@ async def run_scan(trigger: str = "manual", actor: str = "system") -> dict:
             STATE.finished_at = datetime.utcnow().isoformat()
 
 
-async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
+# ------------------------------------------------------------------------------
+# SNMP-Erkennung
+# ------------------------------------------------------------------------------
+# Vorher wurde jedes Geraet genau einmal gefragt: Community "public", nur v2c,
+# 1 Sekunde, keine Wiederholung - und nur, wenn es vorher auf Ping oder einen
+# TCP-Port geantwortet hatte. Damit fielen durch:
+#   * Geraete mit eigener Community oder SNMPv3 (die unter "SNMP-Geraete ->
+#     Zugangsdaten" hinterlegten Daten wurden gar nicht benutzt),
+#   * Geraete, die nur SNMPv1 sprechen (USV-Karten, alte Drucker) - sie
+#     verwerfen v2c-Pakete stumm,
+#   * langsame Geraete, deren SNMP-Dienst beim ersten Paket > 1 s braucht,
+#   * Geraete, die Ping sperren und keinen der Schnell-Ports offen haben -
+#     typisch fuer USV-Netzwerkkarten und Switches ohne Weboberflaeche.
+# Jetzt wird jede Zieladresse mit allen bekannten Zugangsdaten gefragt
+# (Communities als v2c UND v1, v3-Benutzer), mit Wiederholung. Wer antwortet,
+# gilt als gefunden - auch ohne Ping.
+SNMP_TIMEOUT = 1.5
+SNMP_RETRIES = 1
+MAX_SNMP_CANDIDATES = 8
+_SERVER_AUTH = ("none", "md5", "sha", "sha224", "sha256", "sha384", "sha512")
+_SERVER_PRIV = ("none", "des", "aes")
+
+
+def _communities(cfg: dict) -> List[str]:
+    """Die Community-Einstellung darf mehrere, durch Komma getrennte Werte haben."""
+    out = [c.strip() for c in str(cfg.get("snmp_community") or "public").split(",") if c.strip()]
+    return out or ["public"]
+
+
+async def snmp_candidates(session: AsyncSession, cfg: dict) -> List[dict]:
+    """Alle Zugangsdaten, mit denen Geraete gefragt werden - ohne Doppelte."""
+    out: List[dict] = []
+    seen: Set[tuple] = set()
+
+    def add(kw: dict, cred_id: Optional[int], label: str) -> None:
+        key = tuple(sorted((k, str(v)) for k, v in kw.items()))
+        if key in seen or len(out) >= MAX_SNMP_CANDIDATES:
+            return
+        seen.add(key)
+        out.append({"kw": kw, "credential_id": cred_id, "label": label})
+
+    creds: list = []
+    try:
+        creds = list((await session.execute(select(SnmpCredential).order_by(SnmpCredential.id))).scalars())
+    except Exception as exc:                     # Tabelle fehlt noch - dann eben nur Communities
+        logger.debug("SNMP-Zugangsdaten nicht lesbar: %s", exc)
+    # Hinterlegte Zugangsdaten zuerst - dann merkt sich die Suche gleich,
+    # welche passen, und der Assistent waehlt sie vor.
+    for c in creds:
+        port = c.port or 161
+        if (c.version or "2c") == "3":
+            if (c.auth_proto or "none") in _SERVER_AUTH and (c.priv_proto or "none") in _SERVER_PRIV:
+                add({"version": "3", "port": port, "user": c.username or "",
+                     "auth_proto": c.auth_proto or "none", "auth_pass": c.auth_pass or "",
+                     "priv_proto": c.priv_proto or "none", "priv_pass": c.priv_pass or "",
+                     "context": c.context or ""}, c.id, c.name)
+        else:
+            add({"version": c.version or "2c", "port": port, "community": c.community or "public"}, c.id, c.name)
+    for community in _communities(cfg):
+        add({"version": "2c", "port": 161, "community": community}, None, f"v2c „{community}“")
+        add({"version": "1", "port": 161, "community": community}, None, f"v1 „{community}“")
+    # Wer v2c hinterlegt hat, hat oft auch v1-Geraete mit derselben Community.
+    for c in creds:
+        if (c.version or "2c") == "2c":
+            add({"version": "1", "port": c.port or 161, "community": c.community or "public"},
+                c.id, f"{c.name} (als v1)")
+    return out
+
+
+async def _snmp_try(ip: str, cand: dict, timeout: float) -> Optional[dict]:
+    kw = cand["kw"]
+    try:
+        async with snmp.SnmpClient(ip, timeout=timeout, retries=SNMP_RETRIES, **kw) as client:
+            if kw.get("version") == "1":
+                # v1: eine fehlende OID verdirbt die ganze Anfrage - einzeln fragen.
+                values: dict = {}
+                for oid in (snmp.SYS_DESCR, snmp.SYS_NAME, snmp.SYS_OBJECT_ID):
+                    with contextlib.suppress(snmp.SnmpError):
+                        values.update(await client.get(oid))
+            else:
+                values = await client.get(snmp.SYS_DESCR, snmp.SYS_NAME, snmp.SYS_OBJECT_ID)
+    except (snmp.SnmpError, OSError, ValueError):
+        return None
+    values = {k: v for k, v in (values or {}).items() if v is not snmp.END}
+    if not values:
+        return None
+    return {
+        "sys_descr": snmp.as_text(values.get(snmp.SYS_DESCR))[:500],
+        "sys_name": snmp.as_text(values.get(snmp.SYS_NAME))[:255],
+        "sys_object_id": snmp.as_text(values.get(snmp.SYS_OBJECT_ID)),
+        "version": kw.get("version"),
+        "credential_id": cand.get("credential_id"),
+        "credential": cand.get("label"),
+    }
+
+
+async def snmp_identify(ip: str, candidates: List[dict], timeout: float = SNMP_TIMEOUT) -> Optional[dict]:
+    """Fragt ein Geraet mit allen Zugangsdaten gleichzeitig. Gewinnt der erste
+    Treffer in der Reihenfolge der Kandidaten (hinterlegte vor "public")."""
+    if not candidates:
+        return None
+    results = await asyncio.gather(*(_snmp_try(ip, c, timeout) for c in candidates))
+    return next((r for r in results if r), None)
+
+
+async def _none() -> None:
+    return None
+
+
+# ------------------------------------------------------------------------------
+# Weitere Netze: eintragen, erst testen, dann suchen
+# ------------------------------------------------------------------------------
+# VMs hinter einem anderen Router, ein Server-VLAN, ein Aussenstandort per VPN:
+# Netze, die der Server nicht selbst an einer Schnittstelle hat. Bevor so ein
+# Netz in die Suche aufgenommen wird, fragt RIMPERIO eine Stichprobe ab -
+# Gateway, die ueblichen Adressen (.1, .254) und ein paar verteilte - per Ping,
+# TCP und SNMP. Antwortet niemand, fehlt fast immer die Route oder eine
+# Firewall-Freigabe; das sagt der Test, statt eine leere Suche abzuliefern.
+TEST_SAMPLE = 48
+
+
+def _sample(addresses: List[ipaddress.IPv4Address], gateway: str) -> List[str]:
+    if not addresses:
+        return []
+    picks: List[str] = []
+
+    def take(ip: str) -> None:
+        if ip and ip not in picks:
+            picks.append(ip)
+
+    take(gateway)
+    take(str(addresses[0]))
+    take(str(addresses[-1]))
+    step = max(1, len(addresses) // TEST_SAMPLE)
+    for a in addresses[::step]:
+        if len(picks) >= TEST_SAMPLE:
+            break
+        take(str(a))
+    return picks
+
+
+async def test_network(text: str, gateway: str = "", candidates: Optional[List[dict]] = None) -> dict:
+    """Ist das Netz vom Server aus erreichbar? Stichprobe per Ping, TCP und SNMP."""
+    size = range_size(text)
+    if size > 65536:
+        raise ValueError("Bereich zu groß (mehr als 65.536 Adressen).")
+    addresses = parse_range(text)
+    gateway = (gateway or "").strip()
+    if gateway:
+        ipaddress.IPv4Address(gateway)
+    sample = _sample(addresses, gateway)
+    nets = await host_networks()
+    local = next((i for i in nets.interfaces
+                  if addresses and ipaddress.IPv4Address(addresses[0]) in ipaddress.IPv4Network(i["network"])), None)
+
+    pinger = IcmpPinger()
+    cands = candidates or []
+    gate = asyncio.Semaphore(16)
+    answers: List[dict] = []
+
+    async def one(ip: str) -> None:
+        async with gate:
+            checks = [pinger.ping(ip)] + [tcp_probe(ip, p) for p in QUICK_PORTS]
+            checks.append(snmp_identify(ip, cands) if cands else _none())
+            res = await asyncio.gather(*checks)
+            by = []
+            if res[0]:
+                by.append("Ping")
+            ports = [p for p, a in zip(QUICK_PORTS, res[1:-1]) if a]
+            if ports:
+                by.append("TCP " + ", ".join(str(p) for p in ports[:4]))
+            if res[-1]:
+                by.append("SNMP")
+            if by:
+                answers.append({"ip": ip, "by": by, "gateway": ip == gateway,
+                                "name": (res[-1] or {}).get("sys_name", "")})
+
+    try:
+        await asyncio.gather(*(one(ip) for ip in sample))
+    finally:
+        pinger.close()
+
+    answers.sort(key=lambda a: ipaddress.IPv4Address(a["ip"]))
+    ok = bool(answers)
+    if ok:
+        message = (f"Erreichbar: {len(answers)} von {len(sample)} Stichproben-Adressen antworten. "
+                   f"Die Suche kann starten ({size} Adressen).")
+    elif gateway:
+        message = (f"Keine Antwort aus {text} — auch das Gateway {gateway} nicht. Prüfen: Hat der "
+                   f"RIMPERIO-Server eine Route in dieses Netz, und lässt die Firewall Ping/TCP/SNMP "
+                   f"(UDP 161) von {', '.join(i['address'] for i in nets.interfaces) or 'diesem Server'} durch?")
+    else:
+        message = (f"Keine der {len(sample)} Stichproben-Adressen in {text} antwortet. Route und Firewall "
+                   f"prüfen oder das Gateway des Netzes angeben.")
+    if not pinger.available:
+        message += " Hinweis: Ping steht diesem Server nicht zur Verfügung, getestet wurde über TCP/SNMP."
+    return {"ok": ok, "range": text, "size": size, "tested": len(sample), "answers": answers,
+            "local": bool(local), "message": message}
+
+
+async def _discover(cfg: dict, snmp_cands: Optional[List[dict]] = None) -> Tuple[Dict[str, Found], HostNetworks, dict]:
+    if snmp_cands is None:
+        snmp_cands = [{"kw": {"version": "2c", "community": c}, "credential_id": None, "label": c}
+                      for c in _communities(cfg)]
+    sweep = bool(cfg.get("snmp_probe_hosts"))
     STATE.phase = "Netze ermitteln"
     nets = await host_networks(max_age=0)
     if not nets.host_access:
@@ -775,18 +984,27 @@ async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
 
     for text in cfg.get("extra_ranges") or []:
         ranges.append((text, "eingetragen"))
+    for net_entry in cfg.get("networks") or []:
+        if not isinstance(net_entry, dict) or not net_entry.get("enabled", True) or not net_entry.get("range"):
+            continue
+        ranges.append((net_entry["range"], net_entry.get("name") or "eingetragen"))
 
     # --- Router fragen ----------------------------------------------------------
     found: Dict[str, Found] = {}
     routers: List[Tuple[str, str]] = []
+    # Das Gateway eines eingetragenen Netzes kennt per SNMP seine Nachbarn -
+    # auch VMs, die Ping und alle Ports sperren.
+    for net_entry in cfg.get("networks") or []:
+        if isinstance(net_entry, dict) and net_entry.get("enabled", True) and net_entry.get("gateway"):
+            routers.append((net_entry["gateway"], _communities(cfg)[0]))
     if cfg.get("query_gateway"):
         # Nur ein Gateway im eigenen, privaten Netz - nicht den Router des Providers.
-        routers += [(gw, cfg.get("snmp_community") or "public") for gw in nets.gateways
+        routers += [(gw, _communities(cfg)[0]) for gw in nets.gateways
                     if ipaddress.IPv4Address(gw).is_private]
     for entry in cfg.get("routers") or []:
         host = (entry or {}).get("host", "").strip()
         if host and host not in [r[0] for r in routers]:
-            routers.append((host, (entry.get("community") or cfg.get("snmp_community") or "public")))
+            routers.append((host, (entry.get("community") or _communities(cfg)[0])))
 
     router_report: List[dict] = []
     for host, community in routers:
@@ -860,10 +1078,14 @@ async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
             item = found.get(ip) or Found(ip=ip)
             item.network = item.network or targets[ip]
             checks = [pinger.ping(ip)] + [tcp_probe(ip, port) for port in QUICK_PORTS]
+            checks.append(snmp_identify(ip, snmp_cands) if sweep else _none())
             results = await asyncio.gather(*checks)
             if results[0]:
                 item.alive_by.add("icmp")
-            for port, answer in zip(QUICK_PORTS, results[1:]):
+            if results[-1]:
+                item.snmp = results[-1]
+                item.alive_by.add("snmp")
+            for port, answer in zip(QUICK_PORTS, results[1:-1]):
                 if answer:
                     item.alive_by.add("tcp")
                 if answer == "open":
@@ -896,7 +1118,6 @@ async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
     STATE.phase = "Details lesen"
     STATE.done, STATE.total = 0, len(alive)
     rest_ports = [p for p in PORTS if p not in QUICK_PORTS]
-    community = cfg.get("snmp_community") or "public"
     name_servers = await lan_dns_servers(nets)
 
     async def details(item: Found) -> None:
@@ -905,12 +1126,14 @@ async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
             item.ports.update(p for p, a in zip(rest_ports, answers) if a == "open")
             jobs = [hostnames.resolve(item.ip, name_servers)]
             jobs.append(ssh_banner(item.ip) if 22 in item.ports else _empty())
-            if cfg.get("snmp_probe_hosts"):
-                jobs.append(snmp.system_info(item.ip, community))
+            # Wer im ersten Durchgang nicht per SNMP geantwortet hat (etwa ein
+            # langsamer Drucker), bekommt eine zweite Chance mit laengerer Frist.
+            if sweep and not item.snmp:
+                jobs.append(snmp_identify(item.ip, snmp_cands, timeout=3.0))
             results = await asyncio.gather(*jobs)
             item.hostname, item.hostname_source, item.names = results[0]
             item.ssh = results[1]
-            if len(results) > 2:
+            if len(results) > 2 and results[2]:
                 item.snmp = results[2]
             STATE.done += 1
 
@@ -926,6 +1149,8 @@ async def _discover(cfg: dict) -> Tuple[Dict[str, Found], HostNetworks, dict]:
         "host_access": nets.host_access,
         "name_servers": name_servers,
         "named": sum(1 for f in alive.values() if f.hostname or (f.snmp or {}).get("sys_name")),
+        "snmp": sum(1 for f in alive.values() if f.snmp),
+        "snmp_credentials": [c["label"] for c in snmp_cands],
     }
     return alive, nets, summary
 
@@ -952,7 +1177,7 @@ def _parallelism() -> int:
                 soft = target
     except ImportError:
         return 16
-    return max(8, min(MAX_PARALLEL, (soft - 200) // 24))
+    return max(8, min(MAX_PARALLEL, (soft - 200) // 32))
 
 
 async def _store(session: AsyncSession, found: Dict[str, Found], nets: HostNetworks,

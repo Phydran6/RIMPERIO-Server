@@ -49,6 +49,16 @@
             : 'Melde dich mit deinem Konto an.' }}
         </p>
 
+        <!-- Erste Anmeldung: WO das Startpasswort steht, nie das Passwort selbst -->
+        <div v-if="initialHint.pending && !mfaToken" class="login-initial" role="note">
+          <AppIcon name="key" :size="18" class="shrink-0" />
+          <div>
+            <p class="font-semibold">Erste Anmeldung</p>
+            <p>Benutzer <code>{{ initialHint.username }}</code>. {{ initialHint.hint }}</p>
+            <p class="mt-1">Nach der Anmeldung muss sofort ein eigenes Passwort gesetzt werden.</p>
+          </div>
+        </div>
+
         <transition name="slide">
           <div v-if="error" class="login-error" role="alert">
             <AppIcon name="warning" :size="18" class="shrink-0" />
@@ -199,6 +209,7 @@ const mfaSecondsLeft = ref(0)
 // Single Sign-on. Der Anmeldeschirm fragt nur, OB es den Knopf gibt - Mandant
 // und Anwendungs-ID gehen niemanden etwas an, der noch nicht angemeldet ist.
 const sso = ref({ enabled: false, label: '' })
+const initialHint = ref({ pending: false, username: '', hint: '' })
 const ssoBusy = ref(false)
 let mfaTimer = null
 
@@ -218,8 +229,18 @@ onMounted(() => {
     themeStore.initTheme('dark')
   }
   loadSsoStatus()
+  loadInitialHint()
   finishSso()
 })
+
+async function loadInitialHint() {
+  try {
+    const res = await fetch('/api/auth/initial-hint')
+    if (res.ok) initialHint.value = await res.json()
+  } catch {
+    // Kein Hinweis - die Anmeldung geht trotzdem.
+  }
+}
 
 async function loadSsoStatus() {
   try {
@@ -459,6 +480,23 @@ async function handleMfa() {
   justify-content: center;
   gap: 1rem;
   padding: 2rem 1.25rem;
+}
+
+.login-initial {
+  display: flex;
+  gap: .625rem;
+  margin-bottom: 1rem;
+  padding: .75rem .875rem;
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--color-text-primary);
+  font-size: .8125rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.login-initial code {
+  font-family: ui-monospace, Consolas, monospace;
 }
 
 .login-card {

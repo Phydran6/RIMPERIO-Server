@@ -96,3 +96,64 @@ async def database_status(
         info["log_rows_estimated"] = None
 
     return info
+
+
+# ==============================================================================
+# Umstellen: eingebaute Datenbank <-> eigener Datenbankserver
+# ==============================================================================
+from fastapi import HTTPException, Request  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+from typing import Optional  # noqa: E402
+
+from .. import dbswitch, journal  # noqa: E402
+from ..limiter import client_ip as real_client_ip  # noqa: E402
+
+
+class DbTarget(BaseModel):
+    host: str = Field(..., min_length=1, max_length=255)
+    port: int = Field(5432, ge=1, le=65535)
+    database: str = Field("rimperio", min_length=1, max_length=63)
+    user: str = Field(..., min_length=1, max_length=63)
+    password: str = Field(..., min_length=1, max_length=255)
+    sslmode: str = Field("", pattern="^(|require|verify-ca|verify-full)$")
+
+
+class DbSwitch(BaseModel):
+    target: Optional[DbTarget] = None      # None = zurueck zur eingebauten Datenbank
+    migrate: bool = True
+    confirm: bool = False
+
+
+@router.post("/external/test")
+async def test_external(data: DbTarget, _admin: User = Depends(get_current_admin)):
+    """Verbindung zum Zielserver pruefen - ohne etwas zu veraendern."""
+    return await dbswitch.test(data.host, data.port, data.database, data.user, data.password, data.sslmode)
+
+
+@router.post("/switch", status_code=202)
+async def switch(data: DbSwitch, request: Request, admin: User = Depends(get_current_admin)):
+    if not data.confirm:
+        raise HTTPException(status_code=400, detail="Bitte die Umstellung ausdrücklich bestätigen.")
+    if data.target:
+        check = await dbswitch.test(data.target.host, data.target.port, data.target.database,
+                                    data.target.user, data.target.password, data.target.sslmode)
+        if not check["ok"]:
+            raise HTTPException(status_code=400, detail=check["message"])
+    elif dbswitch.current_mode() == "builtin":
+        raise HTTPException(status_code=400, detail="RIMPERIO nutzt bereits die eingebaute Datenbank.")
+    try:
+        result = await dbswitch.start_switch(data.target.model_dump() if data.target else None,
+                                             data.migrate, admin.username)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    journal.fire(category="settings", event="database.switch", level="warning", actor=admin.username,
+                 source_ip=real_client_ip(request),
+                 message=(f"Datenbank wird auf {data.target.host}:{data.target.port}/{data.target.database} umgestellt"
+                          f"{' (mit Datenübernahme)' if data.migrate else ''}." if data.target
+                          else "Datenbank wird auf die eingebaute zurückgestellt."))
+    return result
+
+
+@router.get("/switch/status")
+async def switch_status(_admin: User = Depends(get_current_admin)):
+    return await dbswitch.switch_status()

@@ -11,6 +11,31 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.21.12.00.00 (2026-11-21) – Menü neu, Startpasswort-Pflicht, M365-Automatik, externe Datenbank
+
+- **Menü neu gegliedert.** Eigener Bereich **Logs** (Ansicht, Quellen, Aufbewahrung, Archivierung),
+  **Proxmox VE** unter dem neuen Bereich **Integrationen** statt im Patchmanagement,
+  **Benutzer & Anmeldung** mit Active Directory/LDAP und Microsoft 365 gleichrangig. Alle Bereiche
+  sind ab Werk zugeklappt, Sprache und Design stehen unten untereinander.
+- **Startpasswort muss ersetzt werden.** admin/admin gilt nie mehr; das Zufallspasswort aus der
+  Installation gilt für genau eine Anmeldung, danach verlangt RIMPERIO ein eigenes. Die
+  Anmeldeseite zeigt bis dahin, wo das Startpasswort steht (nie das Passwort selbst).
+  Beim Ändern des eigenen Passworts in der Benutzerverwaltung gibt es jetzt das Feld „Aktuelles Passwort“.
+- **Microsoft 365 automatisch einrichten.** Ein Microsoft-Anmeldefenster genügt: RIMPERIO legt
+  die App-Registrierung samt Rückadresse, Zustimmung, Admin-Rolle und Geheimnis selbst an.
+  Von Hand eintragen geht weiterhin.
+- **Eigener Datenbankserver.** Unter Einstellungen → Datenbank lässt sich auf einen externen
+  PostgreSQL-Server umziehen (Test, Datenübernahme, Umschalten) und wieder zurück.
+- **Netzwerksuche findet mehr SNMP-Geräte.** Gefragt wird jetzt jede Adresse, mit allen
+  hinterlegten Zugangsdaten (v1, v2c, v3), mehreren Communities und Wiederholung – auch Geräte,
+  die Ping sperren. Weitere Netze (VLANs, VM-Netze) lassen sich mit Name und Gateway eintragen;
+  vor der Aufnahme wird getestet, ob sie erreichbar sind, dann startet die Suche.
+- **SNMP-Gerät hinzufügen** öffnet ein eigenes Fenster mit Abbrechen; die Reiter bleiben bedienbar.
+- **Agent hinzufügen** erzeugt den Zugangsschlüssel selbst (Einladung, änderbar) und setzt ihn in
+  die Einzeiler ein; jeder Befehl lässt sich mit einem Klick kopieren.
+- **Proxmox-Gäste als Rechner einbinden.** IPs der VMs (QEMU-Gastagent) und Container werden
+  gelesen; VMs mit Gastagent bindet RIMPERIO direkt über Proxmox ein, Container per `pct exec`-Befehl.
+
 ## v2026.11.21.02.00.00 (2026-11-21) – Proxmox per Login verbinden
 
 - **Proxmox-Host mit root + Passwort einrichten.** RIMPERIO meldet sich einmal an, legt sich

@@ -146,7 +146,8 @@
       </section>
 
       <section class="card mb-4">
-        <div class="card-header"><h2 class="card-title">Sicherung vorher (Proxmox)</h2></div>
+        <div class="card-header"><h2 class="card-title">Sicherung vorher (Proxmox)</h2>
+          <router-link to="/integrations/proxmox" class="btn btn-ghost btn-sm">Proxmox-Anbindung →</router-link></div>
         <div class="card-body rmm-form">
           <label class="pol-check"><input v-model="s.snapshot.enabled" type="checkbox" /> vor jedem Lauf sichern</label>
           <label>Art

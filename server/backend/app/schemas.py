@@ -110,6 +110,7 @@ class UserUpdate(BaseModel):
 class UserResponse(UserBase):
     id: int
     is_active: bool
+    must_change_password: bool = False
     created_at: datetime
     class Config:
         from_attributes = True

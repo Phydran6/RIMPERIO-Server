@@ -14,11 +14,13 @@
 // Jetzt: ein RMM. Das Menue folgt der Arbeit, die man damit macht:
 //
 //   Uebersicht         Wie steht es um alles?
-//   Geraete            Was verwalte ich?            Rechner, Netzwerkgeraete, Log-Quellen
-//   Ueberwachung       Was ist kaputt?              Alarme, Checks, Logs
+//   Geraete            Was verwalte ich?            Rechner, SNMP-Geraete, Netzwerksuche
+//   Logs               Was protokollieren sie?      Ansicht, Quellen, Aufbewahrung
+//   Ueberwachung       Was ist kaputt?              Alarme, Checks
 //   Patchmanagement    Was muss aktualisiert werden?
+//   Integrationen      Woran haengt RIMPERIO?       Proxmox VE
 //   Automatisierung    Was laeuft von selbst?       Skripte, Webhooks, KI
-//   Benutzer & Zugang  Wer darf rein?
+//   Benutzer & Anm.    Wer darf rein?               Benutzer, AD/LDAP, Microsoft 365
 //   Mein Konto         Meine eigene Anmeldung
 //   RIMPERIO-Server    Die Maschine, auf der das laeuft
 //   Einstellungen      Wie ist RIMPERIO eingestellt?
@@ -51,9 +53,20 @@ export const NAV_SECTIONS = [
     items: [
       { key: 'computers', to: '/rmm', name: 'RmmAgents', match: ['RmmAgentDetail'], icon: 'devices', label: 'computers' },
       { key: 'snmp', to: '/rmm/snmp', name: 'RmmSnmp', match: ['RmmSnmpDevice'], icon: 'router', label: 'snmp' },
-      { key: 'log-sources', to: '/agents', name: 'Agents', match: ['DeviceLogs'], icon: 'agents', label: 'logSources' },
       { key: 'discovery', to: '/discovery', name: 'Discovery', icon: 'network', label: 'discovery', admin: true },
       { key: 'agent-tokens', to: '/agent-tokens', name: 'AgentTokens', icon: 'key', label: 'agentTokens', admin: true },
+    ],
+  },
+  {
+    // Logs sind ein eigenes, großes Thema: Quellen, Ansicht, Aufbewahrung.
+    key: 'logs',
+    title: 'secLogs',
+    icon: 'logs',
+    items: [
+      { key: 'logs', to: '/logs', name: 'Logs', icon: 'logs', label: 'logs' },
+      { key: 'log-sources', to: '/agents', name: 'Agents', match: ['DeviceLogs'], icon: 'agents', label: 'logSources' },
+      { key: 'retention', to: '/settings/retention', name: 'Settings', tab: 'retention', icon: 'clock', label: 'retention' },
+      { key: 'archiving', to: '/settings/archiving', name: 'Settings', tab: 'archiving', icon: 'archive', label: 'archiving', admin: true },
     ],
   },
   {
@@ -63,7 +76,6 @@ export const NAV_SECTIONS = [
     items: [
       { key: 'alarms', to: '/rmm/alerts', name: 'RmmAlerts', icon: 'warning', label: 'alarms' },
       { key: 'checks', to: '/rmm/checks', name: 'RmmChecks', icon: 'check', label: 'checks' },
-      { key: 'logs', to: '/logs', name: 'Logs', icon: 'logs', label: 'logs' },
     ],
   },
   {
@@ -74,7 +86,16 @@ export const NAV_SECTIONS = [
       { key: 'patch-center', to: '/rmm/patches', name: 'RmmPatches', icon: 'download', label: 'patchCenter' },
       { key: 'policies', to: '/rmm/policies', name: 'RmmPolicies', icon: 'clock', label: 'policies' },
       { key: 'sources', to: '/rmm/sources', name: 'RmmSources', icon: 'globe', label: 'sources' },
-      { key: 'proxmox', to: '/rmm/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
+    ],
+  },
+  {
+    // Anbindungen an andere Systeme. Proxmox liefert dem Patchmanagement die
+    // Snapshots vor dem Patchen - eingebunden wird es aber hier.
+    key: 'integrations',
+    title: 'secIntegrations',
+    icon: 'stacks',
+    items: [
+      { key: 'proxmox', to: '/integrations/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
     ],
   },
   {
@@ -94,8 +115,9 @@ export const NAV_SECTIONS = [
     admin: true,
     items: [
       { key: 'users', to: '/users', name: 'Users', icon: 'users', label: 'users', admin: true },
-      { key: 'sso', to: '/sso', name: 'SsoSettings', icon: 'shield', label: 'sso', admin: true },
+      // Anmeldung über Verzeichnisdienste (Single Sign-on) - gleichrangig nebeneinander.
       { key: 'ldap', to: '/settings/ldap', name: 'Settings', tab: 'ldap', icon: 'database', label: 'ldap', admin: true },
+      { key: 'sso', to: '/sso', name: 'SsoSettings', icon: 'shield', label: 'sso', admin: true },
     ],
   },
   {
@@ -135,8 +157,6 @@ export const NAV_SECTIONS = [
       { key: 'mail', to: '/mail', name: 'Mail', icon: 'mail', label: 'mail', admin: true },
       { key: 'alerts', to: '/alerts', name: 'Alerts', icon: 'bell', label: 'alerts', admin: true },
       { key: 'branding', to: '/settings/branding', name: 'Settings', tab: 'branding', icon: 'palette', label: 'branding' },
-      { key: 'retention', to: '/settings/retention', name: 'Settings', tab: 'retention', icon: 'clock', label: 'retention' },
-      { key: 'archiving', to: '/settings/archiving', name: 'Settings', tab: 'archiving', icon: 'archive', label: 'archiving', admin: true },
       { key: 'database', to: '/settings/database', name: 'Settings', tab: 'database', icon: 'database', label: 'database', admin: true },
     ],
   },

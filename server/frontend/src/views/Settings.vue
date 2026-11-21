@@ -519,6 +519,8 @@
       </div>
     </div>
     
+    <DatabaseSwitch v-if="authStore.isAdmin && activeTab === 'database'" class="mt-4" />
+
     <!-- Wartung (nur Admin) -->
     <div v-if="authStore.isAdmin && activeTab === 'maintenance'" class="rounded-lg shadow p-6" :style="cardStyle">
       <h2 class="text-lg font-semibold mb-4" :style="{ color: 'var(--color-text-primary)' }">Neustart</h2>
@@ -603,6 +605,7 @@ const SecuritySettings = defineAsyncComponent(() => import('./SecuritySettings.v
 const BrandingSettings = defineAsyncComponent(() => import('./BrandingSettings.vue'))
 const LdapSettings = defineAsyncComponent(() => import('./LdapSettings.vue'))
 const ArchivingSettings = defineAsyncComponent(() => import('./ArchivingSettings.vue'))
+const DatabaseSwitch = defineAsyncComponent(() => import('../components/DatabaseSwitch.vue'))
 
 const authStore = useAuthStore()
 const route = useRoute()

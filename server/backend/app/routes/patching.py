@@ -16,7 +16,7 @@ import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -809,3 +809,50 @@ async def list_notifications(unread: bool = False, open_only: bool = False,
 async def read_notifications(data: IdsIn, db: AsyncSession = Depends(get_db),
                              _: User = Depends(get_current_user)) -> dict:
     return {"marked": await notify.mark_read(db, data.ids or None)}
+
+
+# ==============================================================================
+# Proxmox-Gaeste als Rechner einbinden
+# ==============================================================================
+# VMs mit QEMU-Gastagent: RIMPERIO fuehrt den Installations-Einzeiler ueber
+# Proxmox direkt in der VM aus (als root bzw. SYSTEM). Container (LXC) kennt
+# die Proxmox-API nicht von innen - dafuer zeigt die Oberflaeche einen
+# "pct exec"-Befehl fuer die Proxmox-Shell an.
+class PveInstallIn(BaseModel):
+    node: str = Field(..., min_length=1, max_length=100)
+    vmid: int = Field(..., ge=1)
+    os: str = Field("linux", pattern="^(linux|windows)$")
+    secret: str = Field(..., min_length=8, max_length=200)
+    site: str = Field("Standard", max_length=100)
+
+
+@router.post("/pve/hosts/{host_id}/guests/install")
+async def pve_guest_install(host_id: int, data: PveInstallIn, request: Request,
+                            db: AsyncSession = Depends(get_db),
+                            user: User = Depends(get_current_admin)) -> dict:
+    from .. import public_url
+    h = await db.get(PveHost, host_id)
+    if h is None:
+        raise HTTPException(status_code=404, detail="Unbekannter Proxmox-Host.")
+    server = public_url.base_url(request).rstrip("/")
+    command = pve.install_command(data.os, server, data.secret, data.site or "Standard")
+    try:
+        result = await pve.install_via_guest_agent(h, data.node, data.vmid, data.os, command)
+    except pve.PveError as exc:
+        raise _bad(exc) from exc
+    journal.fire(category="rmm", event="pve.guest.install", actor=user.username,
+                 message=f"RIMPERIO-Agent über den QEMU-Gastagent in VM {data.vmid} ({h.name}/{data.node}) gestartet.")
+    return {"started": True, **result}
+
+
+@router.get("/pve/hosts/{host_id}/guests/exec-status")
+async def pve_guest_exec_status(host_id: int, node: str, vmid: int, pid: int,
+                                db: AsyncSession = Depends(get_db),
+                                _: User = Depends(get_current_admin)) -> dict:
+    h = await db.get(PveHost, host_id)
+    if h is None:
+        raise HTTPException(status_code=404, detail="Unbekannter Proxmox-Host.")
+    try:
+        return await pve.guest_exec_status(h, node, vmid, pid)
+    except pve.PveError as exc:
+        raise _bad(exc) from exc

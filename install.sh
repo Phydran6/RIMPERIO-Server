@@ -863,10 +863,10 @@ print_summary() {
         echo "  Passwort: ${initial_admin_password}"
         echo "            (steht auch in $INSTALL_DIR/.env - nur root kann sie lesen)"
     else
-        echo "  Passwort: admin  (bestehende Installation ohne Startpasswort)"
+        echo "  Passwort: wurde vom Server erzeugt: sudo docker logs rimperio-app-backend 2>&1 | grep Startpasswort"
     fi
     echo ""
-    echo -e "${YELLOW}WICHTIG: Passwort nach dem ersten Login ändern!${NC}"
+    echo -e "${YELLOW}Das Startpasswort gilt nur für die erste Anmeldung - danach verlangt RIMPERIO ein eigenes.${NC}"
     echo ""
     echo "Syslog-Empfang:  Port 514 (UDP/TCP)"
     echo "API-Doku:        in der Oberfläche unter Über RIMPERIO (nur Administratoren)"

@@ -39,6 +39,13 @@ const routes = [
     meta: { public: true }
   },
 
+  // Startpasswort ersetzen - ohne Menü, bevor irgendetwas anderes geht.
+  {
+    path: '/change-password',
+    name: 'ChangePassword',
+    component: () => import('../views/ChangePassword.vue'),
+  },
+
   // ---------------------------------------------------------------------------
   // Geschützte Routen: Hauptlayout mit Sidebar
   // ---------------------------------------------------------------------------
@@ -85,7 +92,9 @@ const routes = [
       { path: 'rmm/alerts', name: 'RmmAlerts', component: () => import('../views/RmmAlerts.vue') },
       { path: 'rmm/policies', name: 'RmmPolicies', component: () => import('../views/RmmPolicies.vue') },
       { path: 'rmm/sources', name: 'RmmSources', component: () => import('../views/RmmSources.vue') },
-      { path: 'rmm/proxmox', name: 'RmmProxmox', component: () => import('../views/RmmProxmox.vue') },
+      // Proxmox ist eine Integration, kein Teil des Patchmanagements mehr.
+      { path: 'integrations/proxmox', name: 'RmmProxmox', component: () => import('../views/RmmProxmox.vue') },
+      { path: 'rmm/proxmox', redirect: '/integrations/proxmox' },
       { path: 'rmm/snmp', name: 'RmmSnmp', component: () => import('../views/RmmSnmp.vue') },
       { path: 'rmm/snmp/:id', name: 'RmmSnmpDevice', component: () => import('../views/RmmSnmpDevice.vue') },
 
@@ -254,6 +263,10 @@ router.beforeEach(async (to, from, next) => {
       return next('/login')
     }
   }
+
+  // Startpasswort: erst ein eigenes setzen, dann geht es weiter.
+  if (auth.user?.must_change_password && to.name !== 'ChangePassword') return next('/change-password')
+  if (!auth.user?.must_change_password && to.name === 'ChangePassword') return next('/')
 
   // Admin-Bereiche: Nicht-Admins landen auf dem Dashboard statt in einer
   // Ansicht, die ihnen ohnehin nur Fehler zeigen würde.

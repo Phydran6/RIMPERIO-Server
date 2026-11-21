@@ -93,6 +93,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "admin_role_claim": "RIMPERIO.Admin",
     "allowed_domains": "",            # z.B. "firma.de,firma.com"; leer = alle
     "username_claim": "preferred_username",
+    # Von der automatischen Einrichtung (sso_m365.py) gesetzt - nur zur Anzeige
+    # und um eine fruehere, von RIMPERIO angelegte App wieder wegzuraeumen.
+    "setup_mode": "manual",          # manual | auto
+    "app_object_id": "",
+    "secret_expires": "",
+    "setup_by": "",
+    "setup_at": "",
 }
 
 PROVIDERS = {
@@ -170,6 +177,21 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
     logger.warning("Single Sign-on gespeichert: %s, aktiv=%s",
                    config["provider"], config["enabled"])
     return public_config(config)
+
+
+async def store_raw(db: AsyncSession, values: dict) -> dict:
+    """Schreibt Werte ohne die Pruefungen von save_config - fuer die
+    automatische Einrichtung, die alles in einem Rutsch setzt."""
+    config = await load_config(db)
+    config.update({k: v for k, v in values.items() if k in DEFAULT_CONFIG})
+    row = (await db.execute(select(Setting).where(Setting.key == SETTING_KEY))).scalar_one_or_none()
+    if row:
+        row.value = config
+    else:
+        db.add(Setting(key=SETTING_KEY, value=config,
+                       description="Anmeldung über einen externen Identitätsanbieter"))
+    await db.commit()
+    return config
 
 
 def public_config(config: dict) -> dict:

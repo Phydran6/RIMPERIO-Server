@@ -297,12 +297,94 @@ async def list_guests(host: PveHost) -> List[dict]:
                     for key, value in cfg.items():
                         if key.startswith("net"):
                             guest["macs"] += [m.lower() for m in _MAC.findall(str(value))]
+                    guest["os"] = _os_family(guest["type"], str(cfg.get("ostype") or ""))
+                    guest["qga"] = guest["type"] == "qemu" and str(cfg.get("agent") or "").split(",")[0] \
+                        in ("1", "enabled=1")
                 except PveError as exc:
                     guest["error"] = str(exc)
+                if guest["status"] == "running":
+                    guest["ips"] = await _guest_ips(pve, guest)
             return guest
 
         guests = await asyncio.gather(*(detail(r) for r in resources[:500]))
     return sorted((g for g in guests if not g["template"]), key=lambda g: (g["node"], g["vmid"]))
+
+
+def _os_family(guest_type: str, ostype: str) -> str:
+    """linux | windows | other - aus dem ostype der Proxmox-Konfiguration."""
+    if guest_type == "lxc":
+        return "linux"                          # Container sind immer Linux
+    if ostype.startswith("win") or ostype in ("w2k", "w2k3", "w2k8", "wxp", "wvista"):
+        return "windows"
+    if ostype.startswith("l") or not ostype:
+        return "linux"
+    return "other"
+
+
+async def _guest_ips(pve: "PveClient", guest: dict) -> List[str]:
+    """IPv4-Adressen eines laufenden Gastes. VMs nur mit QEMU-Gastagent,
+    Container liefert Proxmox direkt."""
+    base = f"/nodes/{guest['node']}/{guest['type']}/{guest['vmid']}"
+    ips: List[str] = []
+    try:
+        if guest["type"] == "lxc":
+            for iface in await pve.get(f"{base}/interfaces") or []:
+                if iface.get("name") == "lo":
+                    continue
+                inet = str(iface.get("inet") or "").split("/")[0]
+                if inet and not inet.startswith("127."):
+                    ips.append(inet)
+        elif guest.get("qga"):
+            data = await pve.get(f"{base}/agent/network-get-interfaces") or {}
+            for iface in data.get("result") or []:
+                for addr in iface.get("ip-addresses") or []:
+                    ip = addr.get("ip-address", "")
+                    if addr.get("ip-address-type") == "ipv4" and ip and not ip.startswith(("127.", "169.254.")):
+                        ips.append(ip)
+            guest["qga_ok"] = True
+    except PveError:
+        pass                                    # Gastagent nicht gestartet - dann eben ohne IP
+    return sorted(set(ips))
+
+
+AGENT_RAW = "https://raw.githubusercontent.com/Phydran6/RIMPERIO-Server/main/agent/installer"
+
+
+def install_command(os_family: str, server: str, secret: str, site: str = "Standard") -> str:
+    """Einzeiler zum Installieren des RIMPERIO-Agents (als root bzw. SYSTEM)."""
+    if os_family == "windows":
+        return (f"& ([scriptblock]::Create((irm {AGENT_RAW}/windows/install-agent.ps1))) "
+                f"-Server {server} -Secret {secret} -Site '{site}'")
+    url = f"{AGENT_RAW}/linux/install-agent.sh"
+    return (f"(curl -fsSL {url} || wget -qO- {url}) | bash -s -- "
+            f"--server {server} --secret {secret} --site '{site}' --user rimperio")
+
+
+async def install_via_guest_agent(host: PveHost, node: str, vmid: int, os_family: str,
+                                  command: str) -> dict:
+    """Fuehrt den Installations-Einzeiler ueber den QEMU-Gastagent in der VM aus."""
+    if os_family == "windows":
+        argv = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
+    else:
+        argv = ["/bin/sh", "-c", command]
+    async with PveClient(host, timeout=30.0) as pve:
+        # Proxmox nimmt "command" als Liste (mehrfacher Parameter).
+        assert pve._client
+        headers = {"CSRFPreventionToken": pve._csrf} if pve._csrf else None
+        try:
+            r = await pve._client.post(f"/nodes/{node}/qemu/{int(vmid)}/agent/exec",
+                                       data=[("command", part) for part in argv], headers=headers)
+        except httpx.HTTPError as exc:
+            raise _net_error(pve.base, exc) from exc
+        data = pve._unwrap(r, "Gastagent")
+    return {"pid": (data or {}).get("pid")}
+
+
+async def guest_exec_status(host: PveHost, node: str, vmid: int, pid: int) -> dict:
+    async with PveClient(host, timeout=15.0) as pve:
+        data = await pve.get(f"/nodes/{node}/qemu/{int(vmid)}/agent/exec-status", pid=int(pid)) or {}
+    return {"exited": bool(data.get("exited")), "exitcode": data.get("exitcode"),
+            "out": (data.get("out-data") or "")[-2000:], "err": (data.get("err-data") or "")[-2000:]}
 
 
 async def refresh_guests(db: AsyncSession, host: PveHost) -> List[dict]:

@@ -192,27 +192,48 @@ async def replace_default_admin_password():
     in der .env, am Ende der Installation angezeigt). Hat das Konto `admin`
     noch das Standardpasswort, wird es hier durch diesen Wert ersetzt. Ein
     bereits geaendertes Passwort bleibt unberuehrt.
+
+    Neu: "admin" ist nie mehr gueltig. Fehlt das Startpasswort in der .env
+    (alte Installation, Handstart mit docker compose), erzeugt der Server
+    selbst eines und schreibt es ins Protokoll (docker logs). In beiden Faellen
+    muss es nach der ersten Anmeldung ersetzt werden (must_change_password) -
+    die Anmeldeseite zeigt bis dahin, WO das Startpasswort steht.
     """
+    import secrets as _secrets
     logger = logging.getLogger("rimperio.startup")
     initial = os.getenv("RIMPERIO_ADMIN_INITIAL_PASSWORD", "").strip()
+    try:
+        async with engine.connect() as conn:
+            conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE")
+    except Exception as exc:
+        logger.warning("Spalte must_change_password nicht angelegt: %s", exc)
     try:
         from .auth import get_password_hash, verify_password
         from .models import User
         async with async_session() as session:
             admin = (await session.execute(
                 select(User).where(User.username == "admin"))).scalar_one_or_none()
-            if admin is None or not verify_password("admin", admin.password_hash or ""):
+            if admin is None:
                 return
-            if len(initial) >= 12:
+            if verify_password("admin", admin.password_hash or ""):
+                if len(initial) < 12:
+                    initial = _secrets.token_urlsafe(15)
+                    logger.critical("Startpasswort für 'admin' erzeugt: %s  (nach der ersten "
+                                    "Anmeldung muss es geändert werden)", initial)
+                else:
+                    logger.warning("Standardpasswort des Kontos 'admin' durch "
+                                   "RIMPERIO_ADMIN_INITIAL_PASSWORD ersetzt.")
                 admin.password_hash = get_password_hash(initial)
+                admin.must_change_password = True
                 await session.commit()
-                logger.warning("Standardpasswort des Kontos 'admin' durch "
-                               "RIMPERIO_ADMIN_INITIAL_PASSWORD ersetzt.")
-            else:
-                logger.critical(
-                    "Das Konto 'admin' hat noch das Standardpasswort 'admin'. Sofort ändern – "
-                    "oder RIMPERIO_ADMIN_INITIAL_PASSWORD (mind. 12 Zeichen) in der .env setzen "
-                    "und das Backend neu starten.")
+            elif len(initial) >= 12 and not admin.must_change_password \
+                    and verify_password(initial, admin.password_hash or ""):
+                # Laeuft noch mit dem Startpasswort aus der Installation: jetzt ersetzen lassen.
+                admin.must_change_password = True
+                await session.commit()
+                logger.warning("Konto 'admin' nutzt noch das Startpasswort - Änderung wird verlangt.")
     except Exception as exc:                                        # DB noch nicht bereit
         logger.warning("Prüfung des Startpassworts übersprungen: %s", exc)
 
