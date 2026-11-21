@@ -11,6 +11,12 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.21.02.00.00 (2026-11-21) – Proxmox per Login verbinden
+
+- **Proxmox-Host mit root + Passwort einrichten.** RIMPERIO meldet sich einmal an, legt sich
+  den API-Token selbst an und speichert nur diesen. Adressen ohne Port nutzen jetzt 8006
+  (bisher 443 → „All connection attempts failed“), Verbindungsfehler sagen, woran es liegt.
+
 ## v2026.11.20.23.00.00 (2026-11-20) – Update-Prüfung trotz GitHub-API-Limit
 
 - **Updates werden auch beim GitHub-API-Limit erkannt.** Bisher stand dann „aktuell“ da,

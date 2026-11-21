@@ -23,25 +23,41 @@
     <section v-if="form" class="card mb-4">
       <div class="card-header"><h2 class="card-title">{{ form.id ? form.name : 'Neuer Proxmox-Host' }}</h2></div>
       <div class="card-body rmm-form">
-        <label>Name<input v-model="form.name" class="input" placeholder="pve-cluster" /></label>
-        <label>Adresse<input v-model="form.url" class="input" placeholder="https://pve.example:8006" /></label>
-        <label>Anmeldung
-          <select v-model="form.auth_type" class="select"><option value="token">API-Token (empfohlen)</option><option value="password">Benutzer + Passwort</option></select>
+        <label>Adresse<input v-model="form.url" class="input" placeholder="192.168.1.10 oder pve.firma.local" /></label>
+        <label>Name (optional)<input v-model="form.name" class="input" placeholder="leer = Name des Knotens" /></label>
+        <label>Einrichtung
+          <select v-model="form.mode" class="select">
+            <option value="login">Mit Proxmox-Login verbinden (empfohlen)</option>
+            <option value="token">API-Token von Hand</option>
+            <option value="password">Benutzer + Passwort dauerhaft speichern</option>
+          </select>
         </label>
-        <label v-if="form.auth_type === 'token'">Token-ID<input v-model="form.token_id" class="input" placeholder="rimperio@pve!patch" /></label>
-        <label v-else>Benutzer<input v-model="form.username" class="input" placeholder="root@pam" /></label>
-        <label>{{ form.auth_type === 'token' ? 'Token-Geheimnis' : 'Passwort' }}
-          <input v-model="form.secret" type="password" class="input" :placeholder="form.secret_set ? 'hinterlegt — leer lassen = unverändert' : ''" /></label>
+        <template v-if="form.mode === 'login'">
+          <label>Benutzer<input v-model="form.username" class="input" placeholder="root@pam" /></label>
+          <label>Passwort<input v-model="form.password" type="password" class="input" autocomplete="off" @keydown.enter="saveHost" /></label>
+        </template>
+        <template v-else>
+          <label v-if="form.mode === 'token'">Token-ID<input v-model="form.token_id" class="input" placeholder="root@pam!rimperio" /></label>
+          <label v-else>Benutzer<input v-model="form.username" class="input" placeholder="root@pam" /></label>
+          <label>{{ form.mode === 'token' ? 'Token-Geheimnis' : 'Passwort' }}
+            <input v-model="form.secret" type="password" class="input" :placeholder="form.secret_set ? 'hinterlegt — leer lassen = unverändert' : ''" /></label>
+        </template>
         <label>Speicher für vzdump (optional)<input v-model="form.default_storage" class="input" placeholder="local / pbs" /></label>
         <label class="pol-check"><input v-model="form.verify_tls" type="checkbox" /> Zertifikat prüfen</label>
         <label class="pol-check"><input v-model="form.enabled" type="checkbox" /> aktiv</label>
-        <p class="is-wide rmm-muted">
+        <p v-if="form.mode === 'login'" class="is-wide rmm-muted">
+          Einmal mit <span class="rmm-code">root@pam</span> und Passwort anmelden — RIMPERIO legt sich in Proxmox selbst den
+          API-Token <span class="rmm-code">root@pam!rimperio</span> an und speichert nur diesen, nicht das Passwort.
+          Ohne Port gilt 8006. Bei aktiver Zwei-Faktor-Anmeldung bitte „API-Token von Hand“ nehmen.
+        </p>
+        <p v-else-if="form.mode === 'token'" class="is-wide rmm-muted">
           Token anlegen: Rechenzentrum → Berechtigungen → API-Token. Rechte (Rolle am Pfad <span class="rmm-code">/vms</span>):
           VM.Snapshot, VM.Snapshot.Rollback, VM.Audit, VM.PowerMgmt; für vzdump zusätzlich VM.Backup und
-          Datastore.AllocateSpace am Speicher. Bei Benutzer + Passwort darf keine Zwei-Faktor-Anmeldung aktiv sein.
+          Datastore.AllocateSpace am Speicher.
         </p>
+        <p v-else class="is-wide rmm-muted">Das Passwort bleibt gespeichert; Zwei-Faktor darf nicht aktiv sein.</p>
         <div class="is-wide rmm-actions">
-          <button class="btn btn-primary btn-sm" :disabled="busy" @click="saveHost">Speichern</button>
+          <button class="btn btn-primary btn-sm" :disabled="busy" @click="saveHost">{{ form.mode === 'login' ? 'Verbinden' : 'Speichern' }}</button>
           <button class="btn btn-ghost btn-sm" @click="form = null">Abbrechen</button>
         </div>
       </div>
@@ -66,7 +82,7 @@
                 <template v-if="auth.isAdmin">
                   <button class="btn btn-secondary btn-sm" :disabled="busy" @click="test(h)">Testen</button>
                   <button class="btn btn-secondary btn-sm" :disabled="busy" @click="refresh(h)">VMs lesen</button>
-                  <button class="btn btn-ghost btn-sm" @click="form = { ...h, secret: '' }">Bearbeiten</button>
+                  <button class="btn btn-ghost btn-sm" @click="form = { ...h, secret: '', password: '', mode: h.auth_type }">Bearbeiten</button>
                   <button class="btn btn-danger btn-sm" @click="removeHost(h)">Entfernen</button>
                 </template>
               </td>
@@ -149,7 +165,7 @@ const error = ref('')
 const notice = ref('')
 const busy = ref(false)
 
-const blank = () => ({ name: '', url: 'https://', auth_type: 'token', token_id: '', username: '', secret: '', verify_tls: false, enabled: true, default_storage: '' })
+const blank = () => ({ name: '', url: '', mode: 'login', token_id: '', username: 'root@pam', password: '', secret: '', verify_tls: false, enabled: true, default_storage: '' })
 
 async function guard(fn) {
   busy.value = true
@@ -167,7 +183,17 @@ const linkKey = a => { const l = links.value[a.agent_uid]; return l ? `${l.host_
 
 async function saveHost() {
   await guard(async () => {
-    const { id, guests, guests_at, last_ok_at, last_error, secret_set, ...body } = form.value
+    const f = form.value
+    if (f.mode === 'login') {
+      const r = await auth.api('/api/patching/pve/hosts/connect', { method: 'POST', body: {
+        host_id: f.id ?? null, name: f.name, url: f.url, username: f.username || 'root@pam', password: f.password,
+        verify_tls: f.verify_tls, enabled: f.enabled, default_storage: f.default_storage || '' } })
+      form.value = null; notice.value = r.message; await load()
+      return
+    }
+    const { id, guests, guests_at, last_ok_at, last_error, secret_set, mode, password, ...body } = f
+    body.auth_type = mode
+    body.name = (body.name || '').trim() || body.url
     await auth.api(id ? `/api/patching/pve/hosts/${id}` : '/api/patching/pve/hosts', { method: id ? 'PUT' : 'POST', body })
     form.value = null; notice.value = 'Gespeichert.'; await load()
   })

@@ -72,6 +72,18 @@ class PveHostIn(BaseModel):
     default_storage: str = ""
 
 
+class PveConnectIn(BaseModel):
+    """Einrichten mit Proxmox-Login: RIMPERIO legt sich den API-Token selbst an."""
+    host_id: Optional[int] = None          # gesetzt = vorhandenen Host neu verbinden
+    name: str = Field(default="", max_length=128)
+    url: str = Field(min_length=1, max_length=255)
+    username: str = Field(default="root@pam", max_length=128)
+    password: str = Field(min_length=1, max_length=512)
+    verify_tls: bool = False
+    enabled: bool = True
+    default_storage: str = ""
+
+
 class PveLinkIn(BaseModel):
     host_id: int
     node: str = Field(min_length=1)
@@ -430,8 +442,10 @@ async def pve_hosts(db: AsyncSession = Depends(get_db), _: User = Depends(get_cu
 
 
 def _check_pve(data: PveHostIn, existing: Optional[PveHost] = None) -> None:
-    if not data.url.startswith("https://"):
-        raise HTTPException(status_code=422, detail="Die Adresse muss mit https:// beginnen (z. B. https://pve:8006).")
+    try:
+        data.url = pve.normalize_url(data.url)
+    except pve.PveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if data.auth_type == "token" and "!" not in data.token_id:
         raise HTTPException(status_code=422, detail="Token-ID bitte als benutzer@realm!tokenname.")
     if data.auth_type == "password" and "@" not in data.username:
@@ -456,6 +470,46 @@ async def pve_create(data: PveHostIn, db: AsyncSession = Depends(get_db),
     except pve.PveError:
         pass
     return pve.public_host(h)
+
+
+@router.post("/pve/hosts/connect")
+async def pve_connect(data: PveConnectIn, db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_current_admin)) -> dict:
+    """Einmal mit root + Passwort anmelden; gespeichert wird nur der neue API-Token."""
+    existing = None
+    if data.host_id is not None:
+        existing = await db.get(PveHost, data.host_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Unbekannter Proxmox-Host.")
+    try:
+        info = await pve.connect_with_login(data.url, data.username, data.password, data.verify_tls)
+    except pve.PveError as exc:
+        raise _bad(exc) from exc
+    if existing is None:
+        # Derselbe Host schon (z. B. mit kaputter Anmeldung) angelegt? Dann den reparieren,
+        # statt einen zweiten anzulegen - dessen alter Token wurde eben ohnehin ersetzt.
+        existing = (await db.execute(select(PveHost).where(PveHost.url == info["url"]))).scalars().first()
+    h = existing or PveHost()
+    h.name = data.name.strip() or (existing.name if existing else "") or (info["nodes"] or ["proxmox"])[0]
+    h.url, h.auth_type = info["url"], "token"
+    h.token_id, h.secret, h.username = info["token_id"], info["secret"], ""
+    h.verify_tls, h.enabled, h.default_storage = data.verify_tls, data.enabled, data.default_storage
+    h.last_ok_at, h.last_error = datetime.utcnow(), None
+    if existing is None:
+        db.add(h)
+    await db.commit()
+    await db.refresh(h)
+    journal.fire(category="rmm", event="pve.connected", actor=user.username,
+                 message=f"Proxmox-Host „{h.name}“ ({h.url}) per Anmeldung verbunden, API-Token {h.token_id} angelegt.")
+    guests, matched = [], 0
+    try:
+        guests = await pve.refresh_guests(db, h)
+        matched = await pve.automatch(db)
+    except pve.PveError:
+        pass
+    return {**pve.public_host(h), "message":
+            f"Verbunden: Proxmox VE {info['version']}, Knoten {', '.join(info['nodes'])} — "
+            f"API-Token {info['token_id']} angelegt, {len(guests)} Gäste gelesen, {matched} Rechner zugeordnet."}
 
 
 @router.put("/pve/hosts/{host_id}")

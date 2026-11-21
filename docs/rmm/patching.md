@@ -90,11 +90,14 @@ zugeordnet; die Treffer stehen an der Freigabe.
 
 ## Proxmox: Sicherung vorher, Aufräumen danach
 
-1. *Proxmox & Snapshots → Proxmox-Host*: Adresse (`https://pve:8006`) und API-Token.
-   Token anlegen unter *Rechenzentrum → Berechtigungen → API-Token*; Rechte am Pfad `/vms`:
+1. *Proxmox & Snapshots → Proxmox-Host*: Adresse (IP oder Name, ohne Port gilt 8006),
+   Benutzer `root@pam` und Passwort → **Verbinden**. RIMPERIO meldet sich einmal an, legt sich
+   in Proxmox selbst den API-Token `root@pam!rimperio` an und speichert nur diesen — das
+   Passwort nicht. Erneutes Verbinden ersetzt den Token.
+   Mit Zwei-Faktor geht das nicht; dann *API-Token von Hand*: anlegen unter
+   *Rechenzentrum → Berechtigungen → API-Token*; Rechte am Pfad `/vms`:
    `VM.Snapshot`, `VM.Snapshot.Rollback`, `VM.Audit`, `VM.PowerMgmt`. Für vzdump zusätzlich
-   `VM.Backup` und `Datastore.AllocateSpace` am Speicher. Benutzer + Passwort geht auch, aber
-   nicht mit Zwei-Faktor.
+   `VM.Backup` und `Datastore.AllocateSpace` am Speicher.
 2. RIMPERIO liest die VMs und ordnet sie den Rechnern zu — über die MAC-Adressen aus der
    Agent-Inventur, sonst über den Namen. Von Hand geht immer.
 

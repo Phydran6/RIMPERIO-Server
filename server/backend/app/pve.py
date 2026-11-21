@@ -13,10 +13,13 @@ nach dem Update alles, wird der Snapshot nach der eingestellten Frist (Standard
 3 Tage) wieder geloescht. Laeuft etwas nicht, bleibt er stehen - und ein Klick
 rollt zurueck.
 
-**Anmeldung.** Am besten mit einem API-Token (Rechenzentrum → Berechtigungen →
-API-Token), Rechte: VM.Snapshot, VM.Snapshot.Rollback, VM.Audit, VM.PowerMgmt, VM.Backup,
-Datastore.AllocateSpace/Audit (nur fuer vzdump), Sys.Audit. Benutzername und
-Passwort gehen auch (Ticket-Anmeldung), aber nicht mit Zwei-Faktor.
+**Anmeldung.** Einfachster Weg: einmal Adresse, Benutzer (root@pam) und Passwort
+angeben - RIMPERIO meldet sich damit an, legt sich selbst einen API-Token
+(`root@pam!rimperio`) an und speichert nur den Token, nie das Passwort
+(`connect_with_login`). Ein von Hand angelegter Token geht weiterhin (Rechte:
+VM.Snapshot, VM.Snapshot.Rollback, VM.Audit, VM.PowerMgmt, VM.Backup,
+Datastore.AllocateSpace/Audit fuer vzdump, Sys.Audit), ebenso Benutzer und
+Passwort als Dauer-Anmeldung (Ticket), aber nicht mit Zwei-Faktor.
 
 **Zuordnung.** Welche VM zu welchem Rechner gehoert, wird ueber die
 MAC-Adressen (aus der Agent-Inventur) und den Namen erkannt; eine Zuordnung von
@@ -32,7 +35,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from sqlalchemy import select
@@ -48,6 +51,56 @@ _SNAP_SAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 class PveError(Exception):
     """Proxmox hat abgelehnt oder ist nicht erreichbar."""
+
+
+TOKEN_NAME = "rimperio"
+
+
+def normalize_url(raw: str) -> str:
+    """`pve`, `10.0.0.5`, `https://pve:8006/#v1:…` → `https://pve:8006`.
+
+    Ohne Schema gilt https, ohne Port 8006 (Proxmox hoert nicht auf 443).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        raise PveError("Adresse fehlt.")
+    if "://" not in raw:
+        raw = "https://" + raw
+    parts = urlsplit(raw)
+    if parts.scheme != "https":
+        raise PveError("Proxmox spricht nur https (Adresse mit https:// oder ganz ohne Schema angeben).")
+    host = parts.hostname
+    if not host:
+        raise PveError("Adresse nicht lesbar - bitte Hostname oder IP angeben, z. B. 10.0.0.5 oder pve.firma.local.")
+    try:
+        port = parts.port or 8006
+    except ValueError as exc:
+        raise PveError("Der Port in der Adresse ist ungültig.") from exc
+    if ":" in host:          # IPv6
+        host = f"[{host}]"
+    return f"https://{host}:{port}"
+
+
+def _net_error(base: str, exc: Exception) -> PveError:
+    """httpx-Fehler in einen Satz, mit dem man etwas anfangen kann."""
+    parts = urlsplit(base)
+    where = f"{parts.hostname}:{parts.port or 8006}"
+    text = str(exc)
+    if isinstance(exc, (httpx.ConnectTimeout, httpx.PoolTimeout)):
+        hint = "keine Antwort (Firewall? falsche IP?)"
+    elif isinstance(exc, httpx.TimeoutException):
+        hint = "Zeitüberschreitung - Proxmox antwortet zu langsam"
+    elif "CERTIFICATE_VERIFY_FAILED" in text or "certificate verify" in text.lower():
+        hint = "Zertifikat nicht vertrauenswürdig - „Zertifikat prüfen“ ausschalten"
+    elif isinstance(exc, httpx.ConnectError):
+        if "Name or service not known" in text or "getaddrinfo" in text or "nodename nor servname" in text:
+            hint = "Name nicht auflösbar - IP-Adresse statt Hostname eintragen"
+        else:
+            hint = ("keine Verbindung - stimmen IP und Port (Standard 8006)? Ist Proxmox vom "
+                    "RIMPERIO-Server aus erreichbar bzw. lässt die Firewall Port 8006 durch?")
+    else:
+        hint = text or exc.__class__.__name__
+    return PveError(f"Proxmox nicht erreichbar ({where}): {hint}")
 
 
 def public_host(h: PveHost) -> dict:
@@ -82,9 +135,10 @@ class PveClient:
 
     def __init__(self, host: PveHost, timeout: float = 30.0) -> None:
         self.host = host
-        self.base = host.url.rstrip("/")
-        if not self.base.endswith("/api2/json"):
-            self.base += "/api2/json"
+        try:
+            self.base = normalize_url(host.url) + "/api2/json"
+        except PveError:
+            self.base = (host.url or "").rstrip("/") + "/api2/json"
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
         self._csrf = ""
@@ -101,15 +155,30 @@ class PveClient:
             if not self.host.username or not self.host.secret:
                 await self._client.aclose()
                 raise PveError("Für die Anmeldung fehlen Benutzer oder Passwort.")
-            r = await self._client.post("/access/ticket", data={
-                "username": self.host.username, "password": self.host.secret})
-            data = self._unwrap(r, "Anmeldung")
-            if not data or "ticket" not in data:
+            try:
+                await self.login(self.host.username, self.host.secret)
+            except BaseException:
                 await self._client.aclose()
-                raise PveError("Proxmox hat kein Ticket ausgestellt (Zwei-Faktor aktiv? Dann API-Token nutzen).")
-            self._client.cookies.set("PVEAuthCookie", data["ticket"])
-            self._csrf = data.get("CSRFPreventionToken", "")
+                raise
         return self
+
+    async def login(self, username: str, password: str) -> None:
+        """Ticket-Anmeldung; danach sind auch schreibende Aufrufe erlaubt."""
+        assert self._client
+        try:
+            r = await self._client.post("/access/ticket", data={"username": username, "password": password})
+        except httpx.HTTPError as exc:
+            raise _net_error(self.base, exc) from exc
+        if r.status_code == 401:
+            raise PveError("Anmeldung abgelehnt - Benutzer, Realm (@pam / @pve) oder Passwort falsch.")
+        data = self._unwrap(r, "Anmeldung")
+        if not data or "ticket" not in data:
+            raise PveError("Proxmox hat kein Ticket ausgestellt.")
+        if data.get("NeedTFA"):
+            raise PveError("Für diesen Benutzer ist Zwei-Faktor aktiv - damit geht die Anmeldung per Passwort nicht. "
+                           "Bitte in Proxmox einen API-Token anlegen und „API-Token von Hand“ wählen.")
+        self._client.cookies.set("PVEAuthCookie", data["ticket"])
+        self._csrf = data.get("CSRFPreventionToken", "")
 
     async def __aexit__(self, *exc) -> None:
         if self._client:
@@ -143,7 +212,7 @@ class PveClient:
         try:
             return self._unwrap(await self._client.get(path, params=params or None), path)
         except httpx.HTTPError as exc:
-            raise PveError(f"Proxmox nicht erreichbar: {exc}") from exc
+            raise _net_error(self.base, exc) from exc
 
     async def _write(self, method: str, path: str, data: Optional[dict] = None):
         assert self._client
@@ -151,7 +220,7 @@ class PveClient:
         try:
             r = await self._client.request(method, path, data=data or None, headers=headers)
         except httpx.HTTPError as exc:
-            raise PveError(f"Proxmox nicht erreichbar: {exc}") from exc
+            raise _net_error(self.base, exc) from exc
         return self._unwrap(r, path)
 
     async def post(self, path: str, data: Optional[dict] = None):
@@ -171,6 +240,44 @@ async def test(host: PveHost) -> dict:
     return {"version": (version or {}).get("version", ""),
             "release": (version or {}).get("release", ""),
             "nodes": [n.get("node") for n in nodes or []]}
+
+
+async def connect_with_login(url: str, username: str, password: str, verify_tls: bool = False) -> dict:
+    """Mit Benutzer + Passwort anmelden und einen eigenen API-Token anlegen.
+
+    Der Token heisst `<benutzer>!rimperio` und hat die Rechte des Benutzers
+    (privsep=0) - bei root@pam also alles, was RIMPERIO braucht. Gibt es ihn
+    schon (z. B. vom letzten Einrichten), wird er ersetzt, denn sein Geheimnis
+    zeigt Proxmox nur ein einziges Mal. Das Passwort wird nirgends gespeichert.
+
+    Liefert {"url", "token_id", "secret", "version", "nodes"}.
+    """
+    url = normalize_url(url)
+    username = (username or "").strip() or "root@pam"
+    if "@" not in username:
+        username += "@pam"
+    if not password:
+        raise PveError("Passwort fehlt.")
+    probe = PveHost(url=url, auth_type="password", username=username, secret=password, verify_tls=verify_tls)
+    path = f"/access/users/{quote(username, safe='@')}/token/{TOKEN_NAME}"
+    async with PveClient(probe, timeout=20.0) as pve:
+        version = await pve.get("/version") or {}
+        nodes = await pve.get("/nodes") or []
+        try:
+            await pve.delete(path)
+        except PveError:
+            pass                                  # gab es noch nicht
+        data = await pve.post(path, {"privsep": "0",
+                                     "comment": "RIMPERIO: Snapshots vor dem Patchen (automatisch angelegt)"})
+    if not data or not data.get("value"):
+        raise PveError("Proxmox hat den API-Token nicht ausgestellt.")
+    token_id = data.get("full-tokenid") or f"{username}!{TOKEN_NAME}"
+    # Gegenprobe mit dem neuen Token, damit der gespeicherte Host auch wirklich geht.
+    check = PveHost(url=url, auth_type="token", token_id=token_id, secret=data["value"], verify_tls=verify_tls)
+    async with PveClient(check, timeout=15.0) as pve:
+        await pve.get("/version")
+    return {"url": url, "token_id": token_id, "secret": data["value"],
+            "version": version.get("version", ""), "nodes": [n.get("node") for n in nodes]}
 
 
 async def list_guests(host: PveHost) -> List[dict]:

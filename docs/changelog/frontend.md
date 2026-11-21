@@ -2,6 +2,11 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.21.02.00.00
+
+### Changed
+- **Proxmox-Host hinzufügen:** Standard ist jetzt „Mit Proxmox-Login verbinden“ — nur Adresse (IP/Name, Port optional), `root@pam` und Passwort; den API-Token legt RIMPERIO selbst an. „API-Token von Hand“ und „Benutzer + Passwort dauerhaft“ gibt es weiter. Der Name ist optional (Standard: Name des Knotens). Auch „Bearbeiten“ kann neu per Login verbinden.
+
 ## 2026.11.21.01.00.00
 
 ### Changed

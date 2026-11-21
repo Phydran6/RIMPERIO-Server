@@ -2,6 +2,15 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.21.02.00.00
+
+### Added
+- **Proxmox mit Login verbinden:** `POST /api/patching/pve/hosts/connect` (Adresse, Benutzer — Standard `root@pam` —, Passwort, optional `host_id`). `app/pve.py:connect_with_login` meldet sich per Ticket an, legt den API-Token `<benutzer>!rimperio` mit `privsep=0` an (ein vorhandener gleichen Namens wird ersetzt), prüft ihn und speichert nur den Token. Gibt es den Host mit derselben Adresse schon, wird er repariert statt doppelt angelegt. Danach werden die Gäste gelesen und zugeordnet.
+
+### Fixed
+- **Proxmox-Adresse ohne Port lief auf 443 und scheiterte mit „All connection attempts failed“.** Adressen werden jetzt normalisiert (`pve.normalize_url`): ohne Schema https, ohne Port 8006, Pfade/Anker der Weboberfläche fallen weg — auch für vorhandene Hosts.
+- Verbindungsfehler zu Proxmox nennen Host:Port und die wahrscheinliche Ursache (keine Verbindung, Zeitüberschreitung, Name nicht auflösbar, Zertifikat); Fehler bei der Ticket-Anmeldung wurden bisher gar nicht abgefangen. Zwei-Faktor (`NeedTFA`) wird erkannt und erklärt.
+
 ## 2026.11.21.01.00.00
 
 ### Added
