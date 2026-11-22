@@ -71,6 +71,118 @@ FIELD_LIMITS = {'hostname': 255, 'ip_address': 45, 'level': 20, 'source': 100,
                 'device_type': 50}
 
 
+# =============================================================================
+# Log-Handling: Sperrregeln und Dubletten (Kurzform von backend/app/loghandling.py)
+# =============================================================================
+# Die Regeln pflegt die Oberflaeche (Logs -> Log-Handling); hier werden sie nur
+# gelesen, alle RULES_REFRESH Sekunden. Gibt es die Tabelle (noch) nicht, laeuft
+# alles wie bisher.
+import fnmatch
+from collections import OrderedDict, Counter
+
+RULES_REFRESH = 30
+LOW_LEVELS = ('debug', 'info', 'informational', 'notice')
+
+_TPL_RULES = [
+    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "<uuid>"),
+    (re.compile(r"\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b", re.I), "<mac>"),
+    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b"), "<ip>"),
+    (re.compile(r"\b[0-9a-f]{12,}\b", re.I), "<hex>"),
+    (re.compile(r"\b0x[0-9a-f]+\b", re.I), "<hex>"),
+    (re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?"), "<ts>"),
+    (re.compile(r"\b\d+(?:[.,]\d+)?\b"), "#"),
+]
+_SPACES = re.compile(r"\s+")
+
+
+def template(message: str, limit: int = 300) -> str:
+    """Wie logexplain.template im Backend - beide muessen gleich rechnen."""
+    text = (message or "")[:2000]
+    for pattern, repl in _TPL_RULES:
+        text = pattern.sub(repl, text)
+    return _SPACES.sub(" ", text).strip()[:limit]
+
+
+class LogRules:
+    def __init__(self):
+        self.rules = []
+        self.loaded_at = 0.0
+        self.hits = Counter()
+        self.dedup = {'enabled': True, 'window_seconds': 300}
+
+    async def refresh(self, pool):
+        if time.monotonic() - self.loaded_at < RULES_REFRESH:
+            return
+        self.loaded_at = time.monotonic()
+        try:
+            async with pool.acquire() as conn:
+                exists = await conn.fetchval("SELECT to_regclass('public.log_rules') IS NOT NULL")
+                if exists:
+                    rows = await conn.fetch(
+                        "SELECT id, action, hostname, source, levels, match, pattern "
+                        "FROM log_rules WHERE enabled ORDER BY id")
+                    rules = []
+                    for r in rows:
+                        levels = r['levels']
+                        if isinstance(levels, str):
+                            try:
+                                levels = json.loads(levels)
+                            except ValueError:
+                                levels = []
+                        compiled = None
+                        if r['match'] == 'regex':
+                            try:
+                                compiled = re.compile(r['pattern'])
+                            except re.error:
+                                continue
+                        rules.append({'id': r['id'], 'action': r['action'], 'hostname': (r['hostname'] or '').lower(),
+                                      'source': (r['source'] or '').lower(), 'levels': levels or [],
+                                      'match': r['match'], 'pattern': r['pattern'], 'compiled': compiled})
+                    self.rules = rules
+                    if self.hits:
+                        pending, self.hits = dict(self.hits), Counter()
+                        await conn.executemany(
+                            "UPDATE log_rules SET hits = hits + $1, last_hit_at = NOW() WHERE id = $2",
+                            [(n, rid) for rid, n in pending.items()])
+                cfg = await conn.fetchval("SELECT value FROM settings WHERE key = 'log_dedup'")
+                if cfg:
+                    if isinstance(cfg, str):
+                        cfg = json.loads(cfg)
+                    self.dedup = {'enabled': bool(cfg.get('enabled', True)),
+                                  'window_seconds': int(cfg.get('window_seconds', 300) or 0)}
+        except Exception as e:
+            logger.debug("Log-Regeln nicht geladen: %s", e)
+
+    def check(self, hostname, source, level, message):
+        if not self.rules:
+            return None
+        lv = (level or '').lower()
+        tpl = None
+        for r in self.rules:
+            if r['levels'] and lv not in r['levels']:
+                continue
+            if r['hostname'] and not fnmatch.fnmatch((hostname or '').lower(), r['hostname']):
+                continue
+            if r['source'] and not fnmatch.fnmatch((source or '').lower(), r['source']):
+                continue
+            msg = message or ''
+            if r['match'] == 'contains':
+                hit = r['pattern'].lower() in msg.lower()
+            elif r['match'] == 'regex':
+                hit = bool(r['compiled'] and r['compiled'].search(msg))
+            else:
+                if tpl is None:
+                    tpl = template(msg)
+                hit = tpl == r['pattern']
+            if hit:
+                self.hits[r['id']] += 1
+                return r['action']
+        return None
+
+
+LOG_RULES = LogRules()
+
+
 def sanitize(data: Dict[str, Any]) -> Dict[str, Any]:
     """Textfelder auf Typ und Spaltenbreite bringen.
 
@@ -398,6 +510,10 @@ class DatabaseManager:
         self._repeat_index: Dict[tuple, list] = {}
         self._buffer_lock = asyncio.Lock()
         self._agents_to_update: set = set()
+        # Dubletten ueber Stapel hinweg: (Geraet, Stufe, Quelle, Vorlage) ->
+        # [erstes Auftreten, ausstehende Wiederholungen, Originaltext, zuletzt]
+        self._recent: "OrderedDict[tuple, list]" = OrderedDict()
+        self.blocked = 0
 
     async def connect(self):
         for i in range(30):
@@ -486,6 +602,12 @@ class DatabaseManager:
             return
 
         data = sanitize(data)
+        verdict = LOG_RULES.check(data['hostname'], data['source'], data['level'], data['message'])
+        if verdict == 'drop':
+            self.blocked += 1
+            return
+        if verdict == 'downgrade':
+            data['level'] = 'debug'
         agent_id = await self.get_or_create_agent(
             data['hostname'], data['ip_address'], data.get('mac_address'),
             data['device_type'], data.get('extra_data', {}))
@@ -499,6 +621,29 @@ class DatabaseManager:
             extra,
         ]
         key = (agent_id, data['level'], data['source'], data['message'])
+        # Info/Hinweis/Debug, die bis auf Zahlen/IPs gerade schon kam: nur
+        # hochzaehlen. Warnungen und Fehler bleiben immer einzelne Zeilen.
+        if (LOG_RULES.dedup.get('enabled') and LOG_RULES.dedup.get('window_seconds')
+                and (data['level'] or '').lower() in LOW_LEVELS):
+            tkey = (agent_id, (data['level'] or '').lower(), data['source'] or '', template(data['message'] or '', 200))
+            now = time.monotonic()
+            entry = self._recent.get(tkey)
+            if entry and now - entry[0] <= LOG_RULES.dedup['window_seconds']:
+                async with self._buffer_lock:
+                    first = self._repeat_index.get((agent_id, data['level'], data['source'], entry[2]))
+                    if first is not None:
+                        # Noch im aktuellen Stapel: direkt an der Zeile zaehlen.
+                        first[8]['repeat'] = first[8].get('repeat', 1) + 1
+                        first[8]['repeat_last'] = datetime.utcnow().isoformat()
+                        first[8]['repeat_similar'] = True
+                        return
+                entry[1] += 1
+                entry[3] = datetime.utcnow()
+                return
+            self._recent[tkey] = [now, 0, data['message'], None]
+            self._recent.move_to_end(tkey)
+            while len(self._recent) > 50000:
+                self._recent.popitem(last=False)
         async with self._buffer_lock:
             first = self._repeat_index.get(key)
             if first is not None:
@@ -547,6 +692,26 @@ class DatabaseManager:
         except Exception as e:
             logger.error("Agent last_seen Update fehlgeschlagen: %s", e)
 
+    async def _flush_repeats(self):
+        """Wiederholungen aus frueheren Stapeln auf die juengste Zeile buchen."""
+        pending = []
+        for key, entry in self._recent.items():
+            if entry[1]:
+                pending.append((entry[1], (entry[3] or datetime.utcnow()).isoformat(), key[0], entry[2]))
+                entry[1] = 0
+        if not pending:
+            return
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.executemany(
+                    "UPDATE logs SET extra_data = (jsonb_set(jsonb_set(jsonb_set(COALESCE(extra_data::jsonb, '{}'::jsonb), "
+                    "'{repeat}', to_jsonb(COALESCE((extra_data::jsonb->>'repeat')::int, 1) + $1)), "
+                    "'{repeat_last}', to_jsonb($2::text)), '{repeat_similar}', 'true'::jsonb))::json "
+                    "WHERE id = (SELECT id FROM logs WHERE agent_id = $3 AND message = $4 ORDER BY id DESC LIMIT 1)",
+                    pending)
+        except Exception as e:
+            logger.warning("Wiederholungen nicht gebucht (%s): %s", len(pending), e)
+
     async def flush_loop(self):
         while True:
             await asyncio.sleep(BATCH_INTERVAL)
@@ -554,6 +719,8 @@ class DatabaseManager:
                 async with self._buffer_lock:
                     await self._flush_buffer()
                 await self._flush_agent_timestamps()
+                await self._flush_repeats()
+                await LOG_RULES.refresh(self.pool)
             except Exception as e:
                 logger.error("Flush-Loop Fehler: %s", e)
 
@@ -634,6 +801,7 @@ async def main():
     parser = SyslogParser()
     db     = DatabaseManager()
     await db.connect()
+    await LOG_RULES.refresh(db.pool)
     asyncio.create_task(db.flush_loop())
 
     loop = asyncio.get_event_loop()

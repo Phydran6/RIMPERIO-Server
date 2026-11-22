@@ -53,7 +53,10 @@ from .branding import branding_router
 from .routes.rmm import router as rmm_router, agent_router as rmm_agent_router
 from .routes.patching import router as patching_router, notifications_router
 from .routes.snmp import router as snmp_router
-from . import advisories, patchmgmt, snmpmon
+from .routes.loghandling import router as loghandling_router
+from .routes.pveconsole import router as pveconsole_router
+from .routes.dbmigrate import router as dbmigrate_router
+from . import advisories, dbmigrate, loghandling, patchmgmt, snmpmon
 
 # =============================================================================
 # Security-Headers Middleware
@@ -167,6 +170,9 @@ app.include_router(rmm_agent_router)
 app.include_router(patching_router)
 app.include_router(notifications_router)
 app.include_router(snmp_router)
+app.include_router(loghandling_router)
+app.include_router(pveconsole_router)
+app.include_router(dbmigrate_router)
 app.include_router(caddy_router.router)
 app.include_router(network_router.router)
 
@@ -887,6 +893,8 @@ async def ingest_logs(
     plain_rows = []    # ohne Zeitstempel: keine Duplikatpruefung moeglich
     repeats = {}       # (Stufe, Quelle, Text) -> erste Zeile dieser Wiederholung
 
+    await loghandling.refresh_rules()
+    blocked = 0
     for event in data.events:
         message = _strip_nul(event.message)
         level = _strip_nul(event.level or "").strip().lower() or None
@@ -895,6 +903,22 @@ async def ingest_logs(
             mapped_level, mapped_source = fritzbox.classify(event.event_id, event.group, event.message)
             level = level or mapped_level
             source = source or mapped_source
+
+        # Sperrregeln (app/loghandling.py): als unnoetig markierte Zeilen gar
+        # nicht erst speichern bzw. nur noch als Debug (kuerzeste Frist).
+        verdict = loghandling.check(data.hostname, source or "", level or "info", message or "")
+        if verdict == "drop":
+            blocked += 1
+            continue
+        if verdict == "downgrade":
+            level = "debug"
+        # Dieselbe Info/Hinweis-Meldung (bis auf Zahlen/IPs) wie vor kurzem
+        # schon einmal: hochzaehlen statt neu speichern. Nicht bei der
+        # FRITZ!Box - die hat ihren eigenen Duplikat-Schluessel.
+        if not is_fritzbox and loghandling.ingest_deduper.seen(agent.id, level or "info", source or "",
+                                                               message or ""):
+            blocked += 1
+            continue
 
         # Wiederholungen zusammenfassen statt verwerfen: dieselbe Meldung
         # mehrfach innerhalb von REPEAT_WINDOW wird EINE Zeile mit Anzahl und
@@ -1147,6 +1171,12 @@ async def start_background_tasks():
     # RMM: Tabellen/Spalten anlegen, dann Offline-Waechter starten (app/rmm.py).
     await rmm.ensure_schema()
     _spawn(rmm.sweep_loop())
+    # Log-Handling: Sperrregeln, Dubletten, Aufbewahrung nach Stufen.
+    await loghandling.ensure_schema()
+    _spawn(loghandling.housekeeping_loop())
+    # Datenbank-Updates mit Sicherung, Probelauf und Rueckweg (app/dbmigrate.py).
+    await dbmigrate.ensure_schema()
+    _spawn(dbmigrate.loop())
     # Patchmanagement, Update-Quellen und SNMP-Ueberwachung (app/patchmgmt.py,
     # app/advisories.py, app/snmpmon.py).
     await patchmgmt.ensure_schema()

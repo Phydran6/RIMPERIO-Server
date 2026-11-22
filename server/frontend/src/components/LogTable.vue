@@ -310,6 +310,11 @@
                 >×{{ log.repeat.toLocaleString('de-DE') }}</span>
                 <template v-if="readable && log.parsed">
                   <span class="block truncate" :style="{ color: 'var(--color-text-primary)' }">
+                    <span
+                      v-if="log.parsed.category && log.parsed.category !== 'other'"
+                      class="chip mr-1"
+                      :style="chipStyleFor('state')"
+                    >{{ log.parsed.category_label }}</span>
                     {{ log.parsed.summary || log.message }}
                   </span>
                   <!-- Die paar Angaben, die fast immer interessieren: Quelle,
@@ -385,6 +390,26 @@
         </div>
 
         <div class="p-5 space-y-4">
+          <!-- Log-Handling: unnoetige Meldung sperren, KI erklaert die Zeile -->
+          <div class="flex flex-wrap gap-2 items-center">
+            <button
+              v-if="authStore.isAdmin && ['info', 'informational', 'notice', 'debug', 'warning', 'warn'].includes((selectedLog.level || '').toLowerCase())"
+              class="btn btn-secondary btn-sm" @click="blockSelected('host')"
+              title="Diese Art Meldung von diesem Gerät nicht mehr speichern (Zahlen/IPs egal)"
+            >Diese Meldung sperren</button>
+            <button
+              v-if="authStore.isAdmin && ['info', 'informational', 'notice', 'debug', 'warning', 'warn'].includes((selectedLog.level || '').toLowerCase())"
+              class="btn btn-ghost btn-sm" @click="blockSelected('all')"
+            >… auf allen Geräten</button>
+            <button class="btn btn-ghost btn-sm" :disabled="aiBusy" @click="explainSelected">{{ aiBusy ? 'KI denkt …' : 'KI erklärt' }}</button>
+            <span v-if="handlingMsg" class="text-xs" :style="{ color: 'var(--color-text-muted)' }">{{ handlingMsg }}</span>
+          </div>
+          <div v-if="aiAnswer" class="rounded p-3 text-sm" :style="{ background: 'var(--color-bg-secondary)' }">
+            <p v-if="aiAnswer.was"><strong>Was:</strong> {{ aiAnswer.was }}</p>
+            <p v-if="aiAnswer.bedeutung"><strong>Bedeutung:</strong> {{ aiAnswer.bedeutung }}</p>
+            <p v-if="aiAnswer.tun"><strong>Tun:</strong> {{ aiAnswer.tun }}</p>
+            <p v-if="aiAnswer.rauschen" class="text-xs">Die KI hält das für Grundrauschen – „Diese Meldung sperren“ spart Platz.</p>
+          </div>
           <!-- Meta-Grid -->
           <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <div>
@@ -414,7 +439,17 @@
             <p class="text-xs mb-1" :style="{ color: 'var(--color-text-muted)' }">
               Lesbar ({{ parsed.format }})
             </p>
-            <p class="text-sm mb-2" :style="{ color: 'var(--color-text-primary)' }">{{ parsed.summary }}</p>
+            <p class="text-sm mb-2" :style="{ color: 'var(--color-text-primary)' }">
+              <span v-if="parsed.category_label && parsed.category !== 'other'" class="chip mr-1" :style="chipStyleFor('state')">{{ parsed.category_label }}</span>
+              {{ parsed.summary }}
+            </p>
+            <!-- Was bedeutet das? Was tun? (logexplain) -->
+            <p v-if="parsed.explain?.hint" class="text-xs mb-2 rounded px-2 py-1.5" :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)' }">
+              💡 {{ parsed.explain.hint }}
+            </p>
+            <p v-if="parsed.original && parsed.original !== parsed.summary" class="text-xs mb-2" :style="{ color: 'var(--color-text-muted)' }">
+              Original: {{ parsed.original }}
+            </p>
 
             <div v-if="parsed.highlights?.length" class="flex flex-wrap gap-1 mb-2">
               <span
@@ -782,8 +817,41 @@ function chipStyleFor(kind) {
   }
 }
 
+const aiBusy = ref(false)
+const aiAnswer = ref(null)
+const handlingMsg = ref('')
+
+async function blockSelected(scope) {
+  const log = selectedLog.value
+  if (!log) return
+  const purge = confirm(`Meldungen dieser Art ${scope === 'host' ? 'von ' + log.hostname : 'von allen Geräten'} künftig nicht mehr speichern.\n\nVorhandene gleiche Zeilen auch löschen?`)
+  try {
+    const r = await authStore.api('/api/log-handling/rules/from-log', { method: 'POST', body: { log_id: log.id, scope, purge_existing: purge } })
+    handlingMsg.value = `Gesperrt (Regel „${r.name}“)` + (r.purged ? `, ${r.purged} Zeilen gelöscht.` : '.')
+  } catch (e) {
+    handlingMsg.value = e.message
+  }
+}
+
+async function explainSelected() {
+  const log = selectedLog.value
+  if (!log) return
+  aiBusy.value = true
+  aiAnswer.value = null
+  try {
+    const r = await authStore.api(`/api/log-handling/explain/${log.id}`, { method: 'POST' })
+    if (r.available) aiAnswer.value = r.answer
+    else handlingMsg.value = r.message
+  } catch (e) {
+    handlingMsg.value = e.message
+  }
+  aiBusy.value = false
+}
+
 async function showDetail(log) {
   parsed.value = null
+  aiAnswer.value = null
+  handlingMsg.value = ''
   try {
     // Die zerlegte Fassung bringt die Rohzeile unveraendert mit - ein Aufruf
     // statt zwei.

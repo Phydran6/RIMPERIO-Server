@@ -70,6 +70,11 @@ def _readable_items(rows: list) -> list:
             "highlights": parsed["highlights"],
             "fields": parsed["fields"],
             "meta": parsed["meta"],
+            # Klartext (logexplain): Kategorie, Hinweis, Rauschen, Originaltext
+            "category": parsed.get("category"),
+            "category_label": parsed.get("category_label"),
+            "explain": parsed.get("explain"),
+            "original": parsed.get("original"),
         }
         # facility und extra_data haben ihren Dienst getan - sie stecken jetzt
         # in `parsed` und muessen nicht doppelt ueber die Leitung.

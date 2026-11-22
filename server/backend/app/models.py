@@ -652,3 +652,91 @@ class SnmpSample(Base):
 
 SNMP_TABLES = [SnmpCredential.__table__, SnmpTemplate.__table__, SnmpDevice.__table__,
                SnmpMetric.__table__, SnmpSample.__table__]
+
+
+# ==============================================================================
+# Log-Handling: Sperrregeln (app/loghandling.py)
+# ==============================================================================
+class LogRule(Base):
+    """Eine Regel fuer unnoetige Logzeilen: nicht speichern oder nur kurz behalten.
+
+    Greift beim Empfang (Syslog und HTTPS), nicht erst beim Anzeigen - was
+    gesperrt ist, kostet keinen Platz. Die Zaehler zeigen, ob eine Regel noch
+    etwas trifft.
+    """
+    __tablename__ = "log_rules"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    # drop = gar nicht speichern; downgrade = als 'debug' speichern (kuerzeste
+    # Aufbewahrung, in den Ansichten standardmaessig unsichtbar)
+    action = Column(String(16), default="drop", nullable=False)
+    hostname = Column(String(255), default="")          # Glob, leer = alle Geraete
+    source = Column(String(255), default="")            # Glob, leer = alle Programme
+    levels = Column(JSON, default=list)                 # leer = alle Stufen
+    match = Column(String(16), default="contains")      # contains | regex | template
+    pattern = Column(Text, nullable=False)
+    sample = Column(Text, default="")                   # Beispielzeile (aus der Rausch-Erkennung)
+    note = Column(Text, default="")
+    hits = Column(Integer, default=0, nullable=False)
+    last_hit_at = Column(DateTime, nullable=True)
+    created_by = Column(String(64), default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+LOG_TABLES = [LogRule.__table__]
+
+
+class AppDevice(Base):
+    """Ein Handy mit der RIMPERIO-App - fuer die Abfrage neuer Meldungen.
+
+    Der Sitzungs-Token der App laeuft nach 24 h ab; die Hintergrundabfrage
+    stuende dann still, bis jemand die App oeffnet. Der Geraeteschluessel darf
+    deshalb genau eines: neue Meldungen abholen. Nichts entscheiden, nichts
+    lesen ausser dem Eingang. Gespeichert wird nur seine Pruefsumme.
+    """
+    __tablename__ = "app_devices"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(120), default="")
+    platform = Column(String(16), default="")
+    key_hash = Column(String(64), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=True)
+    last_ip = Column(String(45), nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+
+
+APP_TABLES = [AppDevice.__table__]
+
+
+# ==============================================================================
+# Datenbank-Updates mit Probelauf (app/dbmigrate.py)
+# ==============================================================================
+class DbMigration(Base):
+    """Ein Datenbank-Update eines Containers: Analyse, Sicherung, Probelauf,
+    Freigabe, Ausfuehrung, Pruefung - jeder Schritt nachvollziehbar."""
+    __tablename__ = "db_migrations"
+    id = Column(Integer, primary_key=True)
+    agent_id = Column(Integer, ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False)
+    container = Column(String(255), nullable=False)
+    engine = Column(String(32), default="")              # postgres | mariadb | mysql | mongo | redis
+    image = Column(String(512), default="")              # wie konfiguriert
+    target_image = Column(String(512), default="")       # leer = gleicher Tag, neuer Stand
+    mode = Column(String(16), default="manual")          # manual | auto (aus einem Patch-Lauf)
+    status = Column(String(32), default="new", index=True)
+    stage_since = Column(DateTime, default=datetime.utcnow)
+    plan = Column(JSON, default=dict)                    # Versionen, Pfade, Groessen, Anpassungen
+    report = Column(JSON, default=dict)                  # Ergebnisse je Schritt
+    commands = Column(JSON, default=dict)                # Schritt -> Command-ID
+    log = Column(JSON, default=list)
+    patch_item_id = Column(Integer, nullable=True)
+    created_by = Column(String(64), default="")
+    approved_by = Column(String(64), default="")
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+DB_MIGRATION_TABLES = [DbMigration.__table__]

@@ -19,8 +19,8 @@
   <div class="page">
     <div class="page-header">
       <div>
-        <h1 class="page-title">{{ t('terminal.title') }}</h1>
-        <p class="page-subtitle">{{ t('terminal.intro') }}</p>
+        <h1 class="page-title">{{ pve ? `Proxmox-Konsole: ${pveLabel}` : t('terminal.title') }}</h1>
+        <p class="page-subtitle">{{ pve ? 'Konsole über die Proxmox-API (termproxy) – wie „Shell“/„Konsole“ in Proxmox. Bei LXC mit Anmeldeaufforderung (cmode tty) mit dem Root-Passwort des Containers anmelden.' : t('terminal.intro') }}</p>
       </div>
       <span class="badge" :class="connected ? 'badge-success' : 'badge-neutral'">
         {{ connected ? t('terminal.connected') : t('terminal.disconnected') }}
@@ -35,7 +35,7 @@
     </p>
 
     <template v-else-if="status">
-      <p class="alert alert-warning">{{ t('terminal.warning') }}</p>
+      <p v-if="!pve" class="alert alert-warning">{{ t('terminal.warning') }}</p>
 
       <section class="card">
         <div class="card-header">
@@ -49,7 +49,7 @@
             </button>
             <button class="btn btn-ghost btn-sm" @click="clear">{{ t('common.close') }} / Clear</button>
           </div>
-          <span class="hint">
+          <span v-if="!pve" class="hint">
             {{ t('terminal.openSessions') }}: {{ status.open_sessions }} / {{ status.max_sessions }}
           </span>
         </div>
@@ -106,7 +106,7 @@
           </p>
           <!-- Diese Konsole laeuft ueber den Backend-Container. Ein Update baut
                genau den neu - und risse die Sitzung samt Update mittendrin ab. -->
-          <p class="hint mt-1" style="color: var(--color-warning)">
+          <p v-if="!pve" class="hint mt-1" style="color: var(--color-warning)">
             RIMPERIO-Updates bitte nicht hier starten: das Update baut den Container neu, über
             den diese Konsole läuft, und bräche dabei ab. Dafür
             <router-link to="/updates" style="text-decoration: underline">RIMPERIO-Server → Updates</router-link>
@@ -120,12 +120,24 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from '../i18n'
 import AppIcon from '../components/AppIcon.vue'
 
 const auth = useAuthStore()
 const { t } = useI18n()
+const route = useRoute()
+
+// Proxmox-Ziel (Knoten, LXC, VM) statt der Root-Shell des Servers:
+// /terminal?pve=<host_id>&node=<knoten>&kind=node|lxc|qemu&vmid=<id>&name=<name>
+const pve = computed(() => route.query.pve ? {
+  host_id: route.query.pve, node: route.query.node, kind: route.query.kind || 'lxc', vmid: route.query.vmid || '',
+  name: route.query.name || '',
+} : null)
+const pveLabel = computed(() => pve.value
+  ? (pve.value.kind === 'node' ? `Knoten ${pve.value.node}` : `${pve.value.vmid} ${pve.value.name} (${pve.value.kind === 'lxc' ? 'CT' : 'VM'}, ${pve.value.node})`)
+  : '')
 
 const status = ref(null)
 const error = ref('')
@@ -390,6 +402,10 @@ function clear() {
 // Verbindung
 // =============================================================================
 async function loadStatus() {
+  if (pve.value) {
+    status.value = { available: true, open_sessions: 0, max_sessions: 0 }
+    return
+  }
   try {
     status.value = await auth.api('/api/shell/status')
   } catch (err) {
@@ -406,13 +422,19 @@ async function connect() {
   // Sitzungs-Token, der sonst in Proxy-Protokollen stuende.
   let ticket
   try {
-    ticket = await auth.ticket('shell')
+    ticket = await auth.ticket(pve.value ? 'console' : 'shell')
   } catch (err) {
     error.value = err.message
     return
   }
-  const url = `${protocol}://${window.location.host}/api/shell/ws`
+  let url = `${protocol}://${window.location.host}/api/shell/ws`
     + `?token=${encodeURIComponent(ticket)}&rows=${rows}&cols=${cols}`
+  if (pve.value) {
+    const p = pve.value
+    url = `${protocol}://${window.location.host}/api/pve/console/ws?token=${encodeURIComponent(ticket)}`
+      + `&host_id=${encodeURIComponent(p.host_id)}&node=${encodeURIComponent(p.node)}&kind=${encodeURIComponent(p.kind)}`
+      + (p.vmid ? `&vmid=${encodeURIComponent(p.vmid)}` : '') + `&rows=${rows}&cols=${cols}`
+  }
 
   socket = new WebSocket(url)
 
@@ -428,7 +450,7 @@ async function connect() {
       write(message.data)
     } else if (message.type === 'ready') {
       connected.value = true
-      write(`\x1b[32m[RIMPERIO] Verbunden als ${message.user}.\x1b[0m\r\n`)
+      write(`\x1b[32m[RIMPERIO] Verbunden als ${message.user}${message.target ? ' mit ' + message.target : ''}.\x1b[0m\r\n`)
       nextTick(focusScreen)
     } else if (message.type === 'error') {
       error.value = message.message

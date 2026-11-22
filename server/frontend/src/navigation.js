@@ -64,6 +64,7 @@ export const NAV_SECTIONS = [
     icon: 'logs',
     items: [
       { key: 'logs', to: '/logs', name: 'Logs', icon: 'logs', label: 'logs' },
+      { key: 'log-handling', to: '/logs/handling', name: 'LogHandling', icon: 'filter', label: 'logHandling' },
       { key: 'log-sources', to: '/agents', name: 'Agents', match: ['DeviceLogs'], icon: 'agents', label: 'logSources' },
       { key: 'retention', to: '/settings/retention', name: 'Settings', tab: 'retention', icon: 'clock', label: 'retention' },
       { key: 'archiving', to: '/settings/archiving', name: 'Settings', tab: 'archiving', icon: 'archive', label: 'archiving', admin: true },
@@ -84,6 +85,7 @@ export const NAV_SECTIONS = [
     icon: 'download',
     items: [
       { key: 'patch-center', to: '/rmm/patches', name: 'RmmPatches', icon: 'download', label: 'patchCenter' },
+      { key: 'db-updates', to: '/rmm/db-updates', name: 'RmmDbUpdates', icon: 'database', label: 'dbUpdates' },
       { key: 'policies', to: '/rmm/policies', name: 'RmmPolicies', icon: 'clock', label: 'policies' },
       { key: 'sources', to: '/rmm/sources', name: 'RmmSources', icon: 'globe', label: 'sources' },
     ],
@@ -96,6 +98,7 @@ export const NAV_SECTIONS = [
     icon: 'stacks',
     items: [
       { key: 'proxmox', to: '/integrations/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
+      { key: 'pve-updates', to: '/integrations/proxmox/updates', name: 'PveUpdates', icon: 'terminal', label: 'pveUpdates' },
     ],
   },
   {

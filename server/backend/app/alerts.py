@@ -126,6 +126,16 @@ EVENTS: Dict[str, Dict[str, Any]] = {
         "hint": "Gerät nicht erreichbar oder ein Wert über der Schwelle (Toner, USV, RAID, Port …).",
         "default": True,
     },
+    "log_critical": {
+        "label": "Kritische Logzeile",
+        "hint": "Ein Gerät meldet eine kritische Zeile (critical/alert/emergency).",
+        "default": True,
+    },
+    "log_error": {
+        "label": "Fehler-Logzeile",
+        "hint": "Ein Gerät meldet einen Fehler (error) – gebündelt je Gerät.",
+        "default": False,
+    },
     "update_available": {
         "label": "Neuer Stand auf GitHub",
         "hint": "Ein Update steht bereit.",
@@ -146,6 +156,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "webhook": {"enabled": False, "url": "", "secret": ""},
     },
     "events": {key: spec["default"] for key, spec in EVENTS.items()},
+    # Die Handy-App: eigener Weg mit eigener Auswahl. Ab Werk kommt alles an,
+    # was Aufmerksamkeit braucht - unabhaengig davon, ob Mail/Telegram an sind.
+    "app": {
+        "enabled": True,
+        "events": {key: key not in ("rmm_patches", "patch_done", "agent_offline", "rmm_threshold")
+                   for key in EVENTS},
+    },
     "silence_minutes": 60,          # 0 = nicht ueberwachen
     "flood_per_minute": 2000,       # 0 = nicht ueberwachen
     "agent_offline_minutes": 30,
@@ -314,6 +331,13 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
         if key in EVENTS:
             config["events"][key] = bool(value)
 
+    app_in = incoming.get("app") or {}
+    if "enabled" in app_in:
+        config["app"]["enabled"] = bool(app_in["enabled"])
+    for key, value in (app_in.get("events") or {}).items():
+        if key in EVENTS:
+            config["app"]["events"][key] = bool(value)
+
     for key, low, high in (("silence_minutes", 0, 10080), ("flood_per_minute", 0, 1_000_000),
                            ("agent_offline_minutes", 5, 10080), ("cooldown_minutes", 1, 1440)):
         if incoming.get(key) is not None:
@@ -446,6 +470,11 @@ async def dispatch(event: str, title: str, text: str, level: str = "warning",
     """
     try:
         config = current()
+        # Erst die App: jede Meldung, die nicht ohnehin schon aus dem Eingang
+        # kommt (notify.push setzt notification_id), landet dort - sonst sieht
+        # das Handy Offline-Rechner, Checks oder volle Platten nie.
+        if not (detail or {}).get("notification_id"):
+            await _to_app(config, event, title, text, level, key, detail)
         if not config["events"].get(event, False):
             return {}
         cooldown_key = key or event
@@ -463,9 +492,53 @@ async def dispatch(event: str, title: str, text: str, level: str = "warning",
         return {}
 
 
+_APP_CATEGORY = {
+    "rmm_offline": "rmm", "rmm_threshold": "rmm", "rmm_check": "rmm", "rmm_patches": "patch",
+    "patch_approval": "patch", "patch_failed": "patch", "patch_done": "patch",
+    "snmp_alert": "snmp", "agent_offline": "rmm", "log_critical": "logs", "log_error": "logs",
+    "update_available": "system", "db_down": "system", "disk": "system", "silence": "system",
+    "flood": "logs", "recovered": "system",
+}
+
+
+async def _to_app(config: dict, event: str, title: str, text: str, level: str,
+                  key: Optional[str], detail: Optional[dict]) -> None:
+    app = config.get("app") or {}
+    if not app.get("enabled", True) or not (app.get("events") or {}).get(event, False):
+        return
+    cooldown_key = "app:" + (key or event)
+    now = datetime.utcnow()
+    last = _last_sent.get(cooldown_key)
+    if last and (now - last).total_seconds() < config["cooldown_minutes"] * 60:
+        return
+    _last_sent[cooldown_key] = now
+    try:
+        from .database import async_session
+        from .events import bus
+        from .models import Notification
+        clean_title = title[len("RIMPERIO: "):] if title.startswith("RIMPERIO: ") else title
+        async with async_session() as db:
+            n = Notification(category=_APP_CATEGORY.get(event, "system"),
+                             level="critical" if level == "critical" else ("warning" if level == "warning" else "info"),
+                             title=clean_title[:255], body=text or "", link=(detail or {}).get("link", ""),
+                             data={"event": event, **{k: v for k, v in (detail or {}).items()
+                                                      if isinstance(v, (str, int, float, bool))}})
+            db.add(n)
+            await db.commit()
+            await db.refresh(n)
+        try:
+            bus.publish("notification", {"id": n.id, "title": n.title, "level": n.level,
+                                         "category": n.category}, sticky=False)
+        except Exception:                                           # defensiv
+            pass
+    except Exception as exc:                                        # defensiv - DB weg? Dann eben nicht.
+        logger.debug("App-Meldung '%s' nicht angelegt: %s", event, exc)
+
+
 def forget(key: str) -> None:
     """Sperrfrist aufheben - nach einer Entwarnung darf das Problem neu melden."""
     _last_sent.pop(key, None)
+    _last_sent.pop("app:" + key, None)
 
 
 async def send_test(channel: str) -> Dict[str, str]:
