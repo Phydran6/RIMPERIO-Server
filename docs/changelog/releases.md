@@ -11,6 +11,40 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.23.06.00.00 (2026-11-23) – Logs verständlich und ohne Rauschen, DB-Updates mit Probelauf, Proxmox-Updates, App-Fernzugriff
+
+- **Logs auf Deutsch erklärt.** Jede Zeile bekommt einen Klartext („SSH-Anmeldung als root von
+  203.0.113.7 fehlgeschlagen“), einen Themenbereich (Anmeldung, Dienste, Netzwerk, Hardware …) und –
+  wo sinnvoll – einen Hinweis, was zu tun ist. Rund 50 Muster (sshd, PAM, sudo, systemd, Kernel/OOM,
+  Platten/SMART/ZFS, UFW/Netfilter, Fail2ban, DHCP/WLAN, Cron, apt, Docker, Postfix, Webserver,
+  Proxmox) plus die wichtigsten Windows-Ereignis-IDs. Für den Einzelfall: **„KI erklärt“**.
+- **Log-Handling** (Logs → Log-Handling & Rauschen): **Rausch-Erkennung** zeigt, welche Info/Hinweis-Meldungen
+  den Platz fressen; **Sperrregeln** verwerfen Unnötiges schon beim Empfang (HTTPS und Syslog) oder
+  behalten es nur kurz – mit einem Klick aus der Rausch-Liste oder aus einer Logzeile. Fehler und
+  Kritisches lassen sich bewusst nicht sperren.
+- **Aufbewahrung nach Stufen.** Debug 1 Tag, Info 7, Hinweis 14, Warnung 60, Fehler 180, Kritisch 365 Tage
+  (einstellbar); die allgemeine Aufbewahrung bleibt die Obergrenze.
+- **Dubletten über Lieferungen hinweg.** Dieselbe Info/Hinweis-Meldung (Zahlen, IPs, IDs egal)
+  innerhalb von 5 Minuten wird keine neue Zeile, sondern zählt die erste hoch.
+- **App-Meldungen kommen an.** Bisher landeten nur Patch- und SNMP-Ereignisse im App-Eingang. Jetzt alles,
+  was Aufmerksamkeit braucht – Rechner offline, fehlgeschlagene Checks, volle Platte, neue kritische und
+  Fehler-Logzeilen, RIMPERIO-Update … – mit eigener Auswahl (Meldungen → „📱“). Die App holt Meldungen mit
+  einem eigenen Geräteschlüssel ab, der nicht nach 24 Stunden abläuft.
+- **Freigaben tauchen wieder auf.** Schlug in der KI-Prüfung die Websuche fehl, blieben Updates für immer
+  „in Prüfung“ und erschienen nie zur Freigabe. Das ist behoben; hängende Prüfungen werden nach 2 h
+  aufgelöst.
+- **DB-Updates mit Probelauf** (Patchmanagement → DB-Updates): Datenbank-Container (PostgreSQL, MariaDB/MySQL,
+  MongoDB, Redis/Valkey) werden nie mehr blind aktualisiert. Analyse → Sicherung → Probelauf mit dem neuen
+  Image in einem Wegwerf-Container → Vergleich jeder Tabelle → KI-Prüfung und Anpassungen → Freigabe →
+  Ausführung (bei Hauptversion: Abzug, Archiv des Datenverzeichnisses, neu einspielen) → automatischer
+  Rückweg. Auch Patch-Läufe leiten Datenbank-Container dorthin um. Siehe [docs/updates/db-updates.md](../updates/db-updates.md).
+- **Proxmox-Knoten aktualisieren** (Integrationen → Proxmox-Updates & Konsole): verfügbare Pakete,
+  Paketlisten auffrischen, Upgrade mit mitgeschnittener Ausgabe, Neustart – in der Weboberfläche und in der App.
+- **Konsole für Proxmox:** Shell auf dem Knoten, Konsole von LXC-Containern, serielle Konsole von VMs –
+  im Browser und in der App. **Agent in LXC per `pct exec`** automatisch installieren.
+- **App:** Updates je Rechner/Container installieren, Proxmox, DB-Updates, RIMPERIO-Update, Fernzugriff
+  (Shell als `rimperio`, PowerShell, RDP) – siehe RIMPERIO-App.
+
 ## v2026.11.21.12.00.00 (2026-11-21) – Menü neu, Startpasswort-Pflicht, M365-Automatik, externe Datenbank
 
 - **Menü neu gegliedert.** Eigener Bereich **Logs** (Ansicht, Quellen, Aufbewahrung, Archivierung),

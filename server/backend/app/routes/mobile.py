@@ -539,6 +539,9 @@ async def app_patch_install(data: AppInstallIn, db: AsyncSession = Depends(get_d
         run = await pm.install_now(db, agent, data.item_ids, f"{admin.username} (App)", data.snapshot, "app")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if run is None:
+        return {"id": None, "status": "db_update",
+                "message": "Datenbank-Container: DB-Update mit Sicherung und Probelauf gestartet (Mehr → DB-Updates)."}
     return pm.public_run(run, agent)
 
 
@@ -808,7 +811,14 @@ class AppServerUpdateIn(BaseModel):
 @router.get("/server/update")
 async def app_server_update_status(force: bool = Query(False), _=Depends(get_current_admin)):
     from .. import updater
-    st = await updater.update_status(force=force)
+    try:
+        st = await updater.update_status(force=force)
+    except Exception as exc:                                        # defensiv
+        logger.warning("Update-Stand nicht lesbar: %s", exc)
+        return {"installed": settings.app_version, "available": None, "update_available": False,
+                "is_downgrade": False, "reason": f"Stand nicht lesbar: {exc}", "host_access": False,
+                "run": None, "relation": "unknown", "unreleased": None, "target_ref": None,
+                "oneliner": None, "notes": ""}
     local, remote = st.get("local") or {}, st.get("remote") or {}
     return {"installed": local.get("version"), "available": remote.get("version"),
             "update_available": bool(st.get("update_available")),
