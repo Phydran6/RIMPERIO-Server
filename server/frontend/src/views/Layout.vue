@@ -101,24 +101,45 @@
             <div v-else-if="!section.flat" class="section-divider" />
 
             <ul v-if="isSectionOpen(section)" class="nav-list">
-              <li v-for="item in section.items" :key="item.key">
-                <router-link
-                  :to="item.to"
-                  class="nav-row nav-link"
-                  :class="{ active: isEntryActive(item, route) }"
-                  :title="isCollapsed ? t('nav.' + item.label) : null"
-                  @click="onNavigate"
+              <template v-for="row in rowsFor(section)" :key="row.key">
+                <!-- Untermenue: aufklappbare Zeile, darunter eingerueckt seine Eintraege -->
+                <li v-if="row.type === 'group' && !isCollapsed" class="nav-group">
+                  <button
+                    type="button"
+                    class="nav-row group-head"
+                    :class="{ 'has-active': groupHasActive(row) }"
+                    :aria-expanded="isGroupOpen(row)"
+                    @click="toggleGroup(row.key)"
+                  >
+                    <svg class="group-chevron" :class="{ 'is-open': isGroupOpen(row) }" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                    </svg>
+                    <span class="nav-label">{{ t('nav.' + row.group) }}</span>
+                  </button>
+                </li>
+                <li
+                  v-for="item in (row.type === 'group' ? (isGroupOpen(row) || isCollapsed ? row.items : []) : [row.item])"
+                  :key="item.key"
+                  :class="{ 'is-grouped': row.type === 'group' && !isCollapsed }"
                 >
-                  <AppIcon :name="item.icon" :size="17" class="shrink-0" />
-                  <span v-if="!isCollapsed" class="nav-label">{{ t('nav.' + item.label) }}</span>
-                  <span
-                    v-if="badgeFor(item.key)"
-                    class="nav-badge"
-                    :class="badgeFor(item.key).tone"
-                    :title="badgeFor(item.key).title"
-                  >{{ badgeFor(item.key).value }}</span>
-                </router-link>
-              </li>
+                  <router-link
+                    :to="item.to"
+                    class="nav-row nav-link"
+                    :class="{ active: isEntryActive(item, route) }"
+                    :title="isCollapsed ? t('nav.' + item.label) : null"
+                    @click="onNavigate"
+                  >
+                    <AppIcon :name="item.icon" :size="17" class="shrink-0" />
+                    <span v-if="!isCollapsed" class="nav-label">{{ t('nav.' + item.label) }}</span>
+                    <span
+                      v-if="badgeFor(item.key)"
+                      class="nav-badge"
+                      :class="badgeFor(item.key).tone"
+                      :title="badgeFor(item.key).title"
+                    >{{ badgeFor(item.key).value }}</span>
+                  </router-link>
+                </li>
+              </template>
             </ul>
           </div>
         </template>
@@ -259,7 +280,7 @@ import { useAuthStore } from '../stores/auth'
 import { useThemeStore } from '../stores/themeStore'
 import { useBrandingStore } from '../stores/brandingStore'
 import { useI18n } from '../i18n'
-import { sectionsFor, isEntryActive, findActive } from '../navigation'
+import { sectionsFor, isEntryActive, findActive, rowsFor } from '../navigation'
 import AppIcon from '../components/AppIcon.vue'
 import NotificationBell from '../components/NotificationBell.vue'
 import pkg from '../../package.json'
@@ -282,6 +303,7 @@ const COLLAPSE_KEY = 'rimperio.sidebarCollapsed'
 // Gemerkt werden die GEÖFFNETEN Bereiche: ab Werk ist alles zugeklappt,
 // nur der Bereich der aktuellen Seite geht von selbst auf.
 const OPEN_SECTIONS_KEY = 'rimperio.sidebarOpenSections'
+const OPEN_GROUPS_KEY = 'rimperio.sidebarOpenGroups'
 
 function readStored(key, fallback = '') {
   try {
@@ -347,15 +369,16 @@ const visibleSections = computed(() => {
       const sectionHit = section.title && t('nav.' + section.title).toLowerCase().includes(needle)
       const items = section.items.filter(item => sectionHit
         || t('nav.' + item.label).toLowerCase().includes(needle)
+        || (item.group && t('nav.' + item.group).toLowerCase().includes(needle))
         || item.to.toLowerCase().includes(needle))
       return { ...section, items }
     })
     .filter(section => section.items.length)
 })
 
-function readOpen() {
+function readOpen(key = OPEN_SECTIONS_KEY) {
   try {
-    const parsed = JSON.parse(readStored(OPEN_SECTIONS_KEY, '[]'))
+    const parsed = JSON.parse(readStored(key, '[]'))
     return new Set(Array.isArray(parsed) ? parsed : [])
   } catch {
     return new Set()
@@ -391,6 +414,28 @@ watch(() => active.value.section?.key, (key) => {
     storeOpen(next)
   }
 }, { immediate: true })
+
+// Untermenues (z. B. Integrationen -> Anmeldung): zugeklappt, bis man sie
+// oeffnet - ausser die geoeffnete Seite steht darin oder es wird gesucht.
+const openGroups = ref(readOpen(OPEN_GROUPS_KEY))
+
+function groupHasActive(row) {
+  return row.items.some(item => isEntryActive(item, route))
+}
+
+function isGroupOpen(row) {
+  if (searching.value || isCollapsed.value) return true
+  return openGroups.value.has(row.key) || groupHasActive(row)
+}
+
+function toggleGroup(key) {
+  if (searching.value) return
+  const next = new Set(openGroups.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  openGroups.value = next
+  writeStored(OPEN_GROUPS_KEY, JSON.stringify([...next]))
+}
 
 function openFirstMatch() {
   const first = visibleSections.value[0]?.items[0]
@@ -474,6 +519,8 @@ const breadcrumb = computed(() => {
   if (route.name === 'DeviceLogs' || route.name === 'RmmAgentDetail' || route.name === 'RmmSnmpDevice') {
     return `${t('nav.' + section.title)} · ${t('nav.' + item.label)}`
   }
+  // Im Untermenue: "Geräte · Proxmox VE"
+  if (item.group) return `${t('nav.' + section.title)} · ${t('nav.' + item.group)}`
   return t('nav.' + section.title)
 })
 
@@ -742,6 +789,26 @@ function handleLogout() {
   display: flex;
   flex-direction: column;
   gap: 0.0625rem;
+}
+
+/* Untermenue innerhalb eines Bereichs. */
+.group-head {
+  font-weight: 500;
+}
+.group-head.has-active {
+  color: var(--color-text-primary);
+}
+.group-chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  transition: transform var(--duration) var(--ease);
+}
+.group-chevron.is-open {
+  transform: rotate(90deg);
+}
+.is-grouped {
+  padding-left: 1rem;
 }
 
 /* Eine Zeile im Menü. */

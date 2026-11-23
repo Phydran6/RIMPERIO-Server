@@ -70,6 +70,7 @@ CAPABILITIES = [
     "device-push",       # Geraeteschluessel fuer die Hintergrundabfrage (laeuft nicht nach 24 h ab)
     "server-update",     # RIMPERIO selbst aktualisieren
     "pve-updates",       # /api/pve/updates - Proxmox-Knoten aktualisieren
+    "pve-patching",      # /api/pve/patching, /api/pve/hosts/{id}/patch - rollierend, Zeitplan
     "pve-console",       # /api/pve/console/ws - Konsole Knoten/LXC/VM
     "remote-console",    # Befehle auf Rechnern (Linux als rimperio, Windows PowerShell)
     "rdp",               # RDP-Verbindung zu Windows-Rechnern

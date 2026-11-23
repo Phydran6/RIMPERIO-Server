@@ -11,6 +11,21 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.23.21.00.00 (2026-11-23) – Proxmox-Knoten patchen mit Zeitplan, Menü: Integrationen als Oberbegriff
+
+- **Proxmox-Knoten patchen** (Geräte → Proxmox VE → Knoten patchen & Konsole): „Alle Knoten patchen“ geht einen
+  Host oder Cluster **Knoten für Knoten** durch – Paketlisten auffrischen, `pveupgrade`, Neustart nach neuem Kernel
+  (einstellbar: nie / bei neuem Kernel / nach jedem Upgrade), warten bis der Knoten wieder online ist, erst dann der
+  nächste. Vor jedem Neustart im Cluster wird das Quorum geprüft; bei einem Fehler hält der Lauf an.
+- **Zeitplan je Proxmox-Host:** Wochentage, Beginn, Dauer des Wartungsfensters, Zeitzone, nur bestimmte Knoten,
+  „nur bei Sicherheitsupdates“. Nach dem Fenster wird kein weiterer Knoten mehr angefangen. Ergebnis als Meldung
+  (auch in der App) und im Verlauf.
+- **Patch-Center:** eigene Kachel mit den offenen Updates der Proxmox-Knoten.
+- **Menü:** **Proxmox VE** steht jetzt unter **Geräte** (Hosts & Gäste, Knoten patchen & Konsole). **Integrationen**
+  ist der Oberbegriff für alles, was an RIMPERIO angebunden wird, mit Untermenüs: *Anmeldung & Verzeichnisdienste*
+  (Microsoft 365 / Entra ID, Active Directory / LDAP), *E-Mail* (Postfix, SMTP, Microsoft 365), *KI*.
+  Alte Adressen (`/integrations/proxmox…`, `/rmm/proxmox`) leiten weiter.
+
 ## v2026.11.23.06.00.00 (2026-11-23) – Logs verständlich und ohne Rauschen, DB-Updates mit Probelauf, Proxmox-Updates, App-Fernzugriff
 
 - **Logs auf Deutsch erklärt.** Jede Zeile bekommt einen Klartext („SSH-Anmeldung als root von

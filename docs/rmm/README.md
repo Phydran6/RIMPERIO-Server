@@ -34,7 +34,7 @@ SHA-256. „Agent entfernen“ trennt den Agent vom Gerät, die Logs bleiben.
 | **Patch-Center** | Windows-, Linux- und Docker-Updates: Freigaben mit KI-Einschätzung, Läufe mit Proxmox-Snapshot und Prüfung — siehe [Patchmanagement](patching.md) |
 | **Patch-Richtlinien** | Zeitplan, Wartungsfenster, Freigaberegeln, KI, Sicherung, Prüfung, Docker — global, je Standort oder Rechner |
 | **Update-Quellen** | Sicherheitsmeldungen, bekannte Probleme, Release-Notizen, eigene RSS-Feeds, Websuche |
-| **Proxmox & Snapshots** | Proxmox-Hosts, Zuordnung Rechner ↔ VM, offene Sicherungen |
+| **Proxmox VE** (unter *Geräte*) | Hosts & Gäste: Proxmox-Hosts, Zuordnung Rechner ↔ VM, offene Sicherungen. Knoten patchen & Konsole: Updates der Knoten, rollierender Patch-Lauf (Knoten für Knoten, Neustart nach neuem Kernel, Quorum-Prüfung) von Hand oder im Wartungsfenster je Host, Shell |
 | **SNMP-Geräte** | Netzwerkgeräte ohne Agent überwachen — siehe [SNMP](snmp.md) |
 | **Rechner-Alarme** | Offline, Schwelle überschritten, Check fehlgeschlagen; Schwellen einstellen |
 

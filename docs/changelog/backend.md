@@ -2,6 +2,15 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.23.21.00.00
+
+### Added
+- **`app/pvepatch.py`:** rollierender Patch-Lauf über die Knoten eines Proxmox-Hosts (apt update → `pveterm.start_node_upgrade` → Neustart je nach `reboot` = never | kernel | always → warten auf „online“), Quorum-Prüfung vor dem Neustart, Abbruch beim ersten Fehler. Zeitplan je Host in der Einstellung `pve_patching` (Tage, Beginn, Dauer, Zeitzone, Knoten, `only_security`, `refresh`), Takt `pvepatch.loop()` (einmal je Fenster), Verlauf in `pve_patch_history`. Meldung `patch_done`/`patch_failed`, Systemtagebuch `pve.patch.*`.
+- **API:** `GET /api/pve/patching`, `PUT /api/pve/patching/hosts/{id}`, `POST /api/pve/hosts/{id}/patch` (Bestätigung `UPGRADE`, optional `reboot`, `refresh`, `only_security`, `nodes`), `GET /api/pve/patching/runs/{id}`. App-Fähigkeit `pve-patching`.
+
+### Changed
+- Links in Meldungen zu Proxmox-Upgrades zeigen auf `/devices/proxmox/patching`.
+
 ## 2026.11.23.06.00.00
 
 ### Added

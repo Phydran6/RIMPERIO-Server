@@ -29,6 +29,9 @@
       <button class="card patch-kpi" @click="setFilter('review')"><strong>{{ totals.review || 0 }}</strong><span>KI prüft gerade</span></button>
       <button class="card patch-kpi" @click="setFilter('failed')"><strong>{{ totals.failed || 0 }}</strong><span>fehlgeschlagen</span></button>
       <button class="card patch-kpi" @click="tab = 'runs'"><strong>{{ activeRuns }}</strong><span>Läufe aktiv</span></button>
+      <router-link v-if="pveTotal !== null" to="/devices/proxmox/patching" class="card patch-kpi"
+                   title="Updates der Proxmox-Knoten selbst – patchen unter Geräte → Proxmox VE">
+        <strong>{{ pveTotal }}</strong><span>Proxmox-Knoten-Updates</span></router-link>
     </div>
 
     <nav class="rmm-tabs">
@@ -289,6 +292,7 @@ const router = useRouter()
 const tab = ref(route.query.tab || 'overview')
 const agents = ref([])
 const totals = ref({})
+const pveTotal = ref(null)                 // Updates der Proxmox-Knoten (null = keine Proxmox-Anbindung)
 const approvals = ref([])
 const selected = ref([])
 const items = ref([])
@@ -340,6 +344,15 @@ async function loadDocker() {
   const out = {}
   await Promise.all(dockerHosts.value.map(async a => { out[a.agent_uid] = await auth.api(`/api/patching/agents/${a.agent_uid}/docker`) }))
   dockerInv.value = out
+}
+
+// Proxmox-Knoten zaehlen nicht zu den Rechnern (kein Agent) - eigene Kachel,
+// einmal beim Oeffnen (der Server haelt das Ergebnis 10 Minuten vor).
+async function loadPve() {
+  try {
+    const data = await auth.api('/api/pve/updates')
+    pveTotal.value = data.hosts?.length ? data.total : null
+  } catch { pveTotal.value = null }
 }
 
 async function load() {
@@ -406,6 +419,7 @@ async function runAction(r, what) {
 watch(tab, t => { router.replace({ query: { ...route.query, tab: t } }); load() })
 onMounted(() => {
   load()
+  loadPve()
   // Link von einem Rechner (?tab=runs&run=12): den Lauf gleich aufklappen.
   if (route.query.run) openRun(Number(route.query.run))
   timer = setInterval(load, 20000)
