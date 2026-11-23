@@ -213,6 +213,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ env.RELEASE_BODY }}
+          # Release von auto-release.yml: die Notizen dort behalten, Agent-Text anhaengen.
+          append_body: true
           files: |
             agent/bin/rimperio-agent.exe
             agent/installer/windows/rimperio-agent.msi
@@ -238,6 +240,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ env.RELEASE_BODY }}
+          # Release von auto-release.yml: die Notizen dort behalten, Agent-Text anhaengen.
+          append_body: true
           files: |
             agent/bin/rimperio-agent-linux-amd64
             agent/bin/rimperio-agent-linux-arm64

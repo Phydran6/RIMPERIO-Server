@@ -25,6 +25,10 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
   ist der Oberbegriff für alles, was an RIMPERIO angebunden wird, mit Untermenüs: *Anmeldung & Verzeichnisdienste*
   (Microsoft 365 / Entra ID, Active Directory / LDAP), *E-Mail* (Postfix, SMTP, Microsoft 365), *KI*.
   Alte Adressen (`/integrations/proxmox…`, `/rmm/proxmox`) leiten weiter.
+- **Release kommt nicht mehr abhanden.** Bisher musste nach jedem Merge von Hand ein Tag gesetzt werden – fehlte es,
+  bot der Kanal „Stabil“ den neuen Stand nie an. Jetzt legt `.github/workflows/auto-release.yml` Tag und Release
+  selbst an, sobald auf `main` eine neue `VERSION` liegt (`vJJJJ.MM.TT`, am selben Tag `.2`, `.3` …), und startet den
+  Agent-Build darauf.
 
 ## v2026.11.23.06.00.00 (2026-11-23) – Logs verständlich und ohne Rauschen, DB-Updates mit Probelauf, Proxmox-Updates, App-Fernzugriff
 
