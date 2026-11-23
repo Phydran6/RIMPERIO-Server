@@ -2,6 +2,12 @@
 
 Syslog-Empfang & Parsing (`syslog/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+
+## 2026.11.23.06.00.00
+
+### Added
+- **Sperrregeln beim Empfang:** liest `log_rules` alle 30 s aus der Datenbank (`drop` = verwerfen, `downgrade` = als `debug` speichern); Treffer werden zurückgeschrieben. Fehlt die Tabelle, läuft alles wie bisher.
+- **Dubletten über Stapel hinweg:** Info/Hinweis/Debug-Meldungen mit derselben Vorlage (Zahlen, IPs, IDs egal) innerhalb des Fensters aus `settings.log_dedup` (Standard 300 s) werden nicht neu gespeichert, sondern an der jüngsten Zeile hochgezählt (`extra_data.repeat`, `repeat_last`, `repeat_similar`).
 ## 2026.10.11.20.00.00
 ### Fixed
 - **UDP-Aufgaben ohne Grenze:** bei langsamer Datenbank stauten sich je Meldung eine Aufgabe im Speicher. Jetzt höchstens `SYSLOG_UDP_MAX_INFLIGHT` (5.000), darüber wird verworfen und einmal pro Minute gezählt gemeldet; Aufgaben werden referenziert (vorher konnte der Garbage Collector sie einsammeln).

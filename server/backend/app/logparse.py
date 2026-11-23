@@ -35,6 +35,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import logexplain
+
 # =============================================================================
 # Namenstabellen
 # =============================================================================
@@ -294,6 +296,7 @@ def parse(raw: str, message: str = "", level: str = "", source: str = "",
     if not raw:
         result["summary"] = (message or "").strip()
         result["meta"] = _meta_from_known(level, source, facility)
+        _apply_explanation(result, message, extra)
         return _finish(result, message)
 
     body = raw
@@ -423,7 +426,33 @@ def parse(raw: str, message: str = "", level: str = "", source: str = "",
     result["summary"] = summary
     result["meta"] = {k: v for k, v in meta.items() if v not in (None, "", "-")}
     result["highlights"] = _build_highlights(result["fields"], result["meta"])
+
+    # -- 6. Klartext: was ist passiert? (logexplain) --------------------------
+    _apply_explanation(result, body or summary or message, extra)
     return _finish(result, message)
+
+
+def _apply_explanation(result: dict, text: str, extra: Optional[dict]) -> None:
+    """Haengt Klartext, Kategorie und Hinweis an - und nimmt den Klartext als
+    Zusammenfassung, wenn es einen gibt. Der Originaltext bleibt erhalten."""
+    meta = result.get("meta") or {}
+    try:
+        exp = logexplain.explain(text, app=str(meta.get("app") or ""),
+                                 fields=result.get("fields") or {},
+                                 event_id=(extra or {}).get("event_id"),
+                                 level=str(meta.get("severity") or ""))
+    except Exception:                                               # defensiv
+        exp = None
+    category = (exp or {}).get("category") or "other"
+    result["category"] = category
+    result["category_label"] = logexplain.category_label(category)
+    if not exp:
+        return
+    result["explain"] = {k: exp.get(k) for k in ("title", "hint", "noise", "rule") if exp.get(k) not in (None, "")}
+    if exp.get("title"):
+        result["original"] = result.get("summary") or ""
+        title = exp["title"]
+        result["summary"] = title if len(title) <= MAX_SUMMARY else title[:MAX_SUMMARY - 1] + "…"
 
 
 def _finish(result: dict, message: str) -> dict:

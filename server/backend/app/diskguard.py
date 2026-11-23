@@ -408,14 +408,13 @@ async def enforce_retention(session) -> Tuple[int, list]:
         deleted += count
         steps.append(f"{count:,} Logzeilen älter als {days} Tage entfernt".replace(",", "."))
 
-    low_days = await _low_level_days(session)
-    if 0 < low_days < days:
-        count = await delete_older_than(
-            session, datetime.utcnow() - timedelta(days=low_days), levels=LOW_LEVELS)
-        if count:
-            deleted += count
-            steps.append(f"{count:,} INFO/DEBUG-Zeilen älter als {low_days} Tage entfernt"
-                         .replace(",", "."))
+    # Aufbewahrung nach Stufen (app/loghandling.py): Debug/Info/Hinweis gehen
+    # frueher, Fehler und Kritisches bleiben lange. Die allgemeine Frist oben
+    # ist die Obergrenze fuer alle.
+    from . import loghandling
+    count, tier_steps = await loghandling.enforce_tiers(session, days, delete_older_than)
+    deleted += count
+    steps.extend(tier_steps)
     return deleted, steps
 
 

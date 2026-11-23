@@ -180,14 +180,22 @@
         <h2 class="card-title">Wann melden?</h2>
       </div>
       <div class="card-body space-y-4">
+        <p class="hint">
+          Links: Mail / Telegram / Webhook. Rechts: <strong>Handy-App</strong> (Eingang + Benachrichtigung) –
+          unabhängig davon, ob ein anderer Weg eingerichtet ist.
+          <label class="toggle ml-2"><input v-model="config.app.enabled" type="checkbox"> App-Meldungen an</label>
+        </p>
         <div class="event-grid">
-          <label v-for="(spec, key) in events" :key="key" class="event">
-            <input v-model="config.events[key]" type="checkbox">
+          <div v-for="(spec, key) in events" :key="key" class="event">
+            <input v-model="config.events[key]" type="checkbox" :title="'Mail/Telegram/Webhook'">
             <span>
               <strong>{{ spec.label }}</strong>
               <em>{{ spec.hint }}</em>
             </span>
-          </label>
+            <label class="toggle app-toggle" title="In der Handy-App melden">
+              <input v-model="config.app.events[key]" type="checkbox" :disabled="!config.app.enabled"> 📱
+            </label>
+          </div>
         </div>
 
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -235,6 +243,7 @@ const config = ref({
     webhook: { enabled: false, url: '', secret_set: false },
   },
   events: {},
+  app: { enabled: true, events: {} },
   silence_minutes: 60,
   flood_per_minute: 2000,
   agent_offline_minutes: 30,
@@ -287,6 +296,7 @@ const payloadExample = JSON.stringify({
 
 function apply(data) {
   config.value = data.config
+  if (!config.value.app) config.value.app = { enabled: true, events: {} }
   if (data.events) events.value = data.events
   if (data.state) state.value = data.state
   if (data.disk) disk.value = data.disk
@@ -313,6 +323,7 @@ async function save() {
     const body = {
       channels,
       events: config.value.events,
+      app: config.value.app,
       silence_minutes: config.value.silence_minutes,
       flood_per_minute: config.value.flood_per_minute,
       agent_offline_minutes: config.value.agent_offline_minutes,
@@ -320,6 +331,7 @@ async function save() {
     }
     const data = await auth.api('/api/alerts/config', { method: 'PUT', body })
     config.value = data.config
+    if (!config.value.app) config.value.app = { enabled: true, events: {} }
     telegramToken.value = ''
     webhookSecret.value = ''
     message.value = 'Gespeichert.'
@@ -370,6 +382,8 @@ onMounted(load)
 </script>
 
 <style scoped>
+.app-toggle { margin-left: auto; white-space: nowrap; }
+
 .state-grid {
   display: grid;
   gap: 0.75rem;

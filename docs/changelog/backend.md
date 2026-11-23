@@ -2,6 +2,22 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.23.06.00.00
+
+### Added
+- **`app/logexplain.py`:** Klartext, Themenbereich, Hinweis und Rausch-Kennzeichen je Logzeile (regelbasiert, ~50 Muster + Windows-Ereignis-IDs); `template()` für Vorlagen ohne Zahlen/IPs/IDs. `logparse.parse` liefert zusätzlich `category`, `category_label`, `explain`, `original`; die Zusammenfassung ist der Klartext, wenn es einen gibt.
+- **`app/loghandling.py` + `/api/log-handling/*`:** Rausch-Bericht (`/noise`), Themenbereiche (`/categories`, `/category/{key}`), Sperrregeln (`log_rules`: drop | downgrade, contains | regex | template; `/rules`, `/rules/from-log`, `/rules/preview`, `/rules/{id}/purge`), Aufbewahrung je Stufe (`log_retention_tiers`, `/tiers`), Dubletten-Fenster (`log_dedup`, `/dedup`), KI-Erklärung einer Zeile (`/explain/{id}`). Sperrregeln und Dubletten greifen im HTTPS-Ingest; `diskguard.enforce_retention` setzt die Stufen durch (ersetzt `log_retention_days_info`, das als Vorgabe für Info/Hinweis weiter gilt).
+- **Meldungen für neue kritische/Fehler-Logzeilen** (`log_critical`, `log_error`), gebündelt je Gerät mit Sperrfrist.
+- **App-Weg in `alerts.dispatch`:** jedes Ereignis landet zusätzlich im Eingang (`notifications`), mit eigener Auswahl `config.app`.
+- **Geräteschlüssel:** `app_devices`, `POST /api/app/devices/register`, `GET /api/app/devices`, `DELETE /api/app/devices/{id}`, `GET /api/app/push` (Header `X-Device-Key`, nur Meldungen).
+- **`app/dbmigrate.py` + `/api/db-updates/*`:** DB-Updates mit Analyse, Sicherung, Probelauf, Vergleich, KI-Prüfung, Anpassungen, Freigabe, Ausführung (gleiche Hauptversion: Container-Update; Hauptversion: Abzug/Archiv/Neuaufbau/Einspielen) und Rückweg (Compose mit Override-Datei bzw. Docker-API). Tabelle `db_migrations`. Patch-Läufe (`install_now`, Zeitplan) leiten Datenbank-Container dorthin um; `install_now` gibt dann `None` zurück.
+- **`app/pveterm.py` + `/api/pve/*`:** termproxy/vncwebsocket-Client; Knoten-Updates (`/updates`, `/hosts/{id}/nodes/{node}/updates[/refresh]`, `/upgrade` mit Bestätigung `UPGRADE`, `/reboot` mit `REBOOT`, `/jobs`), Befehle und Agent-Installation in LXC per `pct exec` (`/hosts/{id}/lxc/{vmid}/exec|install-agent`), Konsole als WebSocket `/api/pve/console/ws` (Ticket-Zweck `console`).
+- **App-API Level 4:** `/api/app/logs?exclude_low=&levels=`, `repeat`/`category`/`has_hint` je Zeile; `/patching/open`, `/patching/install-all`, `/patching/scan`, `/patching/runs/{id}`; `/server/update` (+`/log`); `/remote/{uid}/exec` (Linux als `rimperio`, Windows PowerShell, Arbeitsverzeichnis wandert mit), `/remote/commands/{id}`, `/remote/{uid}/rdp`, `/remote/{uid}/enable-rdp`; Geräte mit `agent_uid`/`platform`.
+
+### Fixed
+- **Freigaben erschienen nicht:** Eine fehlschlagende Websuche in der KI-Prüfung brach die Einschätzung ab; die Updates blieben dauerhaft `review`. Websuche abgesichert, `release_stuck_reviews` löst Prüfungen nach 2 h auf, Rollback der Sitzung nach Fehlern im Takt.
+- App-Meldungen: Offline-Rechner, Checks, Plattenwächter, Watchdog usw. erzeugten keinen Eintrag im Eingang – die App konnte davon nichts melden.
+
 ## 2026.11.21.02.00.00
 
 ### Added

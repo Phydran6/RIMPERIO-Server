@@ -257,6 +257,9 @@ async def install(uid: str, data: InstallIn, db: AsyncSession = Depends(get_db),
         run = await pm.install_now(db, agent, data.item_ids, user.username, data.snapshot)
     except ValueError as exc:
         raise _bad(exc) from exc
+    if run is None:
+        return {"id": None, "status": "db_update", "hostname": agent.hostname,
+                "message": "Datenbank-Container: DB-Update mit Sicherung und Probelauf gestartet (Patchmanagement → DB-Updates)."}
     return pm.public_run(run, agent)
 
 

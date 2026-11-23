@@ -108,7 +108,11 @@
                   <button v-else class="btn btn-secondary btn-sm" @click="openImport(g)">Als Rechner einbinden</button>
                 </div>
               </td>
-              <td class="rmm-muted">{{ MATCHED[g.link?.matched_by] || '–' }}</td>
+              <td class="rmm-muted">{{ MATCHED[g.link?.matched_by] || '–' }}
+                <div v-if="auth.isAdmin && g.status === 'running'" class="mt-1">
+                  <router-link class="btn btn-ghost btn-sm" :to="consoleLink(g)" :title="g.type === 'lxc' ? 'Konsole des Containers' : 'Serielle Konsole (braucht serial0)'">Konsole</router-link>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -179,7 +183,16 @@
 
           <template v-if="invite">
             <div v-if="importGuest.type === 'lxc'" class="pve-way">
-              <strong>In der Proxmox-Shell von {{ importGuest.node }} ausführen</strong>
+              <strong>Automatisch per pct exec</strong>
+              <p class="rmm-muted">RIMPERIO öffnet die Shell des Knotens über die Proxmox-API und führt die Installation im
+                Container aus – ohne Anmeldung im Container, ohne SSH. Fehlt curl im Container, wird es nachinstalliert.
+                Braucht einen Proxmox-Zugang mit Shell-Recht (root@pam).</p>
+              <button class="btn btn-primary btn-sm" :disabled="busy || !!importState[importGuest.key]" @click="installPct(importGuest)">Jetzt installieren</button>
+              <span v-if="importState[importGuest.key]" class="rmm-muted"> {{ importState[importGuest.key] }}</span>
+              <pre v-if="pctOutput" class="rmm-pre">{{ pctOutput }}</pre>
+            </div>
+            <div v-if="importGuest.type === 'lxc'" class="pve-way">
+              <strong>Oder von Hand in der Proxmox-Shell von {{ importGuest.node }} ausführen</strong>
               <pre class="rmm-pre cmd-pre" @click="copy('pct', pctCommand)">{{ pctCommand }}</pre>
               <button class="btn btn-primary btn-sm" @click="copy('pct', pctCommand)">{{ copied === 'pct' ? 'Kopiert ✓' : 'Kopieren' }}</button>
             </div>
@@ -325,6 +338,27 @@ async function ensureInvite() {
 async function openImport(g) {
   importGuest.value = g
   try { await ensureInvite() } catch (e) { error.value = 'Einladung konnte nicht erzeugt werden: ' + e.message }
+}
+
+function consoleLink(g) {
+  return { path: '/terminal', query: { pve: g.hostId, node: g.node, kind: g.type, vmid: g.vmid, name: g.name } }
+}
+
+const pctOutput = ref('')
+async function installPct(g) {
+  const key = g.key
+  importState.value = { ...importState.value, [key]: 'läuft (bis zu einigen Minuten) …' }
+  pctOutput.value = ''
+  try {
+    await ensureInvite()
+    const r = await auth.api('/api/pve/hosts/' + g.hostId + '/lxc/' + g.vmid + '/install-agent', { method: 'POST', body: {
+      node: g.node, secret: invite.value, site: 'Standard' } })
+    pctOutput.value = (r.output || '').split('\n').slice(-25).join('\n')
+    importState.value = { ...importState.value, [key]: r.ok ? 'installiert ✓ – der Rechner erscheint gleich' : 'fehlgeschlagen (Ausgabe unten)' }
+    if (r.ok) setTimeout(load, 8000)
+  } catch (e) {
+    importState.value = { ...importState.value, [key]: 'Fehler: ' + e.message }
+  }
 }
 
 async function installQga(g) {

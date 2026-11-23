@@ -823,6 +823,8 @@ async def patch_action(uid: str, action: str, db: AsyncSession = Depends(get_db)
         run = await patchmgmt.install_now(db, agent, open_ids, user.username)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if run is None:
+        return {"status": "db_update", "message": "Datenbank-Container laufen als DB-Update mit Probelauf."}
     return patchmgmt.public_run(run, agent)
 
 

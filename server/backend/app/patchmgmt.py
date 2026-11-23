@@ -688,7 +688,14 @@ async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], s
     for n, it in enumerate(todo, start=1):
         extra: List[dict] = []
         if settings["ai"].get("web_search") and provider in ("searxng", "brave") and n <= 12:
-            extra = await advisories.web_search(adv_cfg, _search_query(it))
+            # Eine Websuche, die scheitert, darf die Einschaetzung nicht
+            # verhindern - sonst blieben die Updates fuer immer "in Pruefung"
+            # und tauchten nie zur Freigabe auf.
+            try:
+                extra = await advisories.web_search(adv_cfg, _search_query(it))
+            except Exception as exc:                                # defensiv
+                logger.info("Websuche für %s fehlgeschlagen: %s", it.title, exc)
+                extra = []
         blocks.append(_describe(it, agent, str(n), extra))
     prompt = ("Bewerte diese Updates. Rechner: "
               f"{agent.hostname} ({agent.os or agent.platform}).\n\n" + "\n\n".join(blocks))
@@ -719,6 +726,39 @@ async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], s
         for it in todo:
             it.ai = {"error": str(exc)[:300]}
             apply_assessment(it, settings)
+
+
+REVIEW_MAX_HOURS = 2
+
+
+async def release_stuck_reviews(db: AsyncSession) -> int:
+    """Updates, die laenger als REVIEW_MAX_HOURS in der KI-Pruefung haengen
+    (KI nicht erreichbar, Fehler unterwegs), bekommen ihren geplanten Status -
+    damit sie zur Freigabe erscheinen bzw. installiert werden koennen."""
+    cutoff = datetime.utcnow() - timedelta(hours=REVIEW_MAX_HOURS)
+    rows = (await db.execute(select(PatchItem).where(
+        PatchItem.status == "review", PatchItem.last_seen < cutoff,
+        PatchItem.first_seen < cutoff))).scalars().all()
+    if not rows:
+        return 0
+    pols = await policies(db)
+    touched: Dict[int, List[PatchItem]] = {}
+    for it in rows:
+        agent = await db.get(Agent, it.agent_id)
+        if agent is None:
+            continue
+        settings = effective_settings(pick_policy(agent, pols))
+        it.ai = {**(it.ai or {}), "error": f"KI-Prüfung nach {REVIEW_MAX_HOURS} h ohne Ergebnis abgebrochen"}
+        apply_assessment(it, settings)
+        touched.setdefault(agent.id, []).append(it)
+    await db.commit()
+    for agent_id, items in touched.items():
+        agent = await db.get(Agent, agent_id)
+        if agent:
+            _, settings = await policy_for(db, agent)
+            await _notify_approvals(db, agent, items, settings)
+    await db.commit()
+    return len(rows)
 
 
 async def assess_pending(db: AsyncSession) -> int:
@@ -871,7 +911,9 @@ async def start_run(db: AsyncSession, agent: Agent, items: List[PatchItem], sett
 
 
 async def install_now(db: AsyncSession, agent: Agent, item_ids: List[int], user: str,
-                      snapshot: Optional[bool] = None, trigger: str = "manual") -> PatchRun:
+                      snapshot: Optional[bool] = None, trigger: str = "manual") -> Optional[PatchRun]:
+    """Sofort installieren. None = alles waren Datenbank-Container; die laufen
+    als DB-Update mit Probelauf weiter (siehe dbmigrate)."""
     active = (await db.execute(select(PatchRun).where(PatchRun.agent_id == agent.id,
                                                       PatchRun.status.in_(ACTIVE_RUN)))).scalars().first()
     if active:
@@ -886,6 +928,13 @@ async def install_now(db: AsyncSession, agent: Agent, item_ids: List[int], user:
     for it in items:
         if it.status not in ("approved",):
             it.status, it.decided_by, it.decided_at = "approved", user, now
+    # Datenbank-Container nie als blankes Container-Update: sie bekommen
+    # Sicherung, Probelauf und Pruefung (app/dbmigrate.py).
+    from . import dbmigrate
+    items = await dbmigrate.from_patch_items(db, agent, items, user)
+    if not items:
+        await db.commit()
+        return None
     policy, settings = await policy_for(db, agent)
     run = await start_run(db, agent, items, settings, policy.id if policy else None, trigger, user, snapshot)
     await db.commit()
@@ -1346,6 +1395,12 @@ async def tick() -> None:
             await assess_pending(db)
         except Exception as exc:                                    # defensiv
             logger.warning("KI-Einschätzung: %s", exc)
+            await db.rollback()
+        try:
+            await release_stuck_reviews(db)
+        except Exception as exc:                                    # defensiv
+            logger.warning("Hängende KI-Prüfungen: %s", exc)
+            await db.rollback()
 
         # 3. Suchen und Fenster
         from .rmm import is_online
@@ -1378,6 +1433,10 @@ async def tick() -> None:
                 or_(PatchItem.not_before.is_(None), PatchItem.not_before <= now)))).scalars().all()
             plats = set(settings.get("platforms") or [])
             items = [i for i in items if i.platform in plats]
+            if not items:
+                continue
+            from . import dbmigrate
+            items = await dbmigrate.from_patch_items(db, agent, items, "system")
             if not items:
                 continue
             await start_run(db, agent, items, settings, policy.id, "schedule", "system")

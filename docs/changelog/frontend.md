@@ -2,6 +2,16 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.23.06.00.00
+
+### Added
+- **Logs → Log-Handling & Rauschen** (`LogHandling.vue`): Rausch-Liste mit „Sperren“ (Gerät / alle / nur kurz), Sperrregeln (an/aus, Vorschau, eigene Regel, vorhandene löschen), Aufbewahrung je Stufe, Dubletten-Fenster, Themenbereiche.
+- **Patchmanagement → DB-Updates** (`RmmDbUpdates.vue`): Datenbank-Container, „Prüfen & Probelauf“, Bericht (Tabellen/Zeilen, Fehler, KI), Anpassungen, Freigabe (`MIGRATE` bei Hauptversion), Rückweg, Verlauf.
+- **Integrationen → Proxmox-Updates & Konsole** (`PveUpdates.vue`): Pakete je Knoten, auffrischen, Upgrade mit Ausgabe, Neustart, Shell.
+- **Konsole für Proxmox:** `Terminal.vue` mit `?pve=…&node=…&kind=node|lxc|qemu&vmid=…`; Knopf „Konsole“ je Gast, „Automatisch per pct exec“ beim Einbinden von Containern.
+- **Log-Ansicht:** Themenbereich und Hinweis je Zeile, „Diese Meldung sperren“ und „KI erklärt“ in der Detailansicht.
+- **Meldungen:** eigene Spalte „📱“ für die Handy-App.
+
 ## 2026.11.21.02.00.00
 
 ### Changed

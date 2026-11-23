@@ -92,6 +92,9 @@ const routes = [
       { path: 'rmm/alerts', name: 'RmmAlerts', component: () => import('../views/RmmAlerts.vue') },
       { path: 'rmm/policies', name: 'RmmPolicies', component: () => import('../views/RmmPolicies.vue') },
       { path: 'rmm/sources', name: 'RmmSources', component: () => import('../views/RmmSources.vue') },
+      { path: 'rmm/db-updates', name: 'RmmDbUpdates', component: () => import('../views/RmmDbUpdates.vue') },
+      { path: 'logs/handling', name: 'LogHandling', component: () => import('../views/LogHandling.vue') },
+      { path: 'integrations/proxmox/updates', name: 'PveUpdates', component: () => import('../views/PveUpdates.vue') },
       // Proxmox ist eine Integration, kein Teil des Patchmanagements mehr.
       { path: 'integrations/proxmox', name: 'RmmProxmox', component: () => import('../views/RmmProxmox.vue') },
       { path: 'rmm/proxmox', redirect: '/integrations/proxmox' },
