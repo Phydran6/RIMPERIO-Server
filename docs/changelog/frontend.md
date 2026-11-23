@@ -2,6 +2,16 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.23.21.00.00
+
+### Changed
+- **Menü:** Proxmox VE unter **Geräte** (Untermenü *Proxmox VE*: Hosts & Gäste `/devices/proxmox`, Knoten patchen & Konsole `/devices/proxmox/patching`). **Integrationen** mit Untermenüs: *Anmeldung & Verzeichnisdienste* (Microsoft 365 / Entra ID, AD/LDAP), *E-Mail* (Mail-Versand), *KI*. „Benutzer & Anmeldung“ heißt jetzt „Benutzer“. Alte Proxmox-Adressen leiten weiter.
+- **`navigation.js`:** Feld `group` je Eintrag, `rowsFor()`; `Layout.vue` zeigt Untermenüs aufklappbar (Zustand gemerkt, offen bei aktiver Seite und beim Suchen).
+
+### Added
+- **`PveUpdates.vue`:** „Alle Knoten patchen“ (rollierend), Zeitplan je Host, laufender/letzter Patch-Lauf mit Status je Knoten und Ablauf, Verlauf.
+- **Patch-Center:** Kachel „Proxmox-Knoten-Updates“.
+
 ## 2026.11.23.06.00.00
 
 ### Added

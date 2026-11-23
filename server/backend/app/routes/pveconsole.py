@@ -14,6 +14,10 @@
     POST /api/pve/hosts/{id}/nodes/{node}/reboot      Knoten neu starten      (Admin)
     GET  /api/pve/jobs                                laufende/letzte Upgrades
     GET  /api/pve/jobs/{id}                           Ausgabe eines Upgrades
+    GET  /api/pve/patching                            Zeitplaene, laufende und letzte Patch-Laeufe
+    PUT  /api/pve/patching/hosts/{id}                 Zeitplan eines Hosts       (Admin)
+    POST /api/pve/hosts/{id}/patch                    rollierender Patch-Lauf    (Admin)
+    GET  /api/pve/patching/runs/{id}                  ein Patch-Lauf
     POST /api/pve/hosts/{id}/lxc/{vmid}/exec          Befehl per pct exec     (Admin)
     POST /api/pve/hosts/{id}/lxc/{vmid}/install-agent RIMPERIO-Agent in LXC   (Admin)
     WS   /api/pve/console/ws                          Konsole (Ticket-Zweck "console")
@@ -23,14 +27,14 @@ import asyncio
 import json
 import logging
 import time
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import journal, pve, pveterm
+from .. import journal, pve, pvepatch, pveterm
 from ..auth import admin_from_token, get_current_admin, get_current_user
 from ..database import async_session, get_db
 from ..limiter import client_ip as real_client_ip
@@ -58,6 +62,14 @@ def _bad(exc: Exception) -> HTTPException:
 
 class ConfirmIn(BaseModel):
     confirm: str = ""
+
+
+class PatchRunIn(BaseModel):
+    confirm: str = ""
+    reboot: Optional[str] = None          # never | kernel | always - sonst aus dem Zeitplan
+    refresh: Optional[bool] = None
+    only_security: Optional[bool] = None
+    nodes: Optional[List[str]] = None     # leer/None = wie im Zeitplan (Standard: alle)
 
 
 class ExecIn(BaseModel):
@@ -187,6 +199,63 @@ async def job(job_id: str, _: User = Depends(get_current_user)):
     if j is None:
         raise HTTPException(status_code=404, detail="Unbekannter Vorgang (nach einem Neustart des Servers vergessen).")
     return pveterm.public_job(j)
+
+
+# -----------------------------------------------------------------------------
+# Patchen der Knoten: rollierend, von Hand oder im Wartungsfenster (app/pvepatch.py)
+# -----------------------------------------------------------------------------
+@router.get("/patching")
+async def patching(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    hosts = (await db.execute(select(PveHost).order_by(PveHost.name))).scalars().all()
+    for h in hosts:
+        db.expunge(h)
+    return await pvepatch.overview(list(hosts))
+
+
+@router.put("/patching/hosts/{host_id}")
+async def save_patching(host_id: int, data: Dict[str, Any], db: AsyncSession = Depends(get_db),
+                        user: User = Depends(get_current_admin)):
+    h = await _host(db, host_id)
+    try:
+        cfg = await pvepatch.save_host_config(h.id, data)
+    except (ValueError, TypeError) as exc:
+        raise _bad(exc) from exc
+    journal.fire(category="update", event="pve.patch.schedule", actor=user.username, target=h.name,
+                 message=f"Zeitplan für das Patchen der Proxmox-Knoten auf {h.name} "
+                         f"{'eingeschaltet' if cfg['enabled'] else 'ausgeschaltet'}.", detail=cfg)
+    return cfg
+
+
+@router.post("/hosts/{host_id}/patch", status_code=202)
+async def patch_host(host_id: int, data: PatchRunIn, db: AsyncSession = Depends(get_db),
+                     user: User = Depends(get_current_admin)):
+    if data.confirm != "UPGRADE":
+        raise HTTPException(status_code=400, detail="Bestätigung fehlt: 'confirm' muss 'UPGRADE' lauten.")
+    h = await _host(db, host_id)
+    cfg = dict(await pvepatch.host_config(h.id))
+    for key in ("reboot", "refresh", "only_security"):
+        value = getattr(data, key)
+        if value is not None:
+            cfg[key] = value
+    try:
+        cfg = pvepatch.clean_host_config({**cfg, "enabled": False})
+        run = pvepatch.start_run(h, cfg, user.username, trigger="manual",
+                                 nodes=data.nodes if data.nodes else None)
+    except (ValueError, pve.PveError) as exc:
+        raise _bad(exc) from exc
+    _UPDATES_CACHE.pop(f"{h.id}", None)
+    return run
+
+
+@router.get("/patching/runs/{run_id}")
+async def patch_run(run_id: str, _: User = Depends(get_current_user)):
+    run = pvepatch.RUNS.get(run_id)
+    if run is None:
+        old = next((r for r in await pvepatch.history() if r.get("id") == run_id), None)
+        if old is None:
+            raise HTTPException(status_code=404, detail="Unbekannter Patch-Lauf.")
+        return old
+    return pvepatch.public_run(run)
 
 
 @router.post("/hosts/{host_id}/lxc/{vmid}/exec")

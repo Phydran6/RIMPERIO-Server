@@ -2,12 +2,13 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - Integration Proxmox VE: Hosts verbinden, VMs und
-                   Container den Rechnern zuordnen, Snapshots einsehen.
+     Beschreibung: RIMPERIO - Geraete -> Proxmox VE -> Hosts & Gaeste: Hosts verbinden,
+                   VMs und Container den Rechnern zuordnen, Snapshots einsehen.
 
-     Proxmox steht unter "Integrationen", nicht mehr im Patchmanagement: das
-     Einbinden ist eine Anbindung an ein anderes System. Das Patchmanagement
-     NUTZT die Anbindung (Snapshot vor dem Patchen, eingestellt je Richtlinie).
+     Proxmox steht unter "Geraete": ein Proxmox-Host ist ein Geraet, das man
+     anbindet, patcht und per Konsole bedient (Knoten patchen -> PveUpdates.vue).
+     Das Patchmanagement NUTZT die Anbindung zusaetzlich fuer Snapshots vor dem
+     Patchen der Gaeste (eingestellt je Richtlinie).
      ============================================================================== -->
 <template>
   <div class="page">
@@ -18,6 +19,7 @@
           Proxmox-Hosts und -Cluster anbinden. RIMPERIO ordnet Rechner ihren VMs und Containern selbst zu
           (MAC-Adresse oder Name). Das Patchmanagement nutzt die Anbindung für Snapshots vor Updates —
           einzustellen in den <router-link to="/rmm/policies">Patch-Richtlinien</router-link>.
+          Die Knoten selbst patchen: <router-link to="/devices/proxmox/patching">Knoten patchen &amp; Konsole</router-link>.
         </p>
       </div>
       <button v-if="auth.isAdmin" class="btn btn-primary btn-sm" @click="form = blank()"><AppIcon name="plus" :size="16" /> Host verbinden</button>

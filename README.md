@@ -23,7 +23,7 @@ alles im Browser.
 | Bereich | Funktionen |
 |---|---|
 | **Logs** | Syslog UDP/TCP 514, HTTPS-Agents für Linux/Windows, Parser (RFC 5424/3164, UniFi, Cisco, Fortinet, JSON, Netfilter), **Klartext je Zeile** (was ist passiert, was tun), Themenbereiche, **Rausch-Erkennung und Sperrregeln**, Dubletten zusammenfassen, Aufbewahrung nach Stufen und je Gerät, Suche, Export, Archivierung |
-| **Fernwartung** | RIMPERIO-Agent (Windows `.exe`/`.msi`, Linux): Live-Werte, Inventur, Befehle und Skript-Bibliothek, Patchmanagement, **DB-Updates mit Probelauf**, Checks (Dienst, Port, Ping, Platte, Skript …), Alarme; Proxmox: Snapshots vor dem Patchen, **Updates der Knoten**, **Konsole für Knoten/LXC/VM** |
+| **Fernwartung** | RIMPERIO-Agent (Windows `.exe`/`.msi`, Linux): Live-Werte, Inventur, Befehle und Skript-Bibliothek, Patchmanagement, **DB-Updates mit Probelauf**, Checks (Dienst, Port, Ping, Platte, Skript …), Alarme; Proxmox: Snapshots vor dem Patchen, **Knoten patchen – rollierend, mit Zeitplan**, **Konsole für Knoten/LXC/VM** |
 | **Netz** | Netzwerk-Discovery (Subnetze, SNMP), Einbindung von Linux-Rechnern per SSH |
 | **Melden & Auswerten** | Mail, Telegram, Webhook/n8n; KI-Auswertung (Claude, ChatGPT, Open WebUI lokal); Handy-App |
 | **Zugang** | Benutzer und Rollen, MFA, Passkeys, LDAP, Microsoft 365 (SSO), Zugangsschlüssel und Einladungen |

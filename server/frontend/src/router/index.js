@@ -94,10 +94,13 @@ const routes = [
       { path: 'rmm/sources', name: 'RmmSources', component: () => import('../views/RmmSources.vue') },
       { path: 'rmm/db-updates', name: 'RmmDbUpdates', component: () => import('../views/RmmDbUpdates.vue') },
       { path: 'logs/handling', name: 'LogHandling', component: () => import('../views/LogHandling.vue') },
-      { path: 'integrations/proxmox/updates', name: 'PveUpdates', component: () => import('../views/PveUpdates.vue') },
-      // Proxmox ist eine Integration, kein Teil des Patchmanagements mehr.
-      { path: 'integrations/proxmox', name: 'RmmProxmox', component: () => import('../views/RmmProxmox.vue') },
-      { path: 'rmm/proxmox', redirect: '/integrations/proxmox' },
+      // Proxmox ist ein Geraet: anbinden, Gaeste zuordnen, Knoten patchen und
+      // Konsole stehen unter "Geraete". Die alten Adressen leiten weiter.
+      { path: 'devices/proxmox/patching', name: 'PveUpdates', component: () => import('../views/PveUpdates.vue') },
+      { path: 'devices/proxmox', name: 'RmmProxmox', component: () => import('../views/RmmProxmox.vue') },
+      { path: 'integrations/proxmox/updates', redirect: '/devices/proxmox/patching' },
+      { path: 'integrations/proxmox', redirect: '/devices/proxmox' },
+      { path: 'rmm/proxmox', redirect: '/devices/proxmox' },
       { path: 'rmm/snmp', name: 'RmmSnmp', component: () => import('../views/RmmSnmp.vue') },
       { path: 'rmm/snmp/:id', name: 'RmmSnmpDevice', component: () => import('../views/RmmSnmpDevice.vue') },
 

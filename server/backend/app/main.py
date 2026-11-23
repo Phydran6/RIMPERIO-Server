@@ -56,7 +56,7 @@ from .routes.snmp import router as snmp_router
 from .routes.loghandling import router as loghandling_router
 from .routes.pveconsole import router as pveconsole_router
 from .routes.dbmigrate import router as dbmigrate_router
-from . import advisories, dbmigrate, loghandling, patchmgmt, snmpmon
+from . import advisories, dbmigrate, loghandling, patchmgmt, pvepatch, snmpmon
 
 # =============================================================================
 # Security-Headers Middleware
@@ -1184,6 +1184,8 @@ async def start_background_tasks():
     _spawn(patchmgmt.loop())
     _spawn(advisories.loop())
     _spawn(snmpmon.loop())
+    # Proxmox-Knoten im Wartungsfenster patchen (app/pvepatch.py).
+    _spawn(pvepatch.loop())
     # Raeumt auf, BEVOR die Platte voll ist (app/diskguard.py).
     _spawn(diskguard.watch_task())
     # Merkt, wenn RIMPERIO selbst nicht mehr sammelt, und meldet es nach aussen

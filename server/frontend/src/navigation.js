@@ -1,7 +1,7 @@
 // ==============================================================================
 // Name:        Phydran6
 // Kontakt:     Phydran6
-// Version:     2026.11.07.23.00.00
+// Version:     2026.11.23.12.00.00
 // Changelog:   docs/changelog/frontend.md
 // Beschreibung: RIMPERIO - Das linke Menue. Eine Stelle fuer alle Menuepunkte.
 //
@@ -14,13 +14,15 @@
 // Jetzt: ein RMM. Das Menue folgt der Arbeit, die man damit macht:
 //
 //   Uebersicht         Wie steht es um alles?
-//   Geraete            Was verwalte ich?            Rechner, SNMP-Geraete, Netzwerksuche
+//   Geraete            Was verwalte ich?            Rechner, SNMP-Geraete, Netzwerksuche,
+//                                                   Proxmox VE (anbinden, Knoten patchen)
 //   Logs               Was protokollieren sie?      Ansicht, Quellen, Aufbewahrung
 //   Ueberwachung       Was ist kaputt?              Alarme, Checks
 //   Patchmanagement    Was muss aktualisiert werden?
-//   Integrationen      Woran haengt RIMPERIO?       Proxmox VE
-//   Automatisierung    Was laeuft von selbst?       Skripte, Webhooks, KI
-//   Benutzer & Anm.    Wer darf rein?               Benutzer, AD/LDAP, Microsoft 365
+//   Integrationen      Was ist angebunden?          Anmeldung (Microsoft 365, AD/LDAP),
+//                                                   E-Mail (Postfix, SMTP, M365), KI-Anbieter
+//   Automatisierung    Was laeuft von selbst?       Skripte, Webhooks
+//   Benutzer           Wer darf rein?               Benutzer
 //   Mein Konto         Meine eigene Anmeldung
 //   RIMPERIO-Server    Die Maschine, auf der das laeuft
 //   Einstellungen      Wie ist RIMPERIO eingestellt?
@@ -35,6 +37,8 @@
 //   tab     bei name 'Settings': welcher Abschnitt der Einstellungsseite
 //   match   weitere Routen, bei denen der Eintrag aktiv ist (Detailseiten)
 //   admin   nur fuer Administratoren
+//   group   Untermenue innerhalb des Bereichs (i18n nav.<group>); Eintraege
+//           mit gleicher Gruppe stehen zusammen unter einer aufklappbaren Zeile
 //   label   Schluessel in i18n (nav.<label>)
 // ==============================================================================
 
@@ -47,6 +51,8 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    // Alles, was RIMPERIO verwaltet - auch die Proxmox-Hosts selbst: anbinden,
+    // Gaeste zuordnen, Knoten patchen, Konsole.
     key: 'devices',
     title: 'secDevices',
     icon: 'devices',
@@ -55,6 +61,8 @@ export const NAV_SECTIONS = [
       { key: 'snmp', to: '/rmm/snmp', name: 'RmmSnmp', match: ['RmmSnmpDevice'], icon: 'router', label: 'snmp' },
       { key: 'discovery', to: '/discovery', name: 'Discovery', icon: 'network', label: 'discovery', admin: true },
       { key: 'agent-tokens', to: '/agent-tokens', name: 'AgentTokens', icon: 'key', label: 'agentTokens', admin: true },
+      { key: 'proxmox', group: 'grpProxmox', to: '/devices/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
+      { key: 'pve-patching', group: 'grpProxmox', to: '/devices/proxmox/patching', name: 'PveUpdates', icon: 'download', label: 'pveUpdates' },
     ],
   },
   {
@@ -91,14 +99,19 @@ export const NAV_SECTIONS = [
     ],
   },
   {
-    // Anbindungen an andere Systeme. Proxmox liefert dem Patchmanagement die
-    // Snapshots vor dem Patchen - eingebunden wird es aber hier.
+    // Integrationen = alles, was man an RIMPERIO anbindet: Anmeldung ueber
+    // Microsoft 365 und Verzeichnisdienste, Mail-Versand (Postfix, SMTP,
+    // Microsoft 365), KI-Anbieter. Darunter geht es in Untermenues weiter.
+    // Proxmox ist ein Geraet und steht unter "Geraete".
     key: 'integrations',
     title: 'secIntegrations',
     icon: 'stacks',
+    admin: true,
     items: [
-      { key: 'proxmox', to: '/integrations/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
-      { key: 'pve-updates', to: '/integrations/proxmox/updates', name: 'PveUpdates', icon: 'terminal', label: 'pveUpdates' },
+      { key: 'sso', group: 'grpSignOn', to: '/sso', name: 'SsoSettings', icon: 'shield', label: 'sso', admin: true },
+      { key: 'ldap', group: 'grpSignOn', to: '/settings/ldap', name: 'Settings', tab: 'ldap', icon: 'database', label: 'ldap', admin: true },
+      { key: 'mail', group: 'grpMail', to: '/mail', name: 'Mail', icon: 'mail', label: 'mail', admin: true },
+      { key: 'ai', group: 'grpServices', to: '/ai', name: 'AiSettings', icon: 'ai', label: 'ai', admin: true },
     ],
   },
   {
@@ -108,7 +121,6 @@ export const NAV_SECTIONS = [
     items: [
       { key: 'scripts', to: '/rmm/scripts', name: 'RmmScripts', icon: 'terminal', label: 'scripts' },
       { key: 'webhooks', to: '/webhooks', name: 'Webhooks', icon: 'webhooks', label: 'webhooks' },
-      { key: 'ai', to: '/ai', name: 'AiSettings', icon: 'ai', label: 'ai', admin: true },
     ],
   },
   {
@@ -118,9 +130,6 @@ export const NAV_SECTIONS = [
     admin: true,
     items: [
       { key: 'users', to: '/users', name: 'Users', icon: 'users', label: 'users', admin: true },
-      // Anmeldung über Verzeichnisdienste (Single Sign-on) - gleichrangig nebeneinander.
-      { key: 'ldap', to: '/settings/ldap', name: 'Settings', tab: 'ldap', icon: 'database', label: 'ldap', admin: true },
-      { key: 'sso', to: '/sso', name: 'SsoSettings', icon: 'shield', label: 'sso', admin: true },
     ],
   },
   {
@@ -157,7 +166,6 @@ export const NAV_SECTIONS = [
       { key: 'general', to: '/settings/general', name: 'Settings', tab: 'general', icon: 'settings', label: 'general' },
       { key: 'https', to: '/settings/network', name: 'Settings', tab: 'network', icon: 'lock', label: 'https', admin: true },
       { key: 'dns', to: '/settings/dns', name: 'Settings', tab: 'dns', icon: 'globe', label: 'dns', admin: true },
-      { key: 'mail', to: '/mail', name: 'Mail', icon: 'mail', label: 'mail', admin: true },
       { key: 'alerts', to: '/alerts', name: 'Alerts', icon: 'bell', label: 'alerts', admin: true },
       { key: 'branding', to: '/settings/branding', name: 'Settings', tab: 'branding', icon: 'palette', label: 'branding' },
       { key: 'database', to: '/settings/database', name: 'Settings', tab: 'database', icon: 'database', label: 'database', admin: true },
@@ -179,6 +187,29 @@ export function sectionsFor(isAdmin) {
     .filter(section => isAdmin || !section.admin)
     .map(section => ({ ...section, items: section.items.filter(item => isAdmin || !item.admin) }))
     .filter(section => section.items.length)
+}
+
+/**
+ * Zeilen eines Bereichs fuer das Menue: Eintraege ohne Gruppe direkt, Eintraege
+ * mit Gruppe unter einer Untermenue-Zeile ({type:'group'}). Die Reihenfolge der
+ * Gruppen folgt ihrem ersten Eintrag.
+ */
+export function rowsFor(section) {
+  const rows = []
+  const groups = new Map()
+  for (const item of section.items) {
+    if (!item.group) {
+      rows.push({ type: 'item', item, key: item.key })
+      continue
+    }
+    if (!groups.has(item.group)) {
+      const group = { type: 'group', group: item.group, key: `${section.key}:${item.group}`, items: [] }
+      groups.set(item.group, group)
+      rows.push(group)
+    }
+    groups.get(item.group).items.push(item)
+  }
+  return rows
 }
 
 /** Ist dieser Eintrag fuer die aktuelle Route der aktive? */
