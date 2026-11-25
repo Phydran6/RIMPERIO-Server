@@ -132,6 +132,18 @@ export const PATCH_STATUS = {
   superseded: ['badge-neutral', 'erledigt'], new: ['badge-neutral', 'neu'],
 }
 
+// Stufe: wie viel Mensch ein Update braucht; Dringlichkeit: wie schnell es drauf muss.
+export const TIER = {
+  normal: ['badge-neutral', 'Normal', 'läuft immer von selbst'],
+  important: ['badge-warning', 'Wichtig', 'läuft von selbst – Freigabe nur, wenn es Fehler auslösen könnte'],
+  critical: ['badge-danger', 'Kritisch', 'nie ohne Freigabe'],
+}
+export const URGENCY = {
+  immediate: ['badge-danger', 'sofort', 'sofort nach Erscheinen, auch außerhalb des Wartungsfensters'],
+  soon: ['badge-primary', 'zeitnah', 'im nächsten Wartungsfenster'],
+  low: ['badge-neutral', 'irgendwann', 'nach der Rückstellung im Wartungsfenster'],
+}
+
 export const RUN_STATUS = {
   pending: ['badge-neutral', 'wartet'], snapshotting: ['badge-primary', 'Sicherung'],
   baseline: ['badge-primary', 'Zustand vorher'], installing: ['badge-primary', 'installiert'],

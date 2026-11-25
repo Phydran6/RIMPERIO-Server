@@ -759,6 +759,10 @@ async def approve(db: AsyncSession, m: DbMigration, user: str, force: bool = Fal
         raise ValueError("Der Probelauf ist fehlgeschlagen. Erst Anpassungen setzen und den Probelauf "
                          "wiederholen – oder ausdrücklich trotzdem freigeben (force).")
     m.approved_by = user
+    if m.patch_item_id:
+        it = await db.get(PatchItem, m.patch_item_id)
+        if it is not None and it.status in ("needs_approval", "approved", "auto"):
+            it.status, it.decided_by, it.decided_at = "installing", user[:64], datetime.utcnow()
     _stage(m, "approved", f"Freigegeben von {user}" + (" (trotz fehlgeschlagenem Probelauf)" if force else "") + ".",
            "warning" if force else "info")
     await notify.resolve(db, action="db_approve", match={"migration_id": m.id}, commit=False)
@@ -1276,11 +1280,38 @@ async def candidates(db: AsyncSession) -> List[dict]:
 
 async def from_patch_items(db: AsyncSession, agent: Agent, items: List[PatchItem], user: str) -> List[PatchItem]:
     """Patch-Lauf: DB-Container herausnehmen und als DB-Update mit Probelauf
-    anlegen. Gibt die uebrigen Updates zurueck."""
+    anlegen. Gibt die uebrigen Updates zurueck.
+
+    Ist das DB-Update schon vorbereitet (patchmgmt._prepare_db: Sicherung und
+    Probelauf vor der Freigabe), gilt die Freigabe des Updates als Freigabe
+    der Ausfuehrung - ausser bei einem Hauptversions-Sprung (der bleibt bei
+    der Bestaetigung MIGRATE unter DB-Updates) oder einem unsauberen Probelauf."""
     rest = []
     for it in items:
         image = (it.data or {}).get("image", "")
         if it.kind == "docker" and is_db_image(image):
+            mid = (it.data or {}).get("db_migration_id")
+            prepared = await db.get(DbMigration, mid) if mid else None
+            if prepared is not None and prepared.status == "awaiting_approval":
+                if (prepared.plan or {}).get("path") == "major":
+                    it.status = "needs_approval"
+                    it.error = (f"Hauptversions-Sprung: bitte unter DB-Updates (#{prepared.id}) mit der "
+                                "Bestätigung MIGRATE freigeben.")
+                    continue
+                try:
+                    await approve(db, prepared, f"{it.decided_by or user} (Freigabe des Updates)"[:64])
+                    it.status, it.error = "installing", None
+                except ValueError as exc:
+                    it.status, it.error = "needs_approval", str(exc)[:2000]
+                continue
+            if prepared is not None and prepared.status == "dryrun_failed":
+                it.status = "needs_approval"
+                it.error = (f"Probelauf nicht sauber – bitte unter DB-Updates (#{prepared.id}) ansehen, "
+                            "Anpassungen setzen oder dort ausdrücklich freigeben.")
+                continue
+            if prepared is not None and prepared.status not in FINAL:
+                it.status = "installing"            # Analyse, Probelauf oder Ausfuehrung laufen schon
+                continue
             try:
                 m = await create(db, agent, it.key, user, mode="auto", patch_item_id=it.id)
                 it.status = "installing"

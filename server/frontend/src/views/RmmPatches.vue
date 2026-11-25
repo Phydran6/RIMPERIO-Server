@@ -10,9 +10,10 @@
       <div>
         <h1 class="page-title">Patch-Center</h1>
         <p class="page-subtitle">
-          Windows, Linux und Docker. Gesucht wird täglich, installiert nur im Wartungsfenster der
-          <router-link to="/rmm/policies">Richtlinie</router-link>. Was eine Freigabe braucht, steht unter „Freigaben“ —
-          und in der App.
+          Windows, Linux und Docker. Gesucht wird täglich, installiert im Wartungsfenster der
+          <router-link to="/rmm/policies">Richtlinie</router-link> – „sofort“ auch außerhalb. <strong>Normal</strong> läuft
+          von selbst, <strong>Wichtig</strong> nur bei erkanntem Risiko mit Freigabe, <strong>Kritisch</strong> nie ohne.
+          Was eine Freigabe braucht, steht unter „Freigaben“ — und in der App.
         </p>
       </div>
       <div v-if="auth.isAdmin" class="rmm-actions">
@@ -24,7 +25,8 @@
     <p v-if="notice" class="rmm-note is-ok">{{ notice }}</p>
 
     <div class="patch-kpis">
-      <button class="card patch-kpi" @click="tab = 'approvals'"><strong>{{ totals.needs_approval || 0 }}</strong><span>brauchen Freigabe</span></button>
+      <button class="card patch-kpi" @click="tab = 'approvals'"><strong>{{ totals.needs_approval || 0 }}</strong><span>brauchen Freigabe<template v-if="byTier.critical?.needs_approval"> · {{ byTier.critical.needs_approval }} kritisch</template></span></button>
+      <button class="card patch-kpi" :class="{ 'is-alert': byUrgency.immediate }" @click="setFilter('', 'immediate')"><strong>{{ byUrgency.immediate || 0 }}</strong><span>sofort (offen)</span></button>
       <button class="card patch-kpi" @click="setFilter('auto,approved')"><strong>{{ (totals.auto || 0) + (totals.approved || 0) }}</strong><span>installieren im nächsten Fenster</span></button>
       <button class="card patch-kpi" @click="setFilter('review')"><strong>{{ totals.review || 0 }}</strong><span>KI prüft gerade</span></button>
       <button class="card patch-kpi" @click="setFilter('failed')"><strong>{{ totals.failed || 0 }}</strong><span>fehlgeschlagen</span></button>
@@ -103,11 +105,17 @@
                 <span v-if="it.version_from || it.version_to"> · {{ it.version_from || '?' }} → {{ it.version_to || '?' }}</span>
               </div>
             </div>
-            <span v-if="it.urgent" class="badge badge-danger" title="behebt eine aktiv ausgenutzte Lücke (CISA KEV)">dringend</span>
+            <span v-if="it.tier" class="badge" :class="TIER[it.tier]?.[0]" :title="TIER[it.tier]?.[2]">{{ TIER[it.tier]?.[1] }}<template v-if="it.escalated"> ↑</template></span>
+            <span v-if="it.urgency" class="badge" :class="URGENCY[it.urgency]?.[0]" :title="URGENCY[it.urgency]?.[2]">{{ URGENCY[it.urgency]?.[1] }}</span>
+            <span v-if="it.urgent" class="badge badge-danger" title="behebt eine aktiv ausgenutzte Lücke (CISA KEV)">KEV</span>
             <span v-if="it.security" class="badge badge-primary">Sicherheit</span>
             <span v-if="it.reboot" class="badge badge-neutral">Neustart</span>
           </header>
           <p class="patch-reason"><strong>Warum Freigabe:</strong> {{ it.reason }}</p>
+          <p v-if="it.db_migration_id" class="patch-reason">
+            <router-link :to="`/rmm/db-updates?id=${it.db_migration_id}`">DB-Update #{{ it.db_migration_id }}: Sicherung und Probelauf ansehen →</router-link>
+          </p>
+          <p v-if="it.error" class="patch-reason" style="color:var(--color-danger)">{{ it.error }}</p>
           <div v-if="it.ai && !it.ai.error" class="patch-ai">
             <span class="badge" :class="RISK[it.ai.risk]?.[0] || 'badge-neutral'">{{ RISK[it.ai.risk]?.[1] || 'KI' }}</span>
             <span>{{ it.ai.summary }}</span>
@@ -140,6 +148,12 @@
         <select v-model="kindFilter" class="select" style="max-width:10rem" @change="loadItems">
           <option value="">System + Docker</option><option value="os">nur System</option><option value="docker">nur Docker</option>
         </select>
+        <select v-model="tierFilter" class="select" style="max-width:10rem" @change="loadItems">
+          <option value="">alle Stufen</option><option v-for="(t, k) in TIER" :key="k" :value="k">{{ t[1] }}</option>
+        </select>
+        <select v-model="urgencyFilter" class="select" style="max-width:11rem" @change="loadItems">
+          <option value="">jede Dringlichkeit</option><option v-for="(u, k) in URGENCY" :key="k" :value="k">{{ u[1] }}</option>
+        </select>
         <span v-if="agentFilter" class="badge badge-primary">{{ agentFilterName }} <a href="#" @click.prevent="agentFilter = ''; loadItems()">×</a></span>
         <template v-if="auth.isAdmin && selectedItems.length">
           <button class="btn btn-primary btn-sm" @click="decide('approve', selectedItems)">Freigeben</button>
@@ -149,18 +163,22 @@
       </div>
       <div class="rmm-table-wrap">
         <table class="table">
-          <thead><tr><th></th><th>Update</th><th>Rechner</th><th>Version</th><th>Status</th><th>Regel / Grund</th><th>KI</th></tr></thead>
+          <thead><tr><th></th><th>Update</th><th>Rechner</th><th>Version</th><th>Stufe</th><th>Status</th><th>Regel / Grund</th><th>KI</th></tr></thead>
           <tbody>
-            <tr v-if="!items.length"><td colspan="7" class="rmm-muted">Keine Updates in dieser Auswahl.</td></tr>
+            <tr v-if="!items.length"><td colspan="8" class="rmm-muted">Keine Updates in dieser Auswahl.</td></tr>
             <tr v-for="it in items" :key="it.id">
               <td><input v-model="selectedItems" type="checkbox" :value="it.id" /></td>
               <td>
                 <div>{{ it.title }}</div>
                 <div class="rmm-muted">{{ it.platform }}<span v-if="it.category"> · {{ it.category }}</span><span v-if="it.kb"> · {{ it.kb }}</span>
-                  <span v-if="it.urgent" class="badge badge-danger">dringend</span><span v-if="it.security" class="badge badge-primary">Sicherheit</span></div>
+                  <span v-if="it.urgent" class="badge badge-danger">KEV</span><span v-if="it.security" class="badge badge-primary">Sicherheit</span></div>
               </td>
               <td>{{ it.hostname }}</td>
               <td class="rmm-code">{{ it.version_from || '' }}<span v-if="it.version_to"> → {{ it.version_to }}</span></td>
+              <td>
+                <span v-if="it.tier" class="badge" :class="TIER[it.tier]?.[0]" :title="TIER[it.tier]?.[2]">{{ TIER[it.tier]?.[1] }}<template v-if="it.escalated"> ↑</template></span>
+                <div v-if="it.urgency"><span class="badge" :class="URGENCY[it.urgency]?.[0]" :title="URGENCY[it.urgency]?.[2]">{{ URGENCY[it.urgency]?.[1] }}</span></div>
+              </td>
               <td>
                 <span class="badge" :class="PATCH_STATUS[it.status]?.[0]">{{ PATCH_STATUS[it.status]?.[1] || it.status }}</span>
                 <div v-if="it.not_before && ['auto','approved'].includes(it.status)" class="rmm-muted">ab {{ fmtTime(it.not_before) }}</div>
@@ -279,7 +297,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { fmtAgo, fmtTime, PATCH_STATUS, RISK, RUN_STATUS } from '../utils/rmm'
+import { fmtAgo, fmtTime, PATCH_STATUS, RISK, RUN_STATUS, TIER, URGENCY } from '../utils/rmm'
 
 const TABS = [
   { key: 'overview', label: 'Übersicht' }, { key: 'approvals', label: 'Freigaben' },
@@ -292,6 +310,8 @@ const router = useRouter()
 const tab = ref(route.query.tab || 'overview')
 const agents = ref([])
 const totals = ref({})
+const byTier = ref({})                     // offene Updates je Stufe: { critical: { open, needs_approval } }
+const byUrgency = ref({})                  // offene Updates je Dringlichkeit
 const pveTotal = ref(null)                 // Updates der Proxmox-Knoten (null = keine Proxmox-Anbindung)
 const approvals = ref([])
 const selected = ref([])
@@ -306,6 +326,8 @@ const busy = ref(false)
 const q = ref('')
 const statusFilter = ref('')
 const kindFilter = ref('')
+const tierFilter = ref('')
+const urgencyFilter = ref('')
 const agentFilter = ref('')
 let timer = null
 
@@ -325,6 +347,8 @@ async function loadOverview() {
   const data = await auth.api('/api/patching/overview')
   agents.value = data.agents
   totals.value = data.totals
+  byTier.value = data.by_tier || {}
+  byUrgency.value = data.by_urgency || {}
 }
 async function loadApprovals() {
   approvals.value = await auth.api('/api/patching/items?status=needs_approval')
@@ -335,6 +359,8 @@ async function loadItems() {
   const st = statusFilter.value === 'all' ? '' : (statusFilter.value || 'review,auto,needs_approval,approved,installing,failed')
   if (st) p.set('status', st)
   if (kindFilter.value) p.set('kind', kindFilter.value)
+  if (tierFilter.value) p.set('tier', tierFilter.value)
+  if (urgencyFilter.value) p.set('urgency', urgencyFilter.value)
   if (agentFilter.value) p.set('agent_uid', agentFilter.value)
   if (q.value) p.set('q', q.value)
   items.value = await auth.api(`/api/patching/items?${p}`)
@@ -367,7 +393,10 @@ async function load() {
   } catch (e) { error.value = e.message }
 }
 
-function setFilter(st) { statusFilter.value = st; tab.value = 'items' }
+function setFilter(st, urgency = '') {
+  statusFilter.value = st; urgencyFilter.value = urgency; tierFilter.value = ''
+  if (tab.value === 'items') loadItems(); else tab.value = 'items'
+}
 function showAgent(a) { agentFilter.value = a.agent_uid; statusFilter.value = 'all'; tab.value = 'items' }
 function toggleAll() { selected.value = allSelected.value ? [] : approvals.value.map(a => a.id) }
 
@@ -432,6 +461,8 @@ onBeforeUnmount(() => clearInterval(timer))
 .patch-kpi { display: flex; flex-direction: column; align-items: flex-start; padding: .9rem 1rem; text-align: left; cursor: pointer; border: 1px solid var(--color-border); }
 .patch-kpi strong { font-size: 1.5rem; line-height: 1.2; }
 .patch-kpi span { color: var(--color-text-muted); font-size: .8rem; }
+.patch-kpi.is-alert { border-color: var(--color-danger); }
+.patch-kpi.is-alert strong { color: var(--color-danger); }
 .patch-cards { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); }
 .patch-card { padding: 1rem; display: flex; flex-direction: column; gap: .5rem; }
 .patch-card.is-selected { outline: 2px solid var(--color-primary); }

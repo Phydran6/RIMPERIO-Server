@@ -8,26 +8,48 @@
 Patchmanagement fuer Windows, Linux und Docker - vollautomatisch, wo es geht,
 mit Freigabe, wo es noetig ist.
 
-**Der Ablauf, so wie er ohne jede Einstellung laeuft:**
+**Zwei Fragen je Update** (Regeln der Richtlinie, siehe DEFAULT_RULES):
+
+*Stufe* - wie viel Mensch braucht es?
+
+- ``normal``    laeuft immer von selbst. Erkennt die KI ein hohes Risiko oder
+                ist dasselbe Update anderswo schiefgegangen, wird es zu
+                ``important`` hochgestuft (abschaltbar).
+- ``important`` laeuft von selbst - braucht nur dann eine Freigabe, wenn es
+                Fehler ausloesen koennte (KI-Risiko, bekannte Probleme,
+                Hauptversion, auf einem anderen Rechner fehlgeschlagen).
+- ``critical``  nie ohne Freigabe: Datenbanken, Webserver/Reverse-Proxys,
+                Anmeldung/Zugang (SSH, LDAP, SSO, VPN), Hypervisor,
+                Funktionsupdates, Versionsspruenge. Fuer Datenbank-Container
+                laufen Sicherung und Probelauf schon vorher (dbmigrate) - die
+                Freigabe kommt mit Ergebnis.
+
+*Dringlichkeit* - wie schnell muss es drauf?
+
+- ``immediate`` sofort, nicht erst im Wartungsfenster (aktiv ausgenutzte
+                Luecke, CISA KEV, oder per Regel/KI).
+- ``soon``      im naechsten Wartungsfenster (Sicherheitsupdates, wichtige).
+- ``low``       irgendwann - erst nach einigen Tagen Rueckstellung, dann im
+                Fenster (gewoehnliche Pakete, Container-Neubauten).
+
+**Der Ablauf:**
 
 1. *Jeden Tag* (Standard 12:00) sucht jeder Rechner nach Updates - Windows
    Update bzw. Paketverwaltung, und, falls Docker laeuft, nach neueren Images.
-2. Jedes Update wird *eingestuft* - nach den Regeln der Richtlinie, die fuer den
-   Rechner gilt: Sicherheitsupdates, Definitionsupdates und gewoehnliche Pakete
-   laufen automatisch; Funktionsupdates, Treiber, Vorschau-Updates, Docker-
-   Engine, Datenbanken, Proxmox-Pakete und Versionsspruenge brauchen eine
-   Freigabe.
+2. Jedes Update bekommt Stufe und Dringlichkeit (erste passende Regel).
 3. Die *KI* liest mit, was die Quellen (advisories.py) und auf Wunsch die
-   Websuche zu jedem Update sagen. Haelt sie ein eigentlich automatisches
-   Update fuer riskant, braucht es doch eine Freigabe.
+   Websuche zu jedem Update sagen; ihr Urteil zaehlt fuer ``important`` und
+   ``normal`` (siehe oben) und kann die Dringlichkeit anheben.
 4. Was eine Freigabe braucht, erscheint in der App und an der Glocke - samt
    Einschaetzung. Ein Klick gibt frei oder lehnt ab.
-5. *Nur im Wartungsfenster* (Standard taeglich 02:00-05:00) wird installiert:
-   Snapshot ueber Proxmox → Gesundheitsbild vorher → Installation → Neustart,
-   falls noetig → Wartezeit → Gesundheitsbild nachher und Checks.
+5. Installiert wird im Wartungsfenster (Standard taeglich 02:00-05:00),
+   ``immediate`` sofort: Snapshot ueber Proxmox → Gesundheitsbild vorher →
+   Installation → Neustart, falls noetig → Wartezeit → Gesundheitsbild
+   nachher und Checks.
 6. Passt alles, wird der Snapshot nach 3 Tagen geloescht. Passt etwas nicht,
    bleibt er, es kommt eine Meldung, und ein Klick rollt zurueck (oder, wenn
-   eingestellt, passiert das von selbst).
+   eingestellt, passiert das von selbst). Dasselbe Update wartet dann auf den
+   anderen Rechnern auf eine Freigabe.
 
 Alles davon ist je Richtlinie einstellbar; Richtlinien gelten global, je
 Standort oder je Rechner (die genaueste gewinnt).
@@ -42,7 +64,7 @@ import logging
 import re
 from copy import deepcopy
 from datetime import datetime, timedelta, time as dtime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,34 +94,114 @@ STATUS_LABEL = {
     "failed": "fehlgeschlagen", "superseded": "erledigt",
 }
 
+# Stufe: wie viel Mensch braucht ein Update?
+TIERS = ("normal", "important", "critical")
+TIER_LABEL = {"normal": "Normal", "important": "Wichtig", "critical": "Kritisch"}
+TIER_HINT = {
+    "normal": "läuft immer von selbst",
+    "important": "läuft von selbst – Freigabe nur, wenn es Fehler auslösen könnte",
+    "critical": "nie ohne Freigabe",
+}
+# Dringlichkeit: wie schnell muss es drauf?
+URGENCIES = ("immediate", "soon", "low")
+URGENCY_LABEL = {"immediate": "sofort", "soon": "zeitnah", "low": "irgendwann"}
+URGENCY_HINT = {
+    "immediate": "sofort nach Erscheinen, auch außerhalb des Wartungsfensters",
+    "soon": "im nächsten Wartungsfenster",
+    "low": "nach der Rückstellung im Wartungsfenster",
+}
+_URGENCY_RANK = {"immediate": 0, "soon": 1, "low": 2}
+_TIER_RANK = {"critical": 0, "important": 1, "normal": 2}
+
+# Was bei „Wichtig“ eine Freigabe ausloest
+SIGNALS = {
+    "ai_risk": "KI hält es für riskant",
+    "known_issues": "KI kennt Probleme",
+    "major": "Sprung der Hauptversion",
+    "failed_elsewhere": "auf einem anderen Rechner fehlgeschlagen",
+}
+# Bei „Normal“ eskalieren nur diese (Hauptversion und Probleme stehen schon in den Regeln).
+NORMAL_ESCALATE = ("ai_risk", "failed_elsewhere")
+
+# Alte Aktionen (bis 2026.11.25) -> Stufe
+_LEGACY_ACTION = {"auto": "normal", "approve": "critical", "ignore": "ignore"}
+RULE_ACTIONS = TIERS + ("ignore",)
+
+# Felder in PatchItem.data, die RIMPERIO selbst fuehrt (ueberleben den naechsten Scan)
+_KEEP_DATA = ("_planned", "tier_rule", "rule_reason", "escalated", "db_migration_id",
+              "db_prepared", "urgent_attempt")
+
 # -----------------------------------------------------------------------------
 # Voreinstellungen
 # -----------------------------------------------------------------------------
+_RX_DB_PKG = r"^(postgresql|mariadb-server|mysql-server|mongodb|redis-server|valkey|percona-server)"
+_RX_DB_IMAGE = (r"(^|/)(postgres|postgresql|postgis|timescaledb|timescale|mariadb|mysql|mysql-server|"
+                r"percona-server|mongo|mongodb|redis|redis-stack-server|valkey|keydb|influxdb|elasticsearch|"
+                r"opensearch|couchdb|clickhouse-server|cassandra|neo4j)([:@]|$)")
+_RX_WEB_PKG = (r"^(nginx|apache2|httpd|caddy|haproxy|traefik|lighttpd|openresty|envoy|varnish|squid)(-|$)"
+               r"|^libapache2-mod-|^mod_(ssl|security)")
+_RX_WEB_IMAGE = (r"(^|/)(nginx|nginx-unprivileged|httpd|caddy|traefik|haproxy|nginx-proxy-manager|nginx-proxy|"
+                 r"swag|envoy|openresty|lighttpd|zoraxy|cloudflared|frpc|frps|acme-companion)([:@]|$)")
+_RX_LOGIN_PKG = (r"^(openssh-server|openssh-sftp-server|sssd|slapd|openldap-servers|krb5-kdc|krb5-server|"
+                 r"freeipa-server|ipa-server|samba|winbind|libpam-modules|libpam-runtime|pam|openvpn|"
+                 r"wireguard|strongswan|keycloak|xrdp)(-|$)")
+_RX_LOGIN_IMAGE = (r"goauthentik/|netbirdio/|bitwarden/|(^|/)(keycloak|authelia|oauth2-proxy|vaultwarden|lldap|"
+                   r"openldap|freeipa-server|zitadel|wg-easy|wireguard|openvpn|openvpn-as|headscale|tailscale|"
+                   r"pomerium|dex|kanidm|casdoor|teleport|guacamole|guacd)([:@/]|$)")
+
 DEFAULT_RULES: List[dict] = [
-    {"name": "Definitionsupdates (Defender) sofort", "platform": "windows", "field": "category",
-     "op": "equals", "value": "Definition Updates", "action": "auto"},
+    # --- Normal --------------------------------------------------------------
+    {"name": "Definitionsupdates (Defender)", "platform": "windows", "field": "category",
+     "op": "equals", "value": "Definition Updates", "tier": "normal", "urgency": "soon"},
+    # --- Kritisch: nie ohne Freigabe ------------------------------------------
     {"name": "Funktionsupdates / Upgrades", "platform": "windows", "field": "category",
-     "op": "in", "value": "Upgrades,Feature Packs", "action": "approve"},
+     "op": "in", "value": "Upgrades,Feature Packs", "tier": "critical", "urgency": ""},
     {"name": "Funktionsupdate im Titel", "platform": "windows", "field": "title",
-     "op": "regex", "value": r"(?i)feature update|funktionsupdate", "action": "approve"},
-    {"name": "Treiber", "platform": "windows", "field": "kind", "op": "equals",
-     "value": "driver", "action": "approve"},
-    {"name": "Vorschau-Updates", "platform": "windows", "field": "title", "op": "regex",
-     "value": r"(?i)\bpreview\b|vorschau", "action": "approve"},
+     "op": "regex", "value": r"(?i)feature update|funktionsupdate", "tier": "critical", "urgency": ""},
+    {"name": "Datenbankserver", "platform": "linux", "field": "package", "op": "regex",
+     "value": _RX_DB_PKG, "tier": "critical", "urgency": ""},
+    {"name": "Datenbank-Container", "platform": "docker", "field": "image", "op": "regex",
+     "value": _RX_DB_IMAGE, "tier": "critical", "urgency": ""},
+    {"name": "Webserver / Reverse-Proxy", "platform": "linux", "field": "package", "op": "regex",
+     "value": _RX_WEB_PKG, "tier": "critical", "urgency": ""},
+    {"name": "Webserver / Reverse-Proxy (Container)", "platform": "docker", "field": "image", "op": "regex",
+     "value": _RX_WEB_IMAGE, "tier": "critical", "urgency": ""},
+    {"name": "Anmeldung / Zugang (SSH, LDAP, PAM, VPN)", "platform": "linux", "field": "package", "op": "regex",
+     "value": _RX_LOGIN_PKG, "tier": "critical", "urgency": ""},
+    {"name": "Anmeldung / Zugang (SSO, VPN, Container)", "platform": "docker", "field": "image", "op": "regex",
+     "value": "(?i)" + _RX_LOGIN_IMAGE, "tier": "critical", "urgency": ""},
+    {"name": "Proxmox-Pakete", "platform": "linux", "field": "package", "op": "regex",
+     "value": r"^(pve-|proxmox-|qemu-server|libpve-)", "tier": "critical", "urgency": ""},
+    {"name": "Versionssprung (Hauptversion)", "platform": "any", "field": "major",
+     "op": "is_true", "value": "", "tier": "critical", "urgency": ""},
+    # --- Wichtig: Freigabe nur, wenn es Fehler ausloesen koennte --------------
     {"name": "Sicherheits- und kritische Updates", "platform": "windows", "field": "category",
-     "op": "in", "value": "Security Updates,Critical Updates", "action": "auto"},
+     "op": "in", "value": "Security Updates,Critical Updates", "tier": "important", "urgency": "soon"},
+    {"name": "Treiber", "platform": "windows", "field": "kind", "op": "equals",
+     "value": "driver", "tier": "important", "urgency": "low"},
+    {"name": "Vorschau-Updates", "platform": "windows", "field": "title", "op": "regex",
+     "value": r"(?i)\bpreview\b|vorschau", "tier": "important", "urgency": "low"},
     {"name": "Docker-Engine / containerd", "platform": "linux", "field": "package", "op": "regex",
      "value": r"^(docker-ce|docker-ce-cli|docker-ce-rootless-extras|containerd(\.io)?|docker\.io|moby-engine|runc)$",
-     "action": "approve"},
-    {"name": "Datenbankserver", "platform": "linux", "field": "package", "op": "regex",
-     "value": r"^(postgresql|mariadb-server|mysql-server|mongodb|redis-server)", "action": "approve"},
-    {"name": "Proxmox-Pakete", "platform": "linux", "field": "package", "op": "regex",
-     "value": r"^(pve-|proxmox-|qemu-server|libpve-)", "action": "approve"},
-    {"name": "Datenbank-Container", "platform": "docker", "field": "image", "op": "regex",
-     "value": r"(^|/)(postgres|postgis|timescale|mariadb|mysql|mongo|redis|valkey|influxdb|elasticsearch|opensearch)([:@]|$)",
-     "action": "approve"},
-    {"name": "Versionssprung (Hauptversion)", "platform": "any", "field": "major",
-     "op": "is_true", "value": "", "action": "approve"},
+     "tier": "important", "urgency": ""},
+    {"name": "Kernel", "platform": "linux", "field": "package", "op": "regex",
+     "value": r"^(linux-image|linux-modules|linux-headers|linux-generic|linux-virtual|linux-firmware|kernel)(-|$)",
+     "tier": "important", "urgency": ""},
+    {"name": "Systemkern (systemd, libc, OpenSSL, Bootloader, sudo)", "platform": "linux", "field": "package",
+     "op": "regex", "value": r"^(systemd|libsystemd|udev|libc6|libc-bin|glibc|openssl|libssl|grub|shim|dbus|sudo)",
+     "tier": "important", "urgency": ""},
+    {"name": "Sicherheitsupdates", "platform": "any", "field": "security", "op": "is_true",
+     "value": "", "tier": "important", "urgency": "soon"},
+]
+
+# Die mitgelieferten Regeln bis 2026.11.25 - wer sie nie angefasst hat, bekommt
+# beim Start die neuen (ensure_schema), statt sie als „eigene“ zu behalten.
+LEGACY_DEFAULT_RULES: List[Tuple[str, str]] = [
+    ("Definitionsupdates (Defender) sofort", "auto"), ("Funktionsupdates / Upgrades", "approve"),
+    ("Funktionsupdate im Titel", "approve"), ("Treiber", "approve"), ("Vorschau-Updates", "approve"),
+    ("Sicherheits- und kritische Updates", "auto"), ("Docker-Engine / containerd", "approve"),
+    ("Datenbankserver", "approve"), ("Proxmox-Pakete", "approve"), ("Datenbank-Container", "approve"),
+    ("Versionssprung (Hauptversion)", "approve"),
 ]
 
 DEFAULT_POLICY: Dict[str, Any] = {
@@ -108,10 +210,22 @@ DEFAULT_POLICY: Dict[str, Any] = {
     "scan": {"enabled": True, "time": "12:00"},
     "window": {"enabled": True, "days": [0, 1, 2, 3, 4, 5, 6], "start": "02:00",
                "duration_minutes": 180},
-    "defer_days": 0,                  # automatische Updates frühestens N Tage nach dem ersten Auftauchen
     "reboot": "if_needed",            # never | if_needed | always
     "rules": DEFAULT_RULES,
-    "fallback": {"windows": "auto", "linux": "auto", "docker": "auto"},
+    "fallback": {"windows": "normal", "linux": "normal", "docker": "normal"},
+    "tiers": {
+        # Normal: bei erkanntem Risiko (KI, anderswo fehlgeschlagen) wie „Wichtig“ behandeln
+        "normal": {"escalate": True},
+        # Wichtig: was eine Freigabe ausloest (Schluessel aus SIGNALS)
+        "important": {"approve_on": ["ai_risk", "known_issues", "major", "failed_elsewhere"]},
+        # Kritisch: Datenbank-Container vorher sichern und probeweise aktualisieren
+        "critical": {"prepare_db": True},
+    },
+    "urgency": {
+        "immediate": {"outside_window": True, "reboot": "if_needed"},
+        "soon": {"defer_days": 0},
+        "low": {"defer_days": 3},
+    },
     "ai": {"mode": "gate", "web_search": True, "required": False},   # off | advise | gate
     "snapshot": {"enabled": True, "mode": "snapshot", "include_ram": False,
                  "retention_days": 3, "required": False, "storage": ""},
@@ -121,7 +235,8 @@ DEFAULT_POLICY: Dict[str, Any] = {
     "docker": {"enabled": True, "cleanup_images": True, "health_timeout": 120,
                "rollback_on_fail": True, "prefer_compose": True,
                "include": [], "exclude": []},
-    "notify": {"approval_needed": True, "run_failed": True, "run_succeeded": False},
+    "notify": {"approval_needed": True, "run_failed": True, "run_succeeded": False,
+               "urgent_run": True},
 }
 
 IGNORED_SERVICES = {
@@ -150,12 +265,40 @@ def _merge(base: Any, incoming: Any) -> Any:
     return deepcopy(incoming) if incoming is not None else deepcopy(base)
 
 
+def normalize_rule(rule: dict) -> dict:
+    """Regel in die heutige Form: `tier` statt `action` (auto→normal, approve→critical)."""
+    r = dict(rule or {})
+    tier = r.get("tier") or _LEGACY_ACTION.get(str(r.get("action") or ""), r.get("action"))
+    r["tier"] = tier or "critical"
+    r.pop("action", None)
+    r["urgency"] = r.get("urgency") or ""
+    r["enabled"] = r.get("enabled", True) is not False
+    return r
+
+
+def _normalize(merged: dict, raw: Optional[dict]) -> dict:
+    raw = raw or {}
+    merged["rules"] = [normalize_rule(r) for r in (merged.get("rules") or [])]
+    merged["fallback"] = {k: _LEGACY_ACTION.get(v, v) for k, v in (merged.get("fallback") or {}).items()}
+    # Frueher eine Rueckstellung fuer alles: gilt jetzt fuer „zeitnah“ (und
+    # mindestens fuer „irgendwann“), solange dort nichts Eigenes steht.
+    legacy = merged.pop("defer_days", None)
+    if legacy:
+        urg_raw = raw.get("urgency") or {}
+        if "defer_days" not in (urg_raw.get("soon") or {}):
+            merged["urgency"]["soon"]["defer_days"] = int(legacy)
+        if "defer_days" not in (urg_raw.get("low") or {}):
+            merged["urgency"]["low"]["defer_days"] = max(int(legacy), int(merged["urgency"]["low"]["defer_days"]))
+    return merged
+
+
 def effective_settings(policy: Optional[PatchPolicy]) -> dict:
-    settings = _merge(DEFAULT_POLICY, (policy.settings if policy else None) or {})
+    raw = (policy.settings if policy else None) or {}
+    settings = _merge(DEFAULT_POLICY, raw)
     # Regeln ersetzen statt mischen (eine Liste mischt man nicht sinnvoll).
-    if policy and isinstance((policy.settings or {}).get("rules"), list):
-        settings["rules"] = deepcopy(policy.settings["rules"])
-    return settings
+    if isinstance(raw.get("rules"), list):
+        settings["rules"] = deepcopy(raw["rules"])
+    return _normalize(settings, raw)
 
 
 def validate_settings(s: dict) -> dict:
@@ -163,6 +306,7 @@ def validate_settings(s: dict) -> dict:
     merged = _merge(DEFAULT_POLICY, s or {})
     if isinstance((s or {}).get("rules"), list):
         merged["rules"] = s["rules"]
+    merged = _normalize(merged, s)
     for key in ("time",):
         _hhmm(merged["scan"][key])
     _hhmm(merged["window"]["start"])
@@ -183,19 +327,44 @@ def validate_settings(s: dict) -> dict:
     if merged["snapshot"]["mode"] not in ("snapshot", "backup", "auto"):
         raise ValueError("Sicherung: snapshot, backup oder auto.")
     merged["snapshot"]["retention_days"] = max(0, min(int(merged["snapshot"]["retention_days"]), 90))
-    merged["defer_days"] = max(0, min(int(merged["defer_days"]), 90))
     for rule in merged["rules"]:
-        if rule.get("action") not in ("auto", "approve", "ignore"):
-            raise ValueError(f"Regel '{rule.get('name')}': Aktion auto, approve oder ignore.")
+        if rule.get("tier") not in RULE_ACTIONS:
+            raise ValueError(f"Regel '{rule.get('name')}': Stufe normal, important, critical oder ignore.")
+        if rule.get("urgency") not in ("",) + URGENCIES:
+            raise ValueError(f"Regel '{rule.get('name')}': Dringlichkeit immediate, soon, low oder leer.")
         if rule.get("op") == "regex":
             try:
                 re.compile(rule.get("value") or "")
             except re.error as exc:
                 raise ValueError(f"Regel '{rule.get('name')}': ungültiger regulärer Ausdruck ({exc}).") from exc
-    for plat, action in merged["fallback"].items():
-        if action not in ("auto", "approve", "ignore"):
-            raise ValueError(f"Standard für {plat}: auto, approve oder ignore.")
+    for plat, tier in merged["fallback"].items():
+        if tier not in RULE_ACTIONS:
+            raise ValueError(f"Standard für {plat}: normal, important, critical oder ignore.")
+    approve_on = [str(x) for x in (merged["tiers"]["important"].get("approve_on") or [])]
+    unknown = [x for x in approve_on if x not in SIGNALS]
+    if unknown:
+        raise ValueError(f"Wichtig: unbekannte Auslöser {', '.join(unknown)} (erlaubt: {', '.join(SIGNALS)}).")
+    merged["tiers"]["important"]["approve_on"] = approve_on
+    merged["tiers"]["normal"]["escalate"] = bool(merged["tiers"]["normal"].get("escalate", True))
+    merged["tiers"]["critical"]["prepare_db"] = bool(merged["tiers"]["critical"].get("prepare_db", True))
+    imm = merged["urgency"]["immediate"]
+    imm["outside_window"] = bool(imm.get("outside_window", True))
+    if imm.get("reboot") not in ("never", "if_needed", "always"):
+        raise ValueError("Sofort-Updates, Neustart: never, if_needed oder always.")
+    for key in ("soon", "low"):
+        merged["urgency"][key]["defer_days"] = max(0, min(int(merged["urgency"][key].get("defer_days") or 0), 90))
     return merged
+
+
+def is_legacy_default_rules(rules: Any) -> bool:
+    """Sind das unveraenderte mitgelieferte Regeln von frueher?"""
+    if not isinstance(rules, list) or len(rules) != len(LEGACY_DEFAULT_RULES):
+        return False
+    for r, (name, action) in zip(rules, LEGACY_DEFAULT_RULES):
+        if not isinstance(r, dict) or r.get("name") != name or r.get("action") != action \
+                or r.get("enabled", True) is False:
+            return False
+    return True
 
 
 def _hhmm(value: str) -> dtime:
@@ -212,6 +381,8 @@ async def ensure_schema() -> None:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=PATCH_TABLES))
+            for col in ("tier VARCHAR(16) DEFAULT ''", "urgency VARCHAR(16) DEFAULT ''"):
+                await conn.exec_driver_sql(f"ALTER TABLE patch_items ADD COLUMN IF NOT EXISTS {col}")
         async with async_session() as db:
             have = (await db.execute(select(PatchPolicy).where(PatchPolicy.builtin.is_(True)))).scalars().first()
             if have is None:
@@ -220,9 +391,33 @@ async def ensure_schema() -> None:
                                    settings={}))
                 await db.commit()
             await advisories.ensure_builtin(db)
+            await _migrate_tiers(db)
         logger.info("Patch-Schema bereit")
     except Exception as exc:                                        # defensiv
         logger.error("Patch-Schema nicht angelegt: %s", exc)
+
+
+async def _migrate_tiers(db: AsyncSession) -> None:
+    """Einmalig beim Wechsel auf Stufen/Dringlichkeit: unveraenderte alte
+    Standardregeln durch die neuen ersetzen, offene Updates neu einstufen."""
+    changed = []
+    for p in await policies(db):
+        raw = dict(p.settings or {})
+        if is_legacy_default_rules(raw.get("rules")):
+            raw.pop("rules", None)
+            if raw.get("fallback") == {"windows": "auto", "linux": "auto", "docker": "auto"}:
+                raw.pop("fallback", None)
+            p.settings = raw
+            changed.append(p.name)
+    if changed:
+        await db.commit()
+        logger.info("Patch-Richtlinien auf Stufen umgestellt: %s", ", ".join(changed))
+    untiered = (await db.execute(select(PatchItem.id).where(
+        PatchItem.status.in_(OPEN_STATES + ("ignored", "monitor")),
+        or_(PatchItem.tier.is_(None), PatchItem.tier == "")).limit(1))).first()
+    if changed or untiered:
+        n = await reclassify(db)
+        logger.info("Patch-Einstufung nach Stufen: %s offene Updates neu bewertet", n)
 
 
 # -----------------------------------------------------------------------------
@@ -318,12 +513,19 @@ def window_state(settings: dict, now: Optional[datetime] = None) -> Tuple[bool, 
 # -----------------------------------------------------------------------------
 # Einstufen
 # -----------------------------------------------------------------------------
-_MAJOR = re.compile(r"^(?:\d+:)?v?(\d+)")
+# Eine Version: Zahl am Anfang, dahinter ein Trenner oder Ende - so faellt ein
+# abgeschnittener Image-Abdruck wie "3fa9c0..." nicht als Version durch.
+_MAJOR = re.compile(r"^(?:\d+:)?v?(\d+)(?=[.\-_+~]|$)")
 
 
 def major_change(a: str, b: str) -> bool:
     ma, mb = _MAJOR.match((a or "").strip()), _MAJOR.match((b or "").strip())
-    return bool(ma and mb and ma.group(1) != mb.group(1))
+    if not (ma and mb) or ma.group(1) == mb.group(1):
+        return False
+    # Datumsversionen (tzdata 2024a → 2025a, 20240101 → 20250101) sind kein Versionssprung.
+    if int(ma.group(1)) >= 1990 and int(mb.group(1)) >= 1990:
+        return False
+    return True
 
 
 def item_facts(it: PatchItem) -> dict:
@@ -370,70 +572,159 @@ def rule_matches(rule: dict, facts: dict) -> bool:
     return False
 
 
-def classify(it: PatchItem, settings: dict) -> Tuple[str, str, str]:
-    """(Aktion, Regelname, Begruendung) - Aktion: auto | approve | ignore."""
+def classify(it: PatchItem, settings: dict) -> Tuple[str, str, str, str]:
+    """(Stufe, Dringlichkeit der Regel, Regelname, Begruendung).
+    Stufe: normal | important | critical | ignore; Dringlichkeit leer = Standard."""
     facts = item_facts(it)
     if it.kind == "docker":
         d = settings.get("docker") or {}
         if not d.get("enabled", True):
-            return "ignore", "Docker aus", "Docker-Updates sind in der Richtlinie abgeschaltet."
+            return "ignore", "", "Docker aus", "Docker-Updates sind in der Richtlinie abgeschaltet."
         for pat in d.get("exclude") or []:
             if fnmatch.fnmatch(it.key.lower(), str(pat).lower()):
-                return "ignore", "Ausnahme", f"Container passt auf die Ausnahme '{pat}'."
+                return "ignore", "", "Ausnahme", f"Container passt auf die Ausnahme '{pat}'."
         inc = d.get("include") or []
         if inc and not any(fnmatch.fnmatch(it.key.lower(), str(p).lower()) for p in inc):
-            return "ignore", "nicht eingeschlossen", "Container steht nicht in der Einschlussliste."
-    for rule in settings.get("rules") or []:
+            return "ignore", "", "nicht eingeschlossen", "Container steht nicht in der Einschlussliste."
+    for raw in settings.get("rules") or []:
+        rule = normalize_rule(raw)
         if rule_matches(rule, facts):
-            return rule["action"], rule.get("name", "Regel"), f"Regel „{rule.get('name', '')}“"
-    action = (settings.get("fallback") or {}).get(it.platform, "auto")
-    return action, "Standard", f"Standard für {it.platform}"
+            return rule["tier"], rule["urgency"], rule.get("name", "Regel"), f"Regel „{rule.get('name', '')}“"
+    tier = _LEGACY_ACTION.get((settings.get("fallback") or {}).get(it.platform, "normal"), "normal")
+    return tier, "", "Standard", f"Standard für {it.platform}"
 
 
-def decide_status(it: PatchItem, settings: dict, now: datetime) -> None:
-    """Setzt Status und Begruendung neu - fuer alles, was kein Mensch entschieden hat."""
-    action, rule, reason = classify(it, settings)
-    it.rule, it.reason = rule, reason
-    if action == "ignore":
-        it.status = "ignored"
+def base_urgency(it: PatchItem, tier: str, rule_urgency: str) -> Tuple[str, str]:
+    """(Dringlichkeit, Begruendung) - aktiv ausgenutzte Luecken gehen immer vor."""
+    if it.urgent:
+        return "immediate", "behebt eine aktiv ausgenutzte Lücke (CISA KEV)"
+    if rule_urgency in URGENCIES:
+        return rule_urgency, ""
+    if it.security or tier in ("important", "critical"):
+        return "soon", ""
+    return "low", ""
+
+
+def _set_not_before(it: PatchItem, settings: dict, now: datetime) -> None:
+    if it.urgency == "immediate":
+        it.not_before = None
         return
-    if (it.data or {}).get("monitor_only"):
-        it.status, it.reason = "monitor", "Container ist nur zur Beobachtung markiert (monitor-only)."
-        return
-    if action == "approve":
-        it.status = "needs_approval"
-    else:
-        it.status = "auto"
-        defer = int(settings.get("defer_days") or 0)
-        if defer and not it.urgent:
-            it.not_before = (it.first_seen or now) + timedelta(days=defer)
-            it.reason += f", frühestens nach {defer} Tag(en)"
-        else:
-            it.not_before = None
-    mode = (settings.get("ai") or {}).get("mode", "off")
-    if mode != "off" and not it.ai:
-        it.data = {**(it.data or {}), "_planned": it.status}
-        it.status = "review"
+    days = int(((settings.get("urgency") or {}).get(it.urgency) or {}).get("defer_days") or 0)
+    it.not_before = (it.first_seen or now) + timedelta(days=days) if days else None
 
 
-def apply_assessment(it: PatchItem, settings: dict) -> None:
-    """Nach der KI-Einschaetzung: endgueltiger Status."""
-    planned = (it.data or {}).get("_planned") or it.status
-    data = dict(it.data or {})
-    data.pop("_planned", None)
-    it.data = data
+def risk_signals(it: PatchItem, settings: dict, failed_elsewhere: bool = False) -> Dict[str, str]:
+    """Was dafuer spricht, dass ein Update Fehler ausloesen koennte - Schluessel aus SIGNALS -> Klartext."""
+    out: Dict[str, str] = {}
     mode = (settings.get("ai") or {}).get("mode", "off")
     a = it.ai or {}
-    if planned == "auto" and mode == "gate":
-        if a.get("error") and (settings.get("ai") or {}).get("required"):
-            it.status = "needs_approval"
-            it.reason += "; KI-Prüfung nicht möglich, deshalb Freigabe nötig"
-            return
+    if mode == "gate" and not a.get("error"):
         if a.get("risk") == "high" or a.get("recommendation") in ("hold", "approve"):
-            it.status = "needs_approval"
-            it.reason += f"; KI: {a.get('summary') or 'Risiko erhöht'}"[:900]
-            return
-    it.status = planned if planned in ("auto", "needs_approval") else "needs_approval"
+            out["ai_risk"] = f"KI: {a.get('summary') or 'Risiko erhöht'}"
+        if a.get("known_issues"):
+            out["known_issues"] = "KI kennt Probleme: " + "; ".join(str(k) for k in a["known_issues"][:2])
+    if major_change(it.version_from, it.version_to):
+        out["major"] = f"Hauptversion {it.version_from} → {it.version_to}"
+    if failed_elsewhere:
+        out["failed_elsewhere"] = "dasselbe Update ist auf einem anderen Rechner fehlgeschlagen"
+    return out
+
+
+def decide_status(it: PatchItem, settings: dict, now: datetime,
+                  failed: Optional[Dict[str, Set[int]]] = None) -> None:
+    """Stufe, Dringlichkeit und Status neu setzen - fuer alles, was kein Mensch entschieden hat."""
+    tier, rule_urg, rule, reason = classify(it, settings)
+    it.rule = rule
+    data = {k: v for k, v in (it.data or {}).items() if k not in ("_planned", "escalated")}
+    if tier == "ignore":
+        it.status, it.reason, it.tier, it.urgency = "ignored", reason, "", ""
+        it.data = data
+        return
+    urgency, why = base_urgency(it, tier, rule_urg)
+    it.tier, it.urgency = tier, urgency
+    data["tier_rule"] = tier
+    data["rule_reason"] = reason + (f", {why}" if why else "")
+    it.data = data
+    _set_not_before(it, settings, now)
+    if data.get("monitor_only"):
+        it.status, it.reason = "monitor", "Container ist nur zur Beobachtung markiert (monitor-only)."
+        return
+    mode = (settings.get("ai") or {}).get("mode", "off")
+    if mode != "off" and not it.ai:
+        it.status, it.reason = "review", data["rule_reason"]
+        return
+    apply_assessment(it, settings, failed)
+
+
+def apply_assessment(it: PatchItem, settings: dict, failed: Optional[Dict[str, Set[int]]] = None) -> None:
+    """Endgueltiger Status aus Stufe und Risikosignalen (nach der KI-Einschaetzung)."""
+    data = dict(it.data or {})
+    planned = data.pop("_planned", None)
+    data.pop("escalated", None)
+    # Stufe der Regel; Updates von vor der Umstellung tragen nur den alten Plan.
+    tier = data.get("tier_rule") or (it.tier if it.tier in TIERS else None) \
+        or ("normal" if planned == "auto" else "critical")
+    urgency = it.urgency if it.urgency in URGENCIES else base_urgency(it, tier, "")[0]
+    data["tier_rule"] = tier
+    parts = [data.get("rule_reason") or it.reason or "Regel"]
+    a = it.ai or {}
+    mode = (settings.get("ai") or {}).get("mode", "off")
+    # Die KI darf die Dringlichkeit anheben, nie senken.
+    ai_urg = str(a.get("urgency") or "")
+    if mode != "off" and not a.get("error") and ai_urg in URGENCIES \
+            and _URGENCY_RANK[ai_urg] < _URGENCY_RANK[urgency]:
+        urgency = ai_urg
+        parts.append(f"KI: {URGENCY_LABEL[ai_urg]} ({a.get('urgency_reason') or a.get('summary') or 'dringlicher'})"[:300])
+    if urgency != it.urgency:
+        it.urgency = urgency
+        _set_not_before(it, settings, datetime.utcnow())
+    elsewhere = bool(failed and (failed.get(_fingerprint(it), set()) - {it.agent_id}))
+    signals = risk_signals(it, settings, elsewhere)
+    no_ai = bool(a.get("error")) and mode != "off" and bool((settings.get("ai") or {}).get("required"))
+    tiers = settings.get("tiers") or {}
+    status = "auto"
+    if tier == "critical":
+        status = "needs_approval"
+        parts.append("Kritisch: nie ohne Freigabe")
+    elif tier == "important":
+        wanted = (tiers.get("important") or {}).get("approve_on") or []
+        hits = [signals[k] for k in wanted if k in signals]
+        if no_ai:
+            hits.append("KI-Prüfung nicht möglich")
+        if hits:
+            status = "needs_approval"
+            parts.append("Wichtig, aber " + "; ".join(hits))
+        else:
+            parts.append("Wichtig: läuft automatisch")
+    else:
+        hits = [signals[k] for k in NORMAL_ESCALATE if k in signals] \
+            if (tiers.get("normal") or {}).get("escalate", True) else []
+        if no_ai:
+            hits.append("KI-Prüfung nicht möglich")
+        if hits:
+            status, tier = "needs_approval", "important"
+            data["escalated"] = True
+            parts.append("hochgestuft auf Wichtig: " + "; ".join(hits))
+    it.tier, it.status, it.data = tier, status, data
+    it.reason = " · ".join(p for p in parts if p)[:1000]
+
+
+async def failed_fingerprints(db: AsyncSession, days: int = 30) -> Dict[str, Set[int]]:
+    """Abdruck -> Rechner, auf denen dieses Update zuletzt fehlschlug oder zurueckgerollt wurde."""
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = (await db.execute(select(PatchItem).where(
+        or_(PatchItem.status == "failed", PatchItem.decided_by == "Zurückgerollt"),
+        PatchItem.last_seen >= since))).scalars().all()
+    out: Dict[str, Set[int]] = {}
+    for it in rows:
+        out.setdefault(_fingerprint(it), set()).add(it.agent_id)
+    return out
+
+
+def sort_key(it: PatchItem) -> Tuple[int, int, int, int]:
+    """Dringendes und Kritisches zuerst."""
+    return (_URGENCY_RANK.get(it.urgency or "", 3), _TIER_RANK.get(it.tier or "", 3),
+            0 if it.urgent else 1, 0 if it.security else 1)
 
 
 # -----------------------------------------------------------------------------
@@ -468,6 +759,14 @@ async def _upsert(db: AsyncSession, agent: Agent, kind: str, key: str, fields: d
         # Neue Version eines bekannten Updates: menschliche Entscheidung gilt nicht weiter.
         it.status, it.ai, it.decided_by, it.decided_at = "new", None, "", None
         fresh = True
+    # Was RIMPERIO selbst am Update fuehrt (Stufe der Regel, DB-Update, Sofort-
+    # Versuch), ersetzt der naechste Scan nicht - bei einer neuen Bewertung
+    # bleibt nur der Sofort-Versuch (sonst liefe ein Update, das nach dem Lauf
+    # wieder auftaucht, gleich noch einmal sofort).
+    if "data" in fields and it.data:
+        keep = ("urgent_attempt",) if fresh else _KEEP_DATA
+        fields = {**fields, "data": {**(fields["data"] or {}),
+                                     **{k: v for k, v in it.data.items() if k in keep}}}
     for k, v in fields.items():
         setattr(it, k, v)
     it.last_seen = now
@@ -579,19 +878,23 @@ async def _classify_new(db: AsyncSession, agent: Agent, settings: dict,
     if not items:
         return
     idx = await advisories.build_index(db)
+    failed = await failed_fingerprints(db)
     for it in items:
         facts = {"kb": it.kb, "platform": it.platform, "key": it.key, "data": it.data or {}}
         it.advisories = advisories.match(idx, facts)
         it.urgent = advisories.is_urgent(idx, facts)
-        decide_status(it, settings, now)
+        decide_status(it, settings, now, failed)
     await _notify_approvals(db, agent, [i for i in items if i.status == "needs_approval"], settings)
 
 
 async def reclassify(db: AsyncSession) -> int:
-    """Nach einer Richtlinien-Aenderung: alles neu einstufen, was kein Mensch entschieden hat."""
+    """Nach einer Richtlinien-Aenderung: alles neu einstufen, was kein Mensch
+    entschieden hat. Bei menschlich entschiedenen nur Stufe/Dringlichkeit
+    nachtragen, falls sie fehlen - die Entscheidung bleibt."""
     now = datetime.utcnow()
     pols = await policies(db)
     agents = {a.id: a for a in (await db.execute(select(Agent).where(Agent.agent_uid.is_not(None)))).scalars()}
+    failed = await failed_fingerprints(db)
     rows = (await db.execute(select(PatchItem).where(
         PatchItem.status.in_(("auto", "needs_approval", "ignored", "monitor", "review")),
         PatchItem.decided_by == ""))).scalars().all()
@@ -601,10 +904,20 @@ async def reclassify(db: AsyncSession) -> int:
             continue
         settings = effective_settings(pick_policy(agent, pols))
         keep_ai = it.ai
-        decide_status(it, settings, now)
+        decide_status(it, settings, now, failed)
         if keep_ai and it.status == "review":
             it.ai = keep_ai
-            apply_assessment(it, settings)
+            apply_assessment(it, settings, failed)
+    decided = (await db.execute(select(PatchItem).where(
+        PatchItem.status.in_(("approved", "rejected", "installing", "failed")),
+        or_(PatchItem.tier.is_(None), PatchItem.tier == "")))).scalars().all()
+    for it in decided:
+        agent = agents.get(it.agent_id)
+        if agent is None:
+            continue
+        tier, rule_urg, _rule, _reason = classify(it, effective_settings(pick_policy(agent, pols)))
+        if tier != "ignore":
+            it.tier, it.urgency = tier, base_urgency(it, tier, rule_urg)[0]
     await db.commit()
     return len(rows)
 
@@ -622,9 +935,14 @@ ASSESS_SYSTEM = (
     "verfügbar – eine Websuche nach bekannten Problemen. Sicherheitsupdates ohne bekannte Probleme "
     "sind in der Regel 'install'. Versionssprünge, Datenbanken, Treiber, Funktionsupdates und "
     "Updates mit gemeldeten Problemen eher 'approve' oder 'hold'. Erfinde keine Probleme. "
+    "Bewerte außerdem die Dringlichkeit (urgency): 'immediate' nur, wenn das Update eine aktiv "
+    "ausgenutzte oder öffentlich ausnutzbare kritische Lücke schließt (z. B. Remote Code Execution "
+    "ohne Anmeldung) oder einen Fehler behebt, der das System gerade gefährdet; 'soon' für übliche "
+    "Sicherheitsupdates und wichtige Fehlerbehebungen; 'low' für alles, was warten kann. Nenne den "
+    "Grund für 'immediate' in urgency_reason (ein Satz). "
     "Antworte ausschließlich mit einem JSON-Objekt der Form "
-    '{"items":[{"ref":"1","risk":"low","recommendation":"install","summary":"…",'
-    '"known_issues":[],"sources":["https://…"]}]}.'
+    '{"items":[{"ref":"1","risk":"low","recommendation":"install","urgency":"soon",'
+    '"urgency_reason":"","summary":"…","known_issues":[],"sources":["https://…"]}]}.'
 )
 
 
@@ -664,6 +982,7 @@ def _search_query(it: PatchItem) -> str:
 async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], settings: dict) -> None:
     ai_cfg = await ai.load_config(db)
     adv_cfg = await advisories.load_config(db)
+    failed = await failed_fingerprints(db)
     # Was schon jemand eingeschaetzt hat (gleiches Update auf einem anderen Rechner), nicht erneut fragen.
     todo = []
     cutoff = datetime.utcnow() - timedelta(days=7)
@@ -672,7 +991,7 @@ async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], s
             PatchKnowledge.fingerprint == _fingerprint(it)))).scalar_one_or_none()
         if known and known.created_at and known.created_at >= cutoff:
             it.ai = {**(known.data or {}), "cached": True}
-            apply_assessment(it, settings)
+            apply_assessment(it, settings, failed)
         else:
             todo.append(it)
     if not todo:
@@ -680,7 +999,7 @@ async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], s
     if ai_cfg.get("provider", "off") == "off":
         for it in todo:
             it.ai = {"error": "KI nicht eingerichtet"}
-            apply_assessment(it, settings)
+            apply_assessment(it, settings, failed)
         return
     provider = adv_cfg["websearch"].get("provider", "off")
     use_native = bool(settings["ai"].get("web_search")) and provider == "ai" and ai.supports_native_web_search(ai_cfg)
@@ -711,8 +1030,11 @@ async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], s
             if not x:
                 it.ai = {"error": "keine Einschätzung erhalten", "model": result.get("model")}
             else:
+                urg = str(x.get("urgency", "")).lower()
                 it.ai = {"risk": str(x.get("risk", "")).lower(),
                          "recommendation": str(x.get("recommendation", "")).lower(),
+                         "urgency": urg if urg in URGENCIES else "",
+                         "urgency_reason": str(x.get("urgency_reason", ""))[:300],
                          "summary": str(x.get("summary", ""))[:600],
                          "known_issues": [str(k)[:300] for k in (x.get("known_issues") or [])][:6],
                          "sources": [str(s)[:500] for s in (x.get("sources") or [])][:6]
@@ -720,12 +1042,12 @@ async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], s
                          "model": result.get("model"), "at": datetime.utcnow().isoformat(timespec="seconds") + "Z"}
                 db.add(PatchKnowledge(fingerprint=_fingerprint(it), data=it.ai))
                 await db.flush()
-            apply_assessment(it, settings)
+            apply_assessment(it, settings, failed)
     except Exception as exc:
         logger.warning("KI-Einschätzung für %s fehlgeschlagen: %s", agent.hostname, exc)
         for it in todo:
             it.ai = {"error": str(exc)[:300]}
-            apply_assessment(it, settings)
+            apply_assessment(it, settings, failed)
 
 
 REVIEW_MAX_HOURS = 2
@@ -742,6 +1064,7 @@ async def release_stuck_reviews(db: AsyncSession) -> int:
     if not rows:
         return 0
     pols = await policies(db)
+    failed = await failed_fingerprints(db)
     touched: Dict[int, List[PatchItem]] = {}
     for it in rows:
         agent = await db.get(Agent, it.agent_id)
@@ -749,7 +1072,7 @@ async def release_stuck_reviews(db: AsyncSession) -> int:
             continue
         settings = effective_settings(pick_policy(agent, pols))
         it.ai = {**(it.ai or {}), "error": f"KI-Prüfung nach {REVIEW_MAX_HOURS} h ohne Ergebnis abgebrochen"}
-        apply_assessment(it, settings)
+        apply_assessment(it, settings, failed)
         touched.setdefault(agent.id, []).append(it)
     await db.commit()
     for agent_id, items in touched.items():
@@ -788,13 +1111,26 @@ async def _notify_approvals(db: AsyncSession, agent: Agent, items: List[PatchIte
     if not items or not (settings.get("notify") or {}).get("approval_needed", True):
         return
     await db.flush()
-    names = ", ".join(i.title for i in items[:4]) + (f" und {len(items) - 4} weitere" if len(items) > 4 else "")
-    await notify.push(db, category="patch", level="warning",
-                      title=f"{agent.hostname}: {len(items)} Update(s) brauchen eine Freigabe",
-                      body=names, link="/rmm/patches?tab=approvals", action="approve",
-                      data={"agent_uid": agent.agent_uid, "hostname": agent.hostname,
-                            "item_ids": [i.id for i in items]},
-                      event="patch_approval", key=f"patch:approve:{agent.id}", commit=False)
+    # Was sofort drauf muss, kommt als eigene, kritische Meldung - damit es
+    # zwischen den gewoehnlichen Freigaben nicht untergeht.
+    urgent = sorted((i for i in items if i.urgency == "immediate"), key=sort_key)
+    normal = sorted((i for i in items if i.urgency != "immediate"), key=sort_key)
+    for group, level, key, title in (
+            (urgent, "critical", f"patch:approve:urgent:{agent.id}",
+             f"{agent.hostname}: {len(urgent)} Update(s) sollten SOFORT drauf – Freigabe nötig"),
+            (normal, "warning", f"patch:approve:{agent.id}",
+             f"{agent.hostname}: {len(normal)} Update(s) brauchen eine Freigabe")):
+        if not group:
+            continue
+        names = ", ".join(f"{i.title} [{TIER_LABEL.get(i.tier, i.tier or '?')}]" for i in group[:4]) \
+            + (f" und {len(group) - 4} weitere" if len(group) > 4 else "")
+        await notify.push(db, category="patch", level=level, title=title,
+                          body=names, link="/rmm/patches?tab=approvals", action="approve",
+                          data={"agent_uid": agent.agent_uid, "hostname": agent.hostname,
+                                "item_ids": [i.id for i in group],
+                                "urgency": "immediate" if group is urgent else "",
+                                "tiers": sorted({i.tier for i in group if i.tier})},
+                          event="patch_approval", key=key, commit=False)
 
 
 # -----------------------------------------------------------------------------
@@ -812,7 +1148,8 @@ async def decide(db: AsyncSession, item_ids: List[int], decision: str, user: str
         if it.status in ("installing", "installed", "superseded"):
             continue
         if decision == "approve":
-            it.status = "approved"
+            # Wer freigibt, will es im naechsten Fenster (bzw. sofort) - nicht erst nach der Rueckstellung.
+            it.status, it.not_before = "approved", None
         elif decision == "reject":
             it.status = "rejected"
         elif decision == "defer":
@@ -897,6 +1234,8 @@ async def start_run(db: AsyncSession, agent: Agent, items: List[PatchItem], sett
     frozen = deepcopy(settings)
     if snapshot is not None:
         frozen["snapshot"]["enabled"] = bool(snapshot)
+    if trigger == "urgent":
+        frozen["reboot"] = ((settings.get("urgency") or {}).get("immediate") or {}).get("reboot", "if_needed")
     run = PatchRun(agent_id=agent.id, policy_id=policy_id, trigger=trigger, created_by=user,
                    status="pending", items=[i.id for i in items], settings=frozen,
                    snapshot={}, commands={}, log=[], started_at=datetime.utcnow())
@@ -1036,7 +1375,8 @@ async def _finish(db: AsyncSession, run: PatchRun, agent: Agent, ok: bool, text:
             snap["delete_after"] = (now + timedelta(days=days)).isoformat(timespec="seconds") + "Z"
             run.snapshot = snap
             _log(run, f"Sicherung wird am {(now + timedelta(days=days)):%d.%m.%Y %H:%M} UTC gelöscht.")
-        if (settings.get("notify") or {}).get("run_succeeded"):
+        if (settings.get("notify") or {}).get("run_succeeded") or \
+                (run.trigger == "urgent" and (settings.get("notify") or {}).get("urgent_run", True)):
             await notify.push(db, category="patch", level="info",
                               title=f"{agent.hostname}: Patch-Lauf #{run.id} erfolgreich", body=text,
                               link=f"/rmm/patches?tab=runs&run={run.id}", event="patch_done",
@@ -1047,6 +1387,7 @@ async def _finish(db: AsyncSession, run: PatchRun, agent: Agent, ok: bool, text:
         for it in items:
             if it.status == "installing":
                 it.status = "failed"
+        await _hold_siblings(db, run, agent, [i for i in items if i.status in ("failed", "installed")])
         has_snapshot = bool((run.snapshot or {}).get("name")) and (run.snapshot or {}).get("mode") == "snapshot"
         if has_snapshot and (settings.get("rollback") or {}).get("auto"):
             await _rollback(db, run, "system (automatisch)")
@@ -1061,6 +1402,36 @@ async def _finish(db: AsyncSession, run: PatchRun, agent: Agent, ok: bool, text:
     journal.fire(category="rmm", event="patch.run." + ("succeeded" if ok else "failed"),
                  level="info" if ok else "error", target=agent.hostname, ok=ok,
                  message=f"Patch-Lauf #{run.id} auf {agent.hostname}: {text}")
+
+
+async def _hold_siblings(db: AsyncSession, run: PatchRun, agent: Agent, items: List[PatchItem]) -> int:
+    """Ein Lauf ist fehlgeschlagen: dieselben Updates auf den anderen Rechnern
+    nicht mehr automatisch installieren, sondern auf eine Freigabe warten lassen."""
+    fps = {_fingerprint(i) for i in items}
+    if not fps:
+        return 0
+    rows = (await db.execute(select(PatchItem).where(
+        PatchItem.agent_id != agent.id, PatchItem.status == "auto", PatchItem.decided_by == "",
+        PatchItem.platform.in_({i.platform for i in items})))).scalars().all()
+    held = [it for it in rows if _fingerprint(it) in fps]
+    for it in held:
+        it.status = "needs_approval"
+        if it.tier == "normal":
+            it.tier = "important"
+            it.data = {**(it.data or {}), "escalated": True}
+        base = (it.data or {}).get("rule_reason") or it.rule or "Regel"
+        it.reason = (f"{base} · angehalten: auf {agent.hostname} fehlgeschlagen (Lauf #{run.id}) – "
+                     "wartet auf Freigabe")[:1000]
+    if held:
+        _log(run, f"{len(held)} gleiche(s) Update(s) auf anderen Rechnern angehalten – sie warten jetzt auf eine Freigabe.",
+             "warning")
+        await notify.push(db, category="patch", level="warning",
+                          title=f"{len(held)} Update(s) angehalten: auf {agent.hostname} fehlgeschlagen",
+                          body="Dieselben Updates laufen auf den anderen Rechnern erst nach einer Freigabe.",
+                          link="/rmm/patches?tab=approvals", action="approve",
+                          data={"run_id": run.id, "item_ids": [i.id for i in held][:200]},
+                          event="patch_approval", key=f"patch:held:{run.id}", commit=False)
+    return len(held)
 
 
 async def _rollback(db: AsyncSession, run: PatchRun, user: str) -> None:
@@ -1375,6 +1746,109 @@ async def _timeout_commands(db: AsyncSession) -> None:
             c.stderr = (c.stderr or "") + "Kein Ergebnis vom Agent innerhalb der Frist."
 
 
+async def _installable(db: AsyncSession, agent: Agent, settings: dict, now: datetime,
+                       urgency: Optional[str] = None) -> List[PatchItem]:
+    q = select(PatchItem).where(
+        PatchItem.agent_id == agent.id, PatchItem.status.in_(INSTALLABLE),
+        or_(PatchItem.not_before.is_(None), PatchItem.not_before <= now))
+    if urgency:
+        q = q.where(PatchItem.urgency == urgency)
+    items = (await db.execute(q)).scalars().all()
+    plats = set(settings.get("platforms") or [])
+    return sorted((i for i in items if i.platform in plats), key=sort_key)
+
+
+async def _window_run(db: AsyncSession, agent: Agent, policy: PatchPolicy, settings: dict,
+                      now: datetime) -> bool:
+    """Im Wartungsfenster: einmal je Fenster alles Installierbare; kritische
+    Datenbank-Container vorbereiten (Sicherung + Probelauf)."""
+    is_open, begin, _end = window_state(settings, now)
+    if not is_open:
+        return False
+    await _prepare_db(db, agent, settings)
+    done_this_window = (await db.execute(select(PatchRun.id).where(
+        PatchRun.agent_id == agent.id, PatchRun.trigger == "schedule",
+        PatchRun.created_at >= begin))).first()
+    if done_this_window:
+        return False
+    items = await _installable(db, agent, settings, now)
+    if not items:
+        return False
+    from . import dbmigrate
+    items = await dbmigrate.from_patch_items(db, agent, items, "system")
+    if not items:
+        return False
+    await start_run(db, agent, items, settings, policy.id, "schedule", "system")
+    return True
+
+
+URGENT_RETRY_HOURS = 24
+
+
+async def _urgent_run(db: AsyncSession, agent: Agent, policy: PatchPolicy, settings: dict,
+                      now: datetime) -> bool:
+    """„Sofort“: nicht aufs Wartungsfenster warten. Gilt nur, wenn die
+    Richtlinie ueberhaupt automatisch installiert (Fenster an) und Sofort-
+    Updates ausserhalb des Fensters erlaubt. Je Update und Version ein Versuch
+    in URGENT_RETRY_HOURS - danach wartet es aufs Fenster."""
+    imm = (settings.get("urgency") or {}).get("immediate") or {}
+    if not (settings.get("window") or {}).get("enabled", True) or not imm.get("outside_window", True):
+        return False
+    cutoff = (now - timedelta(hours=URGENT_RETRY_HOURS)).isoformat(timespec="seconds")
+    items = []
+    for it in await _installable(db, agent, settings, now, urgency="immediate"):
+        tried = (it.data or {}).get("urgent_attempt") or {}
+        if tried.get("version") == it.version_to and str(tried.get("at") or "") >= cutoff:
+            continue
+        items.append(it)
+    if not items:
+        return False
+    stamp = {"at": now.isoformat(timespec="seconds")}
+    for it in items:
+        it.data = {**(it.data or {}), "urgent_attempt": {**stamp, "version": it.version_to}}
+    from . import dbmigrate
+    items = await dbmigrate.from_patch_items(db, agent, items, "system (sofort)")
+    if not items:
+        return False
+    run = await start_run(db, agent, items, settings, policy.id, "urgent", "system")
+    _log(run, "Sofort-Lauf außerhalb des Wartungsfensters: " + ", ".join(i.title for i in items[:5])
+         + (f" und {len(items) - 5} weitere" if len(items) > 5 else ""), "warning")
+    return True
+
+
+async def _prepare_db(db: AsyncSession, agent: Agent, settings: dict) -> int:
+    """Kritische Datenbank-Container: Analyse, Sicherung und Probelauf schon vor
+    der Freigabe (dbmigrate, ohne automatische Ausfuehrung). Die Freigabe kommt
+    dann mit dem Ergebnis des Probelaufs; ausgefuehrt wird erst danach."""
+    if not ((settings.get("tiers") or {}).get("critical") or {}).get("prepare_db", True):
+        return 0
+    if "docker" not in (settings.get("platforms") or []) or (agent.platform or "").lower().startswith("win"):
+        return 0
+    from . import dbmigrate
+    rows = (await db.execute(select(PatchItem).where(
+        PatchItem.agent_id == agent.id, PatchItem.kind == "docker",
+        PatchItem.status == "needs_approval", PatchItem.tier == "critical"))).scalars().all()
+    n = 0
+    for it in rows:
+        d = dict(it.data or {})
+        if d.get("db_prepared") or not dbmigrate.is_db_image(d.get("image", "")):
+            continue
+        d["db_prepared"] = True
+        try:
+            m = await dbmigrate.create(db, agent, it.key, "system (Vorbereitung)", mode="auto",
+                                       patch_item_id=it.id,
+                                       snapshot=bool((settings.get("snapshot") or {}).get("enabled", True)),
+                                       auto_execute_minor=False)
+            d["db_migration_id"] = m.id
+            it.reason = (f"{it.reason} · Sicherung und Probelauf laufen vorab (DB-Update #{m.id}) – "
+                         "die Freigabe kommt mit Ergebnis")[:1000]
+            n += 1
+        except ValueError as exc:
+            logger.info("DB-Vorbereitung für %s nicht angelegt: %s", it.key, exc)
+        it.data = d
+    return n
+
+
 async def tick() -> None:
     async with async_session() as db:
         await _timeout_commands(db)
@@ -1420,27 +1894,16 @@ async def tick() -> None:
                 await queue_scan(db, agent, settings)
             if agent.id in active_agents:
                 continue
-            is_open, begin, _end = window_state(settings, now)
-            if not is_open:
+            try:
+                if await _window_run(db, agent, policy, settings, now):
+                    active_agents.add(agent.id)
+                elif await _urgent_run(db, agent, policy, settings, now):
+                    active_agents.add(agent.id)
+            except Exception as exc:                                # defensiv
+                logger.warning("Patch-Lauf für %s nicht gestartet: %s", agent.hostname, exc)
+                await db.rollback()
                 continue
-            done_this_window = (await db.execute(select(PatchRun.id).where(
-                PatchRun.agent_id == agent.id, PatchRun.trigger == "schedule",
-                PatchRun.created_at >= begin))).first()
-            if done_this_window:
-                continue
-            items = (await db.execute(select(PatchItem).where(
-                PatchItem.agent_id == agent.id, PatchItem.status.in_(INSTALLABLE),
-                or_(PatchItem.not_before.is_(None), PatchItem.not_before <= now)))).scalars().all()
-            plats = set(settings.get("platforms") or [])
-            items = [i for i in items if i.platform in plats]
-            if not items:
-                continue
-            from . import dbmigrate
-            items = await dbmigrate.from_patch_items(db, agent, items, "system")
-            if not items:
-                continue
-            await start_run(db, agent, items, settings, policy.id, "schedule", "system")
-            active_agents.add(agent.id)
+            await db.commit()
         await db.commit()
 
         # 4. Sicherungen nach Frist loeschen
@@ -1503,6 +1966,10 @@ def public_item(it: PatchItem, agent: Optional[Agent] = None) -> dict:
             "category": it.category, "severity": it.severity, "kb": it.kb,
             "version_from": it.version_from, "version_to": it.version_to,
             "security": it.security, "reboot": it.reboot, "urgent": it.urgent,
+            "tier": it.tier or "", "tier_label": TIER_LABEL.get(it.tier or "", ""),
+            "tier_rule": d.get("tier_rule") or it.tier or "", "escalated": bool(d.get("escalated")),
+            "urgency": it.urgency or "", "urgency_label": URGENCY_LABEL.get(it.urgency or "", ""),
+            "db_migration_id": d.get("db_migration_id"),
             "status": it.status, "status_label": STATUS_LABEL.get(it.status, it.status),
             "rule": it.rule, "reason": it.reason, "ai": it.ai, "advisories": it.advisories or [],
             "decided_by": it.decided_by, "decided_at": _iso(it.decided_at),

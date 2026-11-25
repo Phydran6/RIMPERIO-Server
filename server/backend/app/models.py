@@ -424,6 +424,11 @@ class PatchItem(Base):
     security = Column(Boolean, default=False)
     reboot = Column(Boolean, default=False)
     urgent = Column(Boolean, default=False)             # behebt eine aktiv ausgenutzte Lücke (CISA KEV)
+    # Einstufung (Spalten per ALTER TABLE in patchmgmt.py):
+    # tier    = normal | important | critical  - wie viel Mensch es braucht
+    # urgency = immediate | soon | low         - wie schnell es drauf muss
+    tier = Column(String(16), default="")
+    urgency = Column(String(16), default="")
     data = Column(JSON, default=dict)                   # alles, was der Agent meldet
     status = Column(String(24), default="new", index=True)
     rule = Column(String(255), default="")              # welche Regel entschieden hat
@@ -446,7 +451,7 @@ class PatchRun(Base):
     id = Column(Integer, primary_key=True)
     agent_id = Column(Integer, ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False)
     policy_id = Column(Integer, nullable=True)
-    trigger = Column(String(32), default="schedule")    # schedule | manual | app
+    trigger = Column(String(32), default="schedule")    # schedule | urgent | manual | app
     created_by = Column(String(64), default="system")
     status = Column(String(24), default="pending", index=True)
     stage_since = Column(DateTime, default=datetime.utcnow)

@@ -11,6 +11,21 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.25.22.00.00 (2026-11-25) – Patchmanagement mit Stufen und Dringlichkeit
+
+- **Drei Stufen** für Betriebssystem- und Docker-Updates: **Normal** läuft immer von selbst, **Wichtig** läuft von
+  selbst und braucht nur dann eine Freigabe, wenn es Fehler auslösen könnte (KI sieht Risiko oder Probleme,
+  Hauptversion, anderswo fehlgeschlagen), **Kritisch** nie ohne Freigabe – Datenbanken, Webserver/Reverse-Proxys,
+  Anmeldung und Zugang (SSH, PAM, LDAP, SSO, VPN), Proxmox, Funktionsupdates, Versionssprünge.
+- **Drei Dringlichkeiten:** **sofort** (aktiv ausgenutzte Lücke, per Regel oder KI) wird direkt installiert, auch
+  außerhalb des Wartungsfensters – bei Kritischem direkt nach der Freigabe; **zeitnah** im nächsten Fenster;
+  **irgendwann** nach einigen Tagen Rückstellung.
+- **Ein Fehlschlag bremst den Rest:** schlägt ein Update auf einem Rechner fehl, läuft es auf den anderen erst nach
+  einer Freigabe.
+- **Datenbanken:** Sicherung und Probelauf laufen schon vor der Freigabe; die Freigabe kommt mit Ergebnis.
+- Vorhandene Richtlinien mit den mitgelieferten Regeln bekommen die neuen automatisch; eigene Regeln bleiben
+  (automatisch → Normal, Freigabe → Kritisch).
+
 ## v2026.11.23.21.00.00 (2026-11-23) – Proxmox-Knoten patchen mit Zeitplan, Menü: Integrationen als Oberbegriff
 
 - **Proxmox-Knoten patchen** (Geräte → Proxmox VE → Knoten patchen & Konsole): „Alle Knoten patchen“ geht einen
