@@ -85,7 +85,6 @@
           </label>
           <label>Beginn<input v-model="s.window.start" type="time" class="input" /></label>
           <label>Dauer (Minuten)<input v-model.number="s.window.duration_minutes" type="number" min="15" class="input" /></label>
-          <label>Rückstellung (Tage nach Erscheinen)<input v-model.number="s.defer_days" type="number" min="0" max="90" class="input" /></label>
           <label>Neustart
             <select v-model="s.reboot" class="select"><option value="if_needed">wenn nötig</option><option value="always">immer</option><option value="never">nie (nur melden)</option></select>
           </label>
@@ -93,15 +92,62 @@
       </section>
 
       <section class="card mb-4">
-        <div class="card-header"><h2 class="card-title">Freigabe-Regeln</h2>
-          <button v-if="auth.isAdmin" class="btn btn-secondary btn-sm" @click="s.rules.push({ name: 'Neue Regel', platform: 'any', field: 'title', op: 'contains', value: '', action: 'approve', enabled: true })">Regel hinzufügen</button>
+        <div class="card-header"><h2 class="card-title">Stufen und Dringlichkeit</h2></div>
+        <div class="card-body">
+          <p class="rmm-muted mb-2">Jedes Update bekommt eine <strong>Stufe</strong> (wie viel Mensch es braucht) und eine
+            <strong>Dringlichkeit</strong> (wie schnell es drauf muss) – über die Regeln unten. Aktiv ausgenutzte Lücken
+            (CISA KEV) sind immer „sofort“; die KI darf die Dringlichkeit anheben, nie senken.</p>
+          <div class="pol-grid">
+            <div class="pol-box">
+              <h3><span class="badge" :class="TIER.normal[0]">Normal</span></h3>
+              <p class="rmm-muted">{{ TIER.normal[2] }} – ohne Rückfrage.</p>
+              <label class="pol-check"><input v-model="s.tiers.normal.escalate" type="checkbox" /> bei erkanntem Risiko (KI: hoch, anderswo fehlgeschlagen) wie „Wichtig“ behandeln</label>
+            </div>
+            <div class="pol-box">
+              <h3><span class="badge" :class="TIER.important[0]">Wichtig</span></h3>
+              <p class="rmm-muted">{{ TIER.important[2] }}. Freigabe, wenn:</p>
+              <label v-for="sig in defaults.signals || []" :key="sig.key" class="pol-check"><input v-model="s.tiers.important.approve_on" type="checkbox" :value="sig.key" /> {{ sig.label }}</label>
+            </div>
+            <div class="pol-box">
+              <h3><span class="badge" :class="TIER.critical[0]">Kritisch</span></h3>
+              <p class="rmm-muted">{{ TIER.critical[2] }} – Datenbanken, Webserver/Reverse-Proxys, Anmeldung und Zugang, Hypervisor, Funktionsupdates, Versionssprünge.</p>
+              <label class="pol-check"><input v-model="s.tiers.critical.prepare_db" type="checkbox" /> Datenbank-Container vorher sichern und probeweise aktualisieren (im Wartungsfenster) – die Freigabe kommt mit Ergebnis</label>
+            </div>
+          </div>
+          <div class="pol-grid mt-4">
+            <div class="pol-box">
+              <h3><span class="badge" :class="URGENCY.immediate[0]">sofort</span></h3>
+              <p class="rmm-muted">Sicherheitslücke, die gerade ausgenutzt wird, oder ein Fehler, der das System gefährdet.</p>
+              <label class="pol-check"><input v-model="s.urgency.immediate.outside_window" type="checkbox" /> nicht aufs Wartungsfenster warten (mit Sicherung und Prüfung wie sonst)</label>
+              <label>Neustart bei Sofort-Updates
+                <select v-model="s.urgency.immediate.reboot" class="select"><option value="if_needed">wenn nötig</option><option value="always">immer</option><option value="never">nie (folgt im Fenster)</option></select>
+              </label>
+            </div>
+            <div class="pol-box">
+              <h3><span class="badge" :class="URGENCY.soon[0]">zeitnah</span></h3>
+              <p class="rmm-muted">Wichtig, gefährdet das System aber nicht – im nächsten Wartungsfenster.</p>
+              <label>frühestens nach (Tagen)<input v-model.number="s.urgency.soon.defer_days" type="number" min="0" max="90" class="input" /></label>
+            </div>
+            <div class="pol-box">
+              <h3><span class="badge" :class="URGENCY.low[0]">irgendwann</span></h3>
+              <p class="rmm-muted">Hauptsache irgendwann drauf – erst nach einer Rückstellung, dann im Fenster.</p>
+              <label>frühestens nach (Tagen)<input v-model.number="s.urgency.low.defer_days" type="number" min="0" max="90" class="input" /></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card mb-4">
+        <div class="card-header"><h2 class="card-title">Regeln</h2>
+          <button v-if="auth.isAdmin" class="btn btn-secondary btn-sm" @click="s.rules.push({ name: 'Neue Regel', platform: 'any', field: 'title', op: 'contains', value: '', tier: 'important', urgency: '', enabled: true })">Regel hinzufügen</button>
         </div>
         <div class="card-body">
-          <p class="rmm-muted mb-2">Die erste passende Regel entscheidet. Passt keine, gilt der Standard je Plattform.
+          <p class="rmm-muted mb-2">Die erste passende Regel entscheidet über Stufe und Dringlichkeit. Passt keine, gilt der Standard je Plattform.
+            Dringlichkeit „automatisch“: Sicherheitsupdates, Wichtiges und Kritisches zeitnah, alles andere irgendwann.
             „Hauptversion“ (<span class="rmm-code">major</span>) erkennt Sprünge wie 1.x → 2.x.</p>
           <div class="rmm-table-wrap">
             <table class="table">
-              <thead><tr><th></th><th>Name</th><th>Plattform</th><th>Feld</th><th>Vergleich</th><th>Wert</th><th>Aktion</th><th></th></tr></thead>
+              <thead><tr><th></th><th>Name</th><th>Plattform</th><th>Feld</th><th>Vergleich</th><th>Wert</th><th>Stufe</th><th>Dringlichkeit</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="(r, i) in s.rules" :key="i">
                   <td><input v-model="r.enabled" type="checkbox" /></td>
@@ -110,7 +156,8 @@
                   <td><select v-model="r.field" class="select"><option v-for="f in defaults.rule_fields" :key="f">{{ f }}</option></select></td>
                   <td><select v-model="r.op" class="select"><option v-for="o in defaults.rule_ops" :key="o">{{ o }}</option></select></td>
                   <td><input v-model="r.value" class="input rmm-code" :disabled="['is_true','is_false'].includes(r.op)" /></td>
-                  <td><select v-model="r.action" class="select"><option value="auto">automatisch</option><option value="approve">Freigabe</option><option value="ignore">ignorieren</option></select></td>
+                  <td><select v-model="r.tier" class="select"><option v-for="(t, k) in TIER" :key="k" :value="k">{{ t[1] }}</option><option value="ignore">ignorieren</option></select></td>
+                  <td><select v-model="r.urgency" class="select" :disabled="r.tier === 'ignore'"><option value="">automatisch</option><option v-for="(u, k) in URGENCY" :key="k" :value="k">{{ u[1] }}</option></select></td>
                   <td class="rmm-actions">
                     <button class="btn btn-ghost btn-sm" :disabled="i === 0" @click="move(i, -1)">↑</button>
                     <button class="btn btn-ghost btn-sm" :disabled="i === s.rules.length - 1" @click="move(i, 1)">↓</button>
@@ -122,7 +169,7 @@
           </div>
           <div class="rmm-form mt-4">
             <label v-for="pl in ['windows','linux','docker']" :key="pl">Standard {{ pl }}
-              <select v-model="s.fallback[pl]" class="select"><option value="auto">automatisch</option><option value="approve">Freigabe</option><option value="ignore">ignorieren</option></select>
+              <select v-model="s.fallback[pl]" class="select"><option v-for="(t, k) in TIER" :key="k" :value="k">{{ t[1] }}</option><option value="ignore">ignorieren</option></select>
             </label>
             <div class="is-wide"><button class="btn btn-ghost btn-sm" @click="s.rules = JSON.parse(JSON.stringify(defaults.settings.rules))">Mitgelieferte Regeln wiederherstellen</button></div>
           </div>
@@ -134,13 +181,14 @@
         <div class="card-body rmm-form">
           <label>Modus
             <select v-model="s.ai.mode" class="select">
-              <option value="gate">entscheidet mit (riskante Updates brauchen Freigabe)</option>
+              <option value="gate">entscheidet mit (bei „Wichtig“ und „Normal“: riskante Updates brauchen Freigabe)</option>
               <option value="advise">berät nur (Einschätzung anzeigen)</option>
               <option value="off">aus</option>
             </select>
           </label>
           <label class="pol-check"><input v-model="s.ai.web_search" type="checkbox" /> Websuche nach bekannten Problemen</label>
           <label class="pol-check"><input v-model="s.ai.required" type="checkbox" /> ohne KI-Einschätzung nichts automatisch</label>
+          <div class="is-wide rmm-muted">Die KI bewertet auch die Dringlichkeit: Hält sie ein Update für „sofort“, wird es angehoben.</div>
           <div class="is-wide rmm-muted">Anbieter und Modell: <router-link to="/ai">KI-Auswertung</router-link>. Websuche-Anbieter: <router-link to="/rmm/sources">Update-Quellen</router-link>.</div>
         </div>
       </section>
@@ -193,6 +241,7 @@
           <label class="pol-check"><input v-model="s.notify.approval_needed" type="checkbox" /> Freigabe nötig</label>
           <label class="pol-check"><input v-model="s.notify.run_failed" type="checkbox" /> Lauf fehlgeschlagen</label>
           <label class="pol-check"><input v-model="s.notify.run_succeeded" type="checkbox" /> Lauf erfolgreich</label>
+          <label class="pol-check"><input v-model="s.notify.urgent_run" type="checkbox" /> Sofort-Update installiert</label>
           <div class="is-wide rmm-muted">Kommt in der App und an der Glocke an; Mail/Telegram/Webhook unter <router-link to="/alerts">Benachrichtigungen</router-link>.</div>
         </div>
       </section>
@@ -204,12 +253,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
-import { WEEKDAYS } from '../utils/rmm'
+import { TIER, URGENCY, WEEKDAYS } from '../utils/rmm'
 
 const auth = useAuthStore()
 const policies = ref([])
 const agents = ref([])
-const defaults = ref({ settings: { rules: [] }, rule_fields: [], rule_ops: [] })
+const defaults = ref({ settings: { rules: [] }, rule_fields: [], rule_ops: [], signals: [] })
 const form = ref(null)
 const preview = ref(null)
 const error = ref('')
@@ -250,7 +299,13 @@ async function open(p = null) {
     name: '', description: '', enabled: true, priority: 100, scope_type: 'site', scope_value: sites.value[0] || 'Standard',
     settings: JSON.parse(JSON.stringify(defaults.value.settings)),
   }
-  for (const r of form.value.settings.rules) r.enabled = r.enabled !== false
+  for (const r of form.value.settings.rules) {
+    r.enabled = r.enabled !== false
+    // Regeln von vor den Stufen: auto → Normal, approve → Kritisch
+    if (!r.tier) r.tier = { auto: 'normal', approve: 'critical', ignore: 'ignore' }[r.action] || 'critical'
+    if (r.urgency === undefined) r.urgency = ''
+    delete r.action
+  }
   if (p?.id) preview.value = await auth.api(`/api/patching/policies/${p.id}/preview`).catch(() => null)
 }
 
@@ -282,4 +337,9 @@ onMounted(load)
 <style scoped>
 .pol-check { flex-direction: row !important; align-items: center; gap: .5rem !important; flex-wrap: wrap; }
 .pol-check span { display: inline-flex; gap: .25rem; align-items: center; margin-right: .5rem; }
+.pol-grid { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.pol-box { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: .75rem .9rem; display: flex; flex-direction: column; gap: .5rem; }
+.pol-box h3 { margin: 0; }
+.pol-box p { margin: 0; font-size: .85rem; }
+.pol-box label { font-size: .875rem; }
 </style>

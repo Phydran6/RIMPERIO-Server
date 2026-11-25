@@ -75,6 +75,7 @@ CAPABILITIES = [
     "remote-console",    # Befehle auf Rechnern (Linux als rimperio, Windows PowerShell)
     "rdp",               # RDP-Verbindung zu Windows-Rechnern
     "db-updates",        # /api/db-updates - Datenbank-Updates mit Probelauf
+    "patch-tiers",       # Updates mit Stufe (normal/important/critical) und Dringlichkeit (immediate/soon/low)
     "ai-analysis",       # /api/ai/analyze, falls eingerichtet
 ]
 
@@ -447,6 +448,7 @@ class AppReadIn(BaseModel):
 
 
 def _app_item(it, agent) -> dict:
+    from .. import patchmgmt as pm
     ai = it.ai or {}
     return {
         "id": it.id, "host": agent.hostname if agent else None,
@@ -454,8 +456,13 @@ def _app_item(it, agent) -> dict:
         "platform": it.platform, "title": it.title, "kb": it.kb or None,
         "from": it.version_from or None, "to": it.version_to or None,
         "security": it.security, "urgent": it.urgent, "reboot": it.reboot,
+        "tier": it.tier or None, "tier_label": pm.TIER_LABEL.get(it.tier or "") or None,
+        "escalated": bool((it.data or {}).get("escalated")),
+        "urgency": it.urgency or None, "urgency_label": pm.URGENCY_LABEL.get(it.urgency or "") or None,
+        "db_migration_id": (it.data or {}).get("db_migration_id"),
         "status": it.status, "reason": it.reason,
         "ai": {"risk": ai.get("risk"), "recommendation": ai.get("recommendation"),
+               "urgency": ai.get("urgency") or None,
                "summary": ai.get("summary"), "known_issues": ai.get("known_issues") or [],
                "error": ai.get("error")} if ai else None,
         "advisories": [{"title": a.get("title"), "link": a.get("link"), "source": a.get("source")}
@@ -500,7 +507,17 @@ async def app_patch_summary(db: AsyncSession = Depends(get_db), _=Depends(get_cu
     failed = (await db.execute(select(func.count()).select_from(PatchRun).where(
         PatchRun.status == "failed",
         PatchRun.finished_at >= datetime.utcnow() - timedelta(days=7)))).scalar_one()
+    waiting = dict((await db.execute(select(PatchItem.tier, func.count())
+                                     .where(PatchItem.status == "needs_approval")
+                                     .group_by(PatchItem.tier))).all())
+    urgent_open = (await db.execute(select(func.count()).select_from(PatchItem).where(
+        PatchItem.urgency == "immediate", PatchItem.status.in_(pm.OPEN_STATES)))).scalar_one()
+    urgent_waiting = (await db.execute(select(func.count()).select_from(PatchItem).where(
+        PatchItem.urgency == "immediate", PatchItem.status == "needs_approval"))).scalar_one()
     return {"needs_approval": counts.get("needs_approval", 0), "automatic": counts.get("auto", 0),
+            "needs_approval_critical": waiting.get("critical", 0),
+            "needs_approval_important": waiting.get("important", 0),
+            "immediate_open": urgent_open, "needs_approval_immediate": urgent_waiting,
             "approved": counts.get("approved", 0), "reviewing": counts.get("review", 0),
             "failed_items": counts.get("failed", 0), "runs_active": running,
             "runs_failed_7d": failed}
@@ -509,12 +526,14 @@ async def app_patch_summary(db: AsyncSession = Depends(get_db), _=Depends(get_cu
 @router.get("/patching/approvals")
 async def app_patch_approvals(limit: int = Query(100, ge=1, le=500),
                               db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
-    """Was wartet auf eine Entscheidung - dringende zuerst."""
+    """Was wartet auf eine Entscheidung - sofort/kritisch zuerst."""
     from ..models import PatchItem
+    from .. import patchmgmt as pm
     rows = (await db.execute(select(PatchItem, Agent).join(Agent, Agent.id == PatchItem.agent_id)
                              .where(PatchItem.status == "needs_approval")
                              .order_by(desc(PatchItem.urgent), desc(PatchItem.security), Agent.hostname)
                              .limit(limit))).all()
+    rows.sort(key=lambda r: pm.sort_key(r[0]))
     return {"items": [_app_item(i, a) for i, a in rows]}
 
 
@@ -735,6 +754,11 @@ async def app_patch_open(db: AsyncSession = Depends(get_db), _=Depends(get_curre
         item["db"] = it.kind == "docker" and dbmigrate.is_db_image((it.data or {}).get("image", ""))
         item["not_before"] = it.not_before.isoformat() + "Z" if it.not_before else None
         h["items"].append(item)
+        h.setdefault("_rows", []).append(it)
+    for h in hosts.values():
+        order = sorted(range(len(h["items"])), key=lambda n: pm.sort_key(h["_rows"][n]))
+        h["items"] = [h["items"][n] for n in order]
+        h.pop("_rows", None)
     out = list(hosts.values())
     for h in out:
         h["installable"] = sum(1 for i in h["items"] if i["installable"])

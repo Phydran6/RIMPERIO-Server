@@ -2,6 +2,24 @@
 
 FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.25.22.00.00
+
+### Added
+- **Stufe und Dringlichkeit je Update** (`app/patchmgmt.py`, Spalten `patch_items.tier` und `patch_items.urgency` per `ALTER TABLE`): Stufe `normal` (immer automatisch; bei KI-Risiko „hoch“ oder Fehlschlag auf einem anderen Rechner hochgestuft, `tiers.normal.escalate`), `important` (automatisch, Freigabe nur bei Warnsignal: `tiers.important.approve_on` ⊂ `ai_risk`, `known_issues`, `major`, `failed_elsewhere`), `critical` (immer Freigabe). Dringlichkeit `immediate` (CISA KEV, Regel oder KI), `soon`, `low`; Rückstellung je Dringlichkeit (`urgency.soon|low.defer_days`, Standard 0/3 Tage).
+- **Sofort-Läufe:** installierbare Updates mit `immediate` starten außerhalb des Wartungsfensters einen Lauf (`trigger = urgent`, Neustart nach `urgency.immediate.reboot`), je Update und Version höchstens einmal in 24 h; abschaltbar mit `urgency.immediate.outside_window`. Meldung `notify.urgent_run`.
+- **Neue Standardregeln:** kritisch sind zusätzlich Webserver/Reverse-Proxys und Anmeldung/Zugang (Linux-Pakete und Container-Images: nginx, Apache, Caddy, HAProxy, Traefik, NPM, cloudflared; openssh-server, PAM, SSSD, LDAP, Kerberos, Samba, VPN; Keycloak, Authentik, Authelia, Vaultwarden, oauth2-proxy …); wichtig sind Sicherheitsupdates, Kernel, systemd/libc/OpenSSL/Bootloader/sudo, Docker-Engine, Windows-Sicherheitsupdates, Treiber, Vorschau-Updates.
+- **Fehlschlag hält Geschwister an** (`_hold_siblings`): schlägt ein Lauf fehl, warten dieselben Updates (gleicher Abdruck) auf den anderen Rechnern auf eine Freigabe statt automatisch zu laufen; Meldung `patch_approval`.
+- **DB-Vorbereitung vor der Freigabe** (`_prepare_db`, `tiers.critical.prepare_db`): kritische Datenbank-Container bekommen im Wartungsfenster ein DB-Update ohne automatische Ausführung (Analyse, Sicherung, Probelauf). `dbmigrate.from_patch_items` gibt ein vorbereitetes DB-Update mit der Freigabe des Patch-Updates frei – außer bei Hauptversion (bleibt bei `MIGRATE`) oder unsauberem Probelauf. `dbmigrate.approve` setzt das zugehörige Patch-Update auf „wird installiert“.
+- **KI:** liefert zusätzlich `urgency` und `urgency_reason`; sie darf die Dringlichkeit anheben, nie senken.
+- **API:** `GET /api/patching/items?tier=&urgency=` (sortiert: sofort/kritisch zuerst), `overview` mit `by_tier`/`by_urgency`, `policies/defaults` mit `tiers`, `urgencies`, `signals`; Items mit `tier`, `tier_label`, `tier_rule`, `escalated`, `urgency`, `urgency_label`, `db_migration_id`. App: `_app_item` ebenso, `/patching/summary` mit `needs_approval_critical`, `needs_approval_important`, `needs_approval_immediate`, `immediate_open`; Fähigkeit `patch-tiers`.
+- **Tests:** `server/backend/tests/test_patch_tiers.py` (Einstufung ohne Datenbank), in der CI.
+
+### Changed
+- Regeln haben `tier` + `urgency` statt `action`; alte Werte werden gelesen (`auto` → normal, `approve` → critical), `fallback` ebenso. `defer_days` entfällt (alter Wert gilt für zeitnah/irgendwann). Richtlinien mit den unveränderten alten Standardregeln bekommen beim Start die neuen (`_migrate_tiers`), danach werden offene Updates neu eingestuft.
+- Freigeben (`decide approve`) hebt eine Rückstellung auf. Freigabe-Meldungen getrennt: „sofort“ als `critical`, sonst `warning`, mit Stufe im Text.
+- `major_change` erkennt Datumsversionen (tzdata 2024a → 2025a) und abgeschnittene Image-Abdrücke nicht mehr als Versionssprung.
+- Felder, die RIMPERIO selbst am Update führt (`db_migration_id`, Regelstufe, Sofort-Versuch), überleben den nächsten Scan.
+
 ## 2026.11.23.21.00.00
 
 ### Added

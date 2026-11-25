@@ -2,6 +2,15 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.25.22.00.00
+
+### Added
+- **Patch-Richtlinien:** Abschnitt „Stufen und Dringlichkeit“ (Normal: hochstufen bei Risiko; Wichtig: Auslöser für eine Freigabe; Kritisch: DB-Container vorbereiten; sofort: außerhalb des Fensters, Neustart; zeitnah/irgendwann: Rückstellung). Regeln mit Spalten „Stufe“ und „Dringlichkeit“, Standard je Plattform als Stufe. Meldung „Sofort-Update installiert“.
+- **Patch-Center:** Kachel „sofort (offen)“, „brauchen Freigabe · n kritisch“; Freigabe-Karten und „Alle Updates“ mit Stufe (↑ = hochgestuft) und Dringlichkeit, Link zum vorbereiteten DB-Update, Fehlerhinweis; Filter nach Stufe und Dringlichkeit.
+
+### Changed
+- „Rückstellung (Tage nach Erscheinen)“ im Zeitplan entfällt – sie steht jetzt je Dringlichkeit.
+
 ## 2026.11.23.21.00.00
 
 ### Changed

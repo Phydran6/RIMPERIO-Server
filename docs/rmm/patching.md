@@ -1,8 +1,8 @@
 # Patchmanagement
 
-Windows, Linux und Docker patchen: täglich suchen, nur im Wartungsfenster installieren,
-vorher per Proxmox sichern, danach prüfen. Freigeben muss man nur, was wirklich eine
-Freigabe braucht. In der Oberfläche unter **Patchmanagement → Patch-Center**, in der App unter
+Windows, Linux und Docker patchen: täglich suchen, im Wartungsfenster installieren (was sofort drauf
+muss, auch außerhalb), vorher per Proxmox sichern, danach prüfen. Freigeben muss man nur, was wirklich eine
+Freigabe braucht – Kritisches immer, Wichtiges nur bei einem Warnsignal, Normales nie. In der Oberfläche unter **Patchmanagement → Patch-Center**, in der App unter
 *Freigaben*.
 
 ← [Fernwartung](README.md) · [SNMP](snmp.md) · [Dokumentation](../README.md)
@@ -14,10 +14,10 @@ Die Standardrichtlinie gilt für alle Rechner mit RIMPERIO-Agent:
 | Schritt | Standard |
 |---|---|
 | Suche | täglich 12:00 (Windows Update, apt/dnf/yum, Docker-Images) |
-| Einstufung | Regeln, siehe unten |
-| KI-Prüfung | an, entscheidet mit (riskante „automatische“ Updates brauchen dann doch eine Freigabe) |
-| Meldung | Freigabe nötig → App, Glocke, Mail/Telegram/Webhook (falls eingerichtet) |
-| Installation | nur im Wartungsfenster, täglich 02:00–05:00 (Europe/Berlin) |
+| Einstufung | Stufe und Dringlichkeit nach Regeln, siehe unten |
+| KI-Prüfung | an, entscheidet mit (bei „Wichtig“ und „Normal“; kann die Dringlichkeit anheben) |
+| Meldung | Freigabe nötig → App, Glocke, Mail/Telegram/Webhook (falls eingerichtet); „sofort“ als kritische Meldung |
+| Installation | im Wartungsfenster, täglich 02:00–05:00 (Europe/Berlin); „sofort“ auch außerhalb |
 | Sicherung | Proxmox-Snapshot vor dem Lauf, sofern die VM zugeordnet ist |
 | Neustart | wenn nötig |
 | Prüfung | 5 Minuten nach dem Update (bzw. nach dem Neustart): Dienste, Container, Checks |
@@ -26,33 +26,89 @@ Die Standardrichtlinie gilt für alle Rechner mit RIMPERIO-Agent:
 Alles davon lässt sich unter **Patch-Richtlinien** ändern. Eigene Richtlinien gelten je
 Standort oder je Rechner und gehen der Standardrichtlinie vor.
 
-## Was automatisch läuft, was eine Freigabe braucht
+## Stufe und Dringlichkeit
 
-Die erste passende Regel entscheidet; passt keine, gilt der Standard je Plattform
-(„automatisch“).
+Jedes Update bekommt zwei Eigenschaften – sie gelten für Betriebssystem-Updates und Docker-Container gleich.
 
-| Regel | Aktion |
-|---|---|
-| Windows: Definitionsupdates (Defender) | automatisch |
-| Windows: Funktionsupdates, Upgrades | Freigabe |
-| Windows: Treiber | Freigabe |
-| Windows: Vorschau-Updates | Freigabe |
-| Windows: Sicherheits- und kritische Updates | automatisch |
-| Linux: Docker-Engine, containerd, runc | Freigabe |
-| Linux: Datenbankserver (PostgreSQL, MariaDB, MySQL, MongoDB, Redis) | Freigabe |
-| Linux: Proxmox-Pakete | Freigabe |
-| Docker: Datenbank-Container | Freigabe |
-| alle: Sprung der Hauptversion (1.x → 2.x) | Freigabe |
+**Stufe – wie viel Mensch braucht es?**
+
+| Stufe | Verhalten | Typisch |
+|---|---|---|
+| **Normal** | läuft immer von selbst, ohne Rückfrage | gewöhnliche Pakete, Container-Neubauten, Defender-Definitionen |
+| **Wichtig** | läuft von selbst – Freigabe **nur**, wenn es Fehler auslösen könnte | Sicherheitsupdates, Kernel, systemd/libc/OpenSSL, Docker-Engine, Windows-Sicherheitsupdates, Treiber |
+| **Kritisch** | **nie** ohne Freigabe | Datenbanken, Webserver/Reverse-Proxys, Anmeldung und Zugang (SSH, PAM, LDAP, SSO, VPN), Proxmox, Windows-Funktionsupdates, Sprung der Hauptversion |
+
+„Könnte Fehler auslösen“ heißt bei **Wichtig** (einzeln abschaltbar): die KI hält es für riskant, die KI kennt
+Probleme, Sprung der Hauptversion, oder dasselbe Update ist auf einem anderen Rechner fehlgeschlagen.
+Ein **normales** Update, bei dem die KI ein hohes Risiko sieht oder das anderswo fehlschlug, wird auf „Wichtig“
+hochgestuft (↑, abschaltbar).
+
+**Dringlichkeit – wie schnell muss es drauf?**
+
+| Dringlichkeit | Wann | Typisch |
+|---|---|---|
+| **sofort** | direkt nach Erscheinen, auch außerhalb des Wartungsfensters (mit Sicherung und Prüfung wie sonst) | aktiv ausgenutzte Lücke (CISA KEV), oder per Regel / KI |
+| **zeitnah** | im nächsten Wartungsfenster | Sicherheitsupdates, Wichtiges und Kritisches |
+| **irgendwann** | nach einer Rückstellung (Standard 3 Tage) im Wartungsfenster | alles andere |
+
+Beides zusammen ergibt, was passiert: *Normal + irgendwann* läuft nach drei Tagen nachts von selbst;
+*Wichtig + zeitnah* läuft in der nächsten Nacht, außer es gibt ein Warnsignal; *Kritisch + sofort* (z. B. eine
+ausgenutzte Lücke in OpenSSH) kommt als kritische Meldung aufs Handy und wird **direkt nach der Freigabe**
+installiert, ohne aufs Fenster zu warten.
+
+Ein Sofort-Lauf startet je Update und Version höchstens einmal in 24 Stunden; taucht das Update danach wieder auf,
+wartet es aufs Fenster. Ist das automatische Installieren in der Richtlinie aus („nur von Hand“), gibt es auch
+keine Sofort-Läufe.
+
+**Schlägt ein Lauf fehl**, laufen dieselben Updates auf den anderen Rechnern nicht mehr automatisch, sondern warten
+auf eine Freigabe – damit ein kaputtes Update nicht nachts durch alle Rechner geht.
+
+## Regeln
+
+Die erste passende Regel entscheidet über Stufe und Dringlichkeit; passt keine, gilt der Standard je Plattform
+(„Normal“). Dringlichkeit leer = automatisch (Sicherheitsupdates, Wichtiges und Kritisches zeitnah, sonst
+irgendwann). Eine aktiv ausgenutzte Lücke ist immer „sofort“; die KI darf die Dringlichkeit anheben, nie senken.
+
+| Regel | Stufe | Dringlichkeit |
+|---|---|---|
+| Windows: Definitionsupdates (Defender) | Normal | zeitnah |
+| Windows: Funktionsupdates, Upgrades | Kritisch | |
+| Linux: Datenbankserver (PostgreSQL, MariaDB, MySQL, MongoDB, Redis, Valkey) | Kritisch | |
+| Docker: Datenbank-Container | Kritisch | |
+| Linux: Webserver / Reverse-Proxy (nginx, Apache, Caddy, HAProxy, Traefik …) | Kritisch | |
+| Docker: Webserver / Reverse-Proxy (nginx, Traefik, Caddy, Nginx Proxy Manager, cloudflared …) | Kritisch | |
+| Linux: Anmeldung / Zugang (openssh-server, PAM, SSSD, LDAP, Kerberos, Samba, OpenVPN, WireGuard …) | Kritisch | |
+| Docker: Anmeldung / Zugang (Keycloak, Authentik, Authelia, Vaultwarden, oauth2-proxy, VPN …) | Kritisch | |
+| Linux: Proxmox-Pakete | Kritisch | |
+| alle: Sprung der Hauptversion (1.x → 2.x) | Kritisch | |
+| Windows: Sicherheits- und kritische Updates | Wichtig | zeitnah |
+| Windows: Treiber, Vorschau-Updates | Wichtig | irgendwann |
+| Linux: Docker-Engine, containerd, runc | Wichtig | |
+| Linux: Kernel | Wichtig | |
+| Linux: systemd, libc, OpenSSL, Bootloader, sudo | Wichtig | |
+| alle: Sicherheitsupdates | Wichtig | zeitnah |
 
 Regeln prüfen ein Feld (`category`, `title`, `package`, `image`, `container`, `kind`,
 `severity`, `kb`, `security`, `major`, `reboot`) mit `equals`, `contains`, `in`, `glob`,
-`regex`, `is_true` oder `is_false`. Aktionen: `auto`, `approve`, `ignore`.
+`regex`, `is_true` oder `is_false`. Stufen: `normal`, `important`, `critical`, `ignore`;
+Dringlichkeit: `immediate`, `soon`, `low` oder leer.
 
 Ändert man eine Richtlinie, werden alle offenen Updates neu eingestuft, über die noch kein
 Mensch entschieden hat.
 
-**Rückstellung:** „frühestens N Tage nach dem ersten Auftauchen“ gilt für automatische
-Updates. Updates, die eine aktiv ausgenutzte Lücke schließen (CISA KEV), überspringen sie.
+**Umstieg:** Richtlinien mit den unveränderten Regeln von früher bekommen beim Start die neuen. Eigene Regeln
+bleiben; dort wird `automatisch` zu *Normal* und `Freigabe` zu *Kritisch*, die frühere Rückstellung gilt für
+„zeitnah“ und „irgendwann“. Webserver- und Anmelde-Regeln fehlen dann – „Mitgelieferte Regeln wiederherstellen“
+holt sie.
+
+## Datenbanken: Vorbereitung vor der Freigabe
+
+Für kritische Datenbank-Container (Standard) laufen im Wartungsfenster schon **vor** der Freigabe Analyse,
+Sicherung und Probelauf ([DB-Updates](../updates/db-updates.md)) – die echte Datenbank merkt davon nichts. Die
+Freigabe kommt dann mit Ergebnis. Gibt man das Update frei, wird im nächsten Fenster (bei „sofort“ direkt)
+ausgeführt; ein Sprung der Hauptversion bleibt bei der Bestätigung `MIGRATE` unter *DB-Updates*, ein unsauberer
+Probelauf ebenso. Wer direkt unter *DB-Updates* freigibt, startet die Ausführung sofort. Stuft man Datenbanken auf *Wichtig* herunter, läuft ein Update derselben Hauptversion nach
+sauberem Probelauf von selbst.
 
 ## KI-Prüfung
 
@@ -63,7 +119,7 @@ eingeschaltet — eine Websuche.
 
 | Modus | Wirkung |
 |---|---|
-| `gate` (Standard) | Ist ein eigentlich automatisches Update riskant, braucht es eine Freigabe |
+| `gate` (Standard) | Bei „Wichtig“: Risiko oder bekannte Probleme → Freigabe. Bei „Normal“: hohes Risiko → hochgestuft. Hebt die Dringlichkeit an, wenn die KI „sofort“ sagt |
 | `advise` | Einschätzung wird nur angezeigt |
 | `off` | keine KI |
 
@@ -171,7 +227,7 @@ Fähigkeiten):
 | `GET /api/app/notifications?since_id=` | neue Meldungen |
 | `POST /api/app/notifications/read` | gelesen markieren |
 | `GET /api/app/patching/summary` | Zahlen für den Startbildschirm |
-| `GET /api/app/patching/approvals` | was wartet, mit KI-Einschätzung und Quellen |
+| `GET /api/app/patching/approvals` | was wartet, mit KI-Einschätzung, Quellen, `tier`/`urgency` – sofort und kritisch zuerst |
 | `POST /api/app/patching/decide` | `approve`, `reject`, `defer` |
 | `POST /api/app/patching/install` | sofort installieren |
 | `GET /api/app/patching/runs` | Läufe |

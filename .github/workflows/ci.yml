@@ -2,7 +2,7 @@
 # Datei:        .github/workflows/ci.yml
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Version:      2026.11.08.17.00.00
+# Version:      2026.11.25.22.00.00
 # Beschreibung: Baut bei jedem Push/PR die drei Teile — Backend, Agent, Frontend —
 #               damit Fehler früh auffallen.
 # ---------------------------------------------------------------------------
@@ -35,6 +35,9 @@ jobs:
             exit 1
           fi
           cat /tmp/out.txt
+      - name: Tests (ohne Datenbank)
+        working-directory: server/backend
+        run: python -m unittest discover -s tests -v
 
   agent:
     runs-on: ubuntu-latest

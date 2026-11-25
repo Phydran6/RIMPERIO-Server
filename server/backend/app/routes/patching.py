@@ -143,6 +143,18 @@ async def overview(db: AsyncSession = Depends(get_db), _: User = Depends(get_cur
             select(PatchItem.agent_id, PatchItem.status, func.count())
             .group_by(PatchItem.agent_id, PatchItem.status))).all():
         counts.setdefault(agent_id, {})[status] = n
+    # Offene Updates nach Stufe und Dringlichkeit (fuer die Kacheln)
+    by_tier: Dict[str, Dict[str, int]] = {}
+    by_urgency: Dict[str, int] = {}
+    for tier, urgency, status, n in (await db.execute(
+            select(PatchItem.tier, PatchItem.urgency, PatchItem.status, func.count())
+            .where(PatchItem.status.in_(pm.OPEN_STATES))
+            .group_by(PatchItem.tier, PatchItem.urgency, PatchItem.status))).all():
+        t = by_tier.setdefault(tier or "", {"open": 0, "needs_approval": 0})
+        t["open"] += n
+        if status == "needs_approval":
+            t["needs_approval"] += n
+        by_urgency[urgency or ""] = by_urgency.get(urgency or "", 0) + n
     active = {r.agent_id: r for r in (await db.execute(
         select(PatchRun).where(PatchRun.status.in_(pm.ACTIVE_RUN)))).scalars()}
     last = {}
@@ -172,13 +184,14 @@ async def overview(db: AsyncSession = Depends(get_db), _: User = Depends(get_cur
             "active_run": pm.public_run(active[a.id]) if a.id in active else None,
             "last_run": {"id": lr.id, "status": lr.status, "finished_at": pm._iso(lr.finished_at)} if lr else None,
         })
-    return {"agents": rows, "totals": totals}
+    return {"agents": rows, "totals": totals, "by_tier": by_tier, "by_urgency": by_urgency}
 
 
 @router.get("/items")
 async def list_items(status: Optional[str] = None, agent_uid: Optional[str] = None,
                      kind: Optional[str] = None, platform: Optional[str] = None,
-                     q: Optional[str] = None, limit: int = Query(500, ge=1, le=5000),
+                     q: Optional[str] = None, tier: Optional[str] = None,
+                     urgency: Optional[str] = None, limit: int = Query(500, ge=1, le=5000),
                      db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)) -> List[dict]:
     query = select(PatchItem, Agent).join(Agent, Agent.id == PatchItem.agent_id)
     if status:
@@ -193,8 +206,15 @@ async def list_items(status: Optional[str] = None, agent_uid: Optional[str] = No
         like = f"%{q.strip()}%"
         query = query.where(or_(PatchItem.title.ilike(like), PatchItem.kb.ilike(like),
                                 PatchItem.key.ilike(like), Agent.hostname.ilike(like)))
+    if tier:
+        query = query.where(PatchItem.tier.in_(tier.split(",")))
+    if urgency:
+        query = query.where(PatchItem.urgency.in_(urgency.split(",")))
     query = query.order_by(desc(PatchItem.urgent), PatchItem.status, Agent.hostname, PatchItem.title).limit(limit)
-    return [pm.public_item(i, a) for i, a in (await db.execute(query)).all()]
+    rows = (await db.execute(query)).all()
+    # Dringendes und Kritisches zuerst (stabil: sonst wie bisher).
+    rows.sort(key=lambda r: pm.sort_key(r[0]))
+    return [pm.public_item(i, a) for i, a in rows]
 
 
 @router.get("/items/{item_id}")
@@ -360,7 +380,11 @@ async def policy_defaults(_: User = Depends(get_current_user)) -> dict:
             "rule_fields": ["category", "title", "package", "image", "container", "kind",
                             "severity", "kb", "security", "major", "reboot"],
             "rule_ops": ["equals", "contains", "in", "glob", "regex", "is_true", "is_false"],
-            "rule_actions": ["auto", "approve", "ignore"]}
+            "rule_actions": list(pm.RULE_ACTIONS),
+            "tiers": [{"key": k, "label": pm.TIER_LABEL[k], "hint": pm.TIER_HINT[k]} for k in pm.TIERS],
+            "urgencies": [{"key": k, "label": pm.URGENCY_LABEL[k], "hint": pm.URGENCY_HINT[k]}
+                          for k in pm.URGENCIES],
+            "signals": [{"key": k, "label": v} for k, v in pm.SIGNALS.items()]}
 
 
 @router.post("/policies", status_code=201)
