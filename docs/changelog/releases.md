@@ -11,6 +11,22 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v2026.11.26.20.00.00 (2026-11-26) – Vorbereitung auf Semantic Versioning
+
+Der letzte Stand mit Zeitstempel-Version. Das **nächste Release heißt `v0.0.1`** — ab dann gilt der allgemeine
+Standard **Semantic Versioning** (`MAJOR.MINOR.PATCH`, siehe [Versionsschema](README.md#versionsschema)).
+
+- **Bitte dieses Update einspielen, bevor `v0.0.1` erscheint.** Ältere Server lesen `0.0.1` als „älter als
+  2026.11.25“ und würden es als Rückschritt sperren. Ab diesem Stand gilt jede SemVer-Version als neuer als jeder
+  Zeitstempel; der Update-Kanal „Stabil“ nimmt das **höchste** Release statt des zuletzt angelegten.
+- **Sicherungen** werden über den Wechsel hinweg richtig eingeordnet (Sicherung `2026.11.x` auf Server `0.0.1` = älter).
+- **Agent:** trägt die Version aus `VERSION` (auch `rimperio-agent version` und im Check-in) statt einer fest
+  eingetragenen Nummer. Das MSI lässt sich über den Wechsel `26.11.x` → `0.0.1` hinweg drüberinstallieren, der
+  Linux-Installer nimmt SemVer-Agents an.
+- **Release-Automatik:** `VERSION` = `0.0.1` → Tag `v0.0.1`; Vorab-Stände wie `0.1.0-rc.1` werden Prerelease. Das
+  alte Schema wird nach dem ersten SemVer-Release abgelehnt.
+- **Neu:** `scripts/version.sh bump patch|minor|major` zieht die Nummer an allen Stellen nach; die CI prüft das.
+
 ## v2026.11.25.22.00.00 (2026-11-25) – Patchmanagement mit Stufen und Dringlichkeit
 
 - **Drei Stufen** für Betriebssystem- und Docker-Updates: **Normal** läuft immer von selbst, **Wichtig** läuft von

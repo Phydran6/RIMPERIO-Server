@@ -1,6 +1,15 @@
 # Changelog — Agents
 
-Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
+Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
+
+## 2026.11.26.20.00.00 — Version aus `VERSION`, bereit für SemVer
+
+### Changed
+- **Agent-Version kommt aus der Datei `VERSION`** (`-ldflags -X …/core.Version=…` in `build-agent.ps1` und `agent-release.yml`) statt einer fest eingetragenen Konstante, die nie mitgezogen wurde. Ohne diese Angabe gebaut: `0.0.0-dev`.
+- `build-agent.ps1`: Versions-Ressource aus SemVer (`1.2.3` → `1.2.3.0`), altes Schema wie bisher.
+- `build-msi.ps1`: MSI-Version aus SemVer (`1.2.3`), altes Schema wie bisher (`JJ.MM.TT`).
+- `rimperio-agent.wxs`: `MajorUpgrade AllowDowngrades="yes"` — der Wechsel von `26.11.x` auf `0.0.1` ist für Windows Installer ein Rückschritt und wäre sonst mit „neuere Version installiert“ abgebrochen.
+- `install-agent.sh`: `version_ge` kennt SemVer; jede SemVer-Version erfüllt die Mindestversion im alten Schema.
 
 ## 2026.11.21.01.00.00 — Befehle kommen sofort an
 

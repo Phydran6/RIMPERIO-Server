@@ -19,8 +19,8 @@ Alle Befehle laufen **auf dem Server**, als root. `RAW` steht dabei für
 | **Aktuellsten Stand drüberbügeln** — mit Sicherung, Gesundheitsprüfung und selbsttätigem Rückfall *(empfohlen)* | `curl -sSL RAW/server/backend/scripts/rimperio-update.sh \| sudo bash -s -- apply --dir /opt/rimperio` |
 | Dasselbe aus der Installation heraus | `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply` |
 | **Über den Installer** — aktualisiert und ergänzt dabei fehlende `.env`-Schlüssel | `curl -sSL RAW/install.sh \| sudo bash -s -- update -y` |
-| Auf ein **bestimmtes Release** | `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v2026.09.10` |
-| Bestimmtes Release über den Installer | `curl -sSL RAW/install.sh \| sudo bash -s -- update -y --ref v2026.09.10` |
+| Auf ein **bestimmtes Release** | `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v0.0.1` |
+| Bestimmtes Release über den Installer | `curl -sSL RAW/install.sh \| sudo bash -s -- update -y --ref v0.0.1` |
 | Ohne Datenbank-Abzug *(schneller, riskanter)* | `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --no-db-backup` |
 | **Zurückfallen** auf die letzte Sicherung | `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh rollback` |
 | Auf eine bestimmte Sicherung | `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh rollback --backup 20260910-120000` |
@@ -102,13 +102,13 @@ Dienste zu oder ab.
 Über das Wartungsskript:
 
 ```bash
-sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v2026.09.10
+sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v0.0.1
 ```
 
 Über den Installer:
 
 ```bash
-curl -sSL RAW/install.sh | sudo bash -s -- update -y --ref v2026.09.10
+curl -sSL RAW/install.sh | sudo bash -s -- update -y --ref v0.0.1
 ```
 
 `--ref` nimmt ein Release, ein Tag, einen Zweig oder einen Commit. Aufgelöst
@@ -175,8 +175,10 @@ curl -s http://127.0.0.1/api/health
 Verglichen wird zweierlei, in dieser Reihenfolge:
 
 1. **Die Datei `VERSION`** im Wurzelverzeichnis — hier und auf GitHub. Format
-   `YYYY.MM.DD.HH.MM.SS`; verglichen werden die ersten sechs Zahlen, ein Zusatz
-   wie `-rc1` kippt den Vergleich also nicht.
+   [Semantic Versioning](../changelog/README.md#versionsschema) `MAJOR.MINOR.PATCH`
+   (ab `0.0.1`); verglichen wird nach SemVer, `1.0.0-rc.1` ist also älter als
+   `1.0.0`. Alte Zeitstempel-Versionen (`2026.11.25.22.00.00`) bleiben lesbar
+   und gelten immer als älter als jede SemVer-Version.
 2. **Der Commit**, falls die Versionen gleich oder unlesbar sind. So fällt auch
    auf, wenn der Zweig weitergelaufen ist, ohne dass `VERSION` angehoben wurde.
 
@@ -209,7 +211,7 @@ unter *RIMPERIO-Server → Updates*:
 
 | Kanal | Bedeutung | Für wen | Ziel auf der Kommandozeile |
 |-------|-----------|---------|----------------------------|
-| **Stabil** | das zuletzt veröffentlichte Release (kein Prerelease) | Regelbetrieb — Voreinstellung | `--ref <Release-Tag>` |
+| **Stabil** | das höchste veröffentlichte Release (kein Prerelease, keine Vorab-Version wie `-rc.1`) | Regelbetrieb — Voreinstellung | `--ref <Release-Tag>` |
 | **Aktuell** | der Kopf des Zweiges, jeder Push | Test- und Entwicklungsserver | ohne `--ref` |
 | **Festgelegt** | genau ein Release, Tag oder Commit | wenn nichts mehr wackeln darf | `--ref <Punkt>` |
 

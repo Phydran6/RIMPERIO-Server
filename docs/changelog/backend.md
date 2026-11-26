@@ -1,6 +1,16 @@
 # Changelog — Backend
 
-FastAPI-API (`backend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
+FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
+
+## 2026.11.26.20.00.00
+
+### Added
+- **`app/versioning.py`:** liest und vergleicht Versionen an einer Stelle — SemVer 2.0.0 samt Vorab-Rangfolge (`1.0.0-alpha` < `1.0.0-rc.1` < `1.0.0`, Build-Angabe zählt nicht) und das alte Zeitstempel-Schema. Jede SemVer-Version ist neuer als jeder Zeitstempel; eine vierstellige Jahreszahl vorne ist immer das alte Schema (`v2026.11.25` wäre formal gültiges SemVer).
+- **Tests:** `tests/test_versioning.py`.
+
+### Changed
+- `updater.compare`, die „noch ohne Release“-Prüfung und `backup.compare_versions` nutzen `versioning`. Ohne das hätte ein Server auf `2026.11.25…` das Release `0.0.1` als Rückschritt gesperrt.
+- **Kanal „Stabil“ nimmt das höchste Release** (`pick_latest`, nach Version) statt des zuletzt angelegten — ein Wartungs-Release `1.2.4` nach `1.3.0` zieht den Kanal nicht mehr zurück. SemVer-Vorab-Tags (`-rc.1`) zählen nicht als stabil, auch ohne Prerelease-Haken auf GitHub.
 
 ## 2026.11.25.22.00.00
 
