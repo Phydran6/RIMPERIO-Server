@@ -1,7 +1,7 @@
 // ==============================================================================
 // Name:        Phydran6
 // Kontakt:     Phydran6
-// Version:     2026.11.23.12.00.00
+// Version:     2026.11.26.22.00.00
 // Changelog:   docs/changelog/frontend.md
 // Beschreibung: RIMPERIO - Das linke Menue. Eine Stelle fuer alle Menuepunkte.
 //
@@ -15,12 +15,15 @@
 //
 //   Uebersicht         Wie steht es um alles?
 //   Geraete            Was verwalte ich?            Rechner, SNMP-Geraete, Netzwerksuche,
-//                                                   Proxmox VE (anbinden, Knoten patchen)
+//                                                   Proxmox VE (anbinden, Knoten patchen),
+//                                                   NAS (Synology per HTTPS) & Raspberry Pi
 //   Logs               Was protokollieren sie?      Ansicht, Quellen, Aufbewahrung
 //   Ueberwachung       Was ist kaputt?              Alarme, Checks
 //   Patchmanagement    Was muss aktualisiert werden?
+//   Backup             Was wird wohin gesichert?    Auftraege, Orte, Verlauf, RIMPERIO selbst
 //   Integrationen      Was ist angebunden?          Anmeldung (Microsoft 365, AD/LDAP),
-//                                                   E-Mail (Postfix, SMTP, M365), KI-Anbieter
+//                                                   E-Mail (Postfix, SMTP, M365), KI-Anbieter,
+//                                                   Zugangsdaten (Vaultwarden)
 //   Automatisierung    Was laeuft von selbst?       Skripte, Webhooks
 //   Benutzer           Wer darf rein?               Benutzer
 //   Mein Konto         Meine eigene Anmeldung
@@ -63,6 +66,8 @@ export const NAV_SECTIONS = [
       { key: 'agent-tokens', to: '/agent-tokens', name: 'AgentTokens', icon: 'key', label: 'agentTokens', admin: true },
       { key: 'proxmox', group: 'grpProxmox', to: '/devices/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
       { key: 'pve-patching', group: 'grpProxmox', to: '/devices/proxmox/patching', name: 'PveUpdates', icon: 'download', label: 'pveUpdates' },
+      { key: 'nas', group: 'grpNas', to: '/devices/nas', name: 'NasDevices', match: ['NasDetail'], icon: 'archive', label: 'nas' },
+      { key: 'special', group: 'grpNas', to: '/devices/special', name: 'SpecialSystems', icon: 'devices', label: 'special' },
     ],
   },
   {
@@ -99,6 +104,21 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    // Backup ist ein eigener Bereich: WAS gesichert wird (Auftraege: RIMPERIO,
+    // Ordner auf Rechnern/Raspberry Pis, NAS-Konfiguration, Hyper Backup,
+    // Proxmox), WOHIN (Orte: Ordner am Server, SMB-Freigabe am NAS, SFTP, FTP)
+    // und was dabei herauskam (Verlauf, Wiederherstellen).
+    key: 'backups',
+    title: 'secBackups',
+    icon: 'backup',
+    items: [
+      { key: 'backup-jobs', to: '/backups/jobs', name: 'BackupJobs', icon: 'backup', label: 'backupJobs' },
+      { key: 'backup-targets', to: '/backups/targets', name: 'BackupTargets', icon: 'archive', label: 'backupTargets' },
+      { key: 'backup-runs', to: '/backups/runs', name: 'BackupRuns', icon: 'restore', label: 'backupRuns' },
+      { key: 'backup', to: '/backup', name: 'Backup', icon: 'database', label: 'rimperioBackup', admin: true },
+    ],
+  },
+  {
     // Integrationen = alles, was man an RIMPERIO anbindet: Anmeldung ueber
     // Microsoft 365 und Verzeichnisdienste, Mail-Versand (Postfix, SMTP,
     // Microsoft 365), KI-Anbieter. Darunter geht es in Untermenues weiter.
@@ -112,6 +132,7 @@ export const NAV_SECTIONS = [
       { key: 'ldap', group: 'grpSignOn', to: '/settings/ldap', name: 'Settings', tab: 'ldap', icon: 'database', label: 'ldap', admin: true },
       { key: 'mail', group: 'grpMail', to: '/mail', name: 'Mail', icon: 'mail', label: 'mail', admin: true },
       { key: 'ai', group: 'grpServices', to: '/ai', name: 'AiSettings', icon: 'ai', label: 'ai', admin: true },
+      { key: 'vault', group: 'grpSecrets', to: '/integrations/vault', name: 'VaultSettings', icon: 'key', label: 'vault', admin: true },
     ],
   },
   {
@@ -149,7 +170,6 @@ export const NAV_SECTIONS = [
     items: [
       { key: 'health', to: '/health', name: 'Health', icon: 'health', label: 'health' },
       { key: 'updates', to: '/updates', name: 'Updates', icon: 'download', label: 'updates', admin: true },
-      { key: 'backup', to: '/backup', name: 'Backup', icon: 'backup', label: 'backup', admin: true },
       { key: 'containers', to: '/containers', name: 'Containers', icon: 'container', label: 'containers', admin: true },
       { key: 'stacks', to: '/stacks', name: 'Stacks', icon: 'stacks', label: 'stacks', admin: true },
       { key: 'storage', to: '/storage', name: 'Storage', icon: 'archive', label: 'storage', admin: true },

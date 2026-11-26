@@ -27,6 +27,11 @@ sortiert, nicht nach Bauteilen.
 | auf einen früheren Stand zurückfallen | [Updates → Zurückfallen](updates/README.md#zurückfallen) |
 | einem fehlgeschlagenen Update nachgehen | [Updates → Fehlersuche](updates/README.md#fehlersuche) |
 | sichern und zurückspielen | [Sicherung](backup/README.md) |
+| Rechner, Raspberry Pis, NAS und Proxmox-VMs nach Zeitplan verschlüsselt sichern (NAS per SMB, SFTP) | [Backup-Bereich](backup/jobs.md) |
+| eine Sicherung ohne RIMPERIO entschlüsseln | [Backup-Bereich → Ohne RIMPERIO entschlüsseln](backup/jobs.md#ohne-rimperio-entschlüsseln) |
+| ein Synology-NAS anbinden, überwachen und aktualisieren | [NAS und Spezialsysteme](rmm/nas.md) |
+| Raspberry Pis verwalten | [NAS und Spezialsysteme → Raspberry Pi](rmm/nas.md#raspberry-pi-und-andere-einplatinenrechner) |
+| Zugangsdaten in Vaultwarden ablegen | [Integrationen → Vaultwarden](integrations/README.md#vaultwarden-zugangsdaten) |
 | Logs von einer KI auswerten lassen | [Integrationen → KI](integrations/README.md#ki-auswertung) |
 | das Ganze mit einer lokalen KI, ohne Datenabfluss | [Integrationen → Open WebUI](integrations/README.md#open-webui) |
 | Mails vom Server bekommen | [Integrationen → Mail](integrations/README.md#mail-postfix) |

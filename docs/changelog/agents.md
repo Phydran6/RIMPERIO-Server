@@ -2,6 +2,13 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.26.22.00.00 — Raspberry Pi, Backup-Aufgabe
+
+### Added
+- **32-Bit-ARM:** Release-Binaries `rimperio-agent-linux-armv7` (Pi 2/3/4 mit 32-Bit-System) und `-armv6` (Pi 1, Pi Zero); der Linux-Installer wählt sie an `uname -m` (`armv7l`, `armv8l`, `armv6l`). CI baut `GOARCH=arm GOARM=6` mit.
+- **Hardware in der Inventur** (`hardware.go`, `hardware_linux.go`): Modell aus dem Device Tree bzw. DMI, auf Boards SoC-Temperatur und Drosselung über `vcgencmd get_throttled` (Klartext: Unterspannung, Takt gedeckelt, gedrosselt, Temperaturgrenze – jetzt/seit dem Start). Installer: Dienstkonto auf dem Pi in die Gruppe `video`.
+- **Hilfsskript `backup-tar`** (`rimperio-helper backup-tar [--exclude=MUSTER …] PFAD …`): Ordner als tar.gz auf die Standardausgabe für Backup-Aufträge – nur absolute, vorhandene Pfade ohne `..`, nur lesen; `--check` meldet, dass es die Aufgabe gibt.
+
 ## 2026.11.21.01.00.00 — Befehle kommen sofort an
 
 ### Added

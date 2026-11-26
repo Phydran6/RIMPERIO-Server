@@ -23,10 +23,12 @@ alles im Browser.
 | Bereich | Funktionen |
 |---|---|
 | **Logs** | Syslog UDP/TCP 514, HTTPS-Agents für Linux/Windows, Parser (RFC 5424/3164, UniFi, Cisco, Fortinet, JSON, Netfilter), **Klartext je Zeile** (was ist passiert, was tun), Themenbereiche, **Rausch-Erkennung und Sperrregeln**, Dubletten zusammenfassen, Aufbewahrung nach Stufen und je Gerät, Suche, Export, Archivierung |
-| **Fernwartung** | RIMPERIO-Agent (Windows `.exe`/`.msi`, Linux): Live-Werte, Inventur, Befehle und Skript-Bibliothek, Patchmanagement mit **Stufen (Normal/Wichtig/Kritisch) und Dringlichkeit (sofort/zeitnah/irgendwann)**, **DB-Updates mit Probelauf**, Checks (Dienst, Port, Ping, Platte, Skript …), Alarme; Proxmox: Snapshots vor dem Patchen, **Knoten patchen – rollierend, mit Zeitplan**, **Konsole für Knoten/LXC/VM** |
+| **Fernwartung** | RIMPERIO-Agent (Windows `.exe`/`.msi`, Linux): Live-Werte, Inventur, Befehle und Skript-Bibliothek, Patchmanagement mit **Stufen (Normal/Wichtig/Kritisch) und Dringlichkeit (sofort/zeitnah/irgendwann)**, **DB-Updates mit Probelauf**, Checks (Dienst, Port, Ping, Platte, Skript …), Alarme; Proxmox: Snapshots vor dem Patchen, **Knoten patchen – rollierend, mit Zeitplan**, **Konsole für Knoten/LXC/VM**; **Raspberry Pi** (arm64/armv7/armv6) mit Temperatur und Drosselung |
+| **NAS** | **Synology DSM per HTTPS** ohne Agent: Einrichten aus der Netzwerksuche, Login mit TOTP, Prüfliste, Zustand (Speicher, Platten, Temperatur), **DSM- und Paket-Updates** von Hand oder im Wartungsfenster, **SNMP automatisch einschalten**, Hyper Backup; TrueNAS mit API-Schlüssel |
+| **Backup** | eigener Bereich: **Aufträge** (RIMPERIO, Ordner auf Rechnern und Raspberry Pis, NAS-Konfiguration, Hyper Backup, Proxmox-VMs), **Orte** (NAS per SMB, SFTP, FTP, Ordner am Server), Zeitplan, Aufbewahrung, **AES-256-GCM-verschlüsselt**, Verlauf mit Probe-Wiederherstellung |
 | **Netz** | Netzwerk-Discovery (Subnetze, SNMP), Einbindung von Linux-Rechnern per SSH |
 | **Melden & Auswerten** | Mail, Telegram, Webhook/n8n; KI-Auswertung (Claude, ChatGPT, Open WebUI lokal); Handy-App |
-| **Zugang** | Benutzer und Rollen, MFA, Passkeys, LDAP, Microsoft 365 (SSO), Zugangsschlüssel und Einladungen |
+| **Zugang** | Benutzer und Rollen, MFA, Passkeys, LDAP, Microsoft 365 (SSO), Zugangsschlüssel und Einladungen; **Zugangsdaten in Vaultwarden** (per HTTPS, Ende-zu-Ende verschlüsselt) |
 | **Betrieb** | Updates per Klick, Sicherungen (auch verschlüsselt), Konsole im Browser, Container-Verwaltung, Plattenwächter, Systemtagebuch, TLS/Reverse Proxy |
 
 ## Schnellstart
