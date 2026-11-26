@@ -156,7 +156,7 @@ METHOD_BY_KIND: Dict[str, str] = {
     "windows": "agent_windows",
     "network": "syslog",
     "printer": "syslog",
-    "nas": "syslog",
+    "nas": "nas_api",
     "appliance": "syslog",
     "iot": "syslog",
     "mobile": "unsupported",
@@ -607,6 +607,10 @@ def classify(ports: Iterable[int], *, ssh: str = "", sys_descr: str = "", sys_na
     hit = _contains(names, _MOBILE)
     if hit:
         return "mobile", hit
+    # Raspberry Pi an der Hersteller-Kennung der MAC: ein Linux-Rechner, auf dem
+    # der Agent laeuft (Pi OS 32/64 Bit, Ubuntu, DietPi …).
+    if mac and mac.lower()[:8] in ("b8:27:eb", "dc:a6:32", "e4:5f:01", "28:cd:c1", "d8:3a:dd", "2c:cf:67", "88:a2:9e"):
+        return "linux", "Raspberry Pi" + (f" · {banner_os}" if banner_os else "")
     if _contains(f"{descr} {ssh.lower()}", _APPLIANCE):
         return "appliance", banner_os or sys_descr[:80]
     if "windows" in descr or banner_os.startswith("Windows"):
@@ -727,6 +731,14 @@ async def run_scan(trigger: str = "manual", actor: str = "system") -> dict:
             async with async_session() as session:
                 new_count = await _store(session, found, nets, now)
                 summary["new"] = new_count
+                # NAS mit Weboberflaeche (Synology DSM, TrueNAS) erkennen und
+                # Raspberry Pis markieren (app/nas.py).
+                STATE.phase = "NAS erkennen"
+                try:
+                    from . import nas
+                    summary["nas"] = await nas.annotate_discovered(session)
+                except Exception as exc:                            # defensiv
+                    logger.warning("NAS-Erkennung nach der Suche: %s", exc)
                 summary["duration_s"] = round(time.monotonic() - started, 1)
                 summary["finished_at"] = datetime.utcnow().isoformat()
                 summary["trigger"] = trigger

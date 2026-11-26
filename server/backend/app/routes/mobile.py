@@ -77,6 +77,9 @@ CAPABILITIES = [
     "db-updates",        # /api/db-updates - Datenbank-Updates mit Probelauf
     "patch-tiers",       # Updates mit Stufe (normal/important/critical) und Dringlichkeit (immediate/soon/low)
     "ai-analysis",       # /api/ai/analyze, falls eingerichtet
+    "nas",               # /api/nas - NAS per HTTPS (Synology DSM, TrueNAS): Zustand, Updates
+    "backup-jobs",       # /api/backups - Backup-Bereich: Auftraege, Laeufe, jetzt sichern
+    "vault",             # /api/vault - Zugangsdaten in Vaultwarden
 ]
 
 # Nur diese Spalten holen. `raw_message` bleibt draussen, bis jemand eine

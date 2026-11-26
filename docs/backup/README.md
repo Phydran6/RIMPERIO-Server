@@ -4,6 +4,11 @@
 
 ← [Übersicht](../../README.md) · [Alle Dokumente](../README.md)
 
+> **Neu: der Backup-Bereich.** Sicherungen nach Zeitplan an andere Orte (NAS per SMB, SFTP, FTP),
+> verschlüsselt, auch von Rechnern, Raspberry Pis, NAS-Konfigurationen, Hyper Backup und Proxmox-VMs –
+> siehe [Backup-Bereich: Aufträge, Orte, Verlauf](jobs.md). Diese Seite beschreibt die Sicherung von
+> RIMPERIO selbst vor Eingriffen.
+
 ---
 
 ## Der Grundsatz
@@ -24,7 +29,7 @@ Scheitert die Sicherung, **läuft der Eingriff nicht an**. Genau dafür ist sie 
 
 ## Was in eine Sicherung kommt
 
-Sechs Bereiche, jeder einzeln wählbar — beim Sichern wie beim Zurückspielen:
+Die Bereiche, jeder einzeln wählbar — beim Sichern wie beim Zurückspielen:
 
 | Bereich | Inhalt | Standard |
 |---------|--------|:--------:|
@@ -33,6 +38,7 @@ Sechs Bereiche, jeder einzeln wählbar — beim Sichern wie beim Zurückspielen:
 | **Benutzer & Anmeldung** | Konten, Rollen, MFA-Geheimnisse, Passkeys | ✓ |
 | **Geräte & Agent-Token** | bekannte Geräte samt Regeln, Agent-Token | ✓ |
 | **Webhooks** | Definitionen inklusive Token | ✓ |
+| **NAS, Backup & Zugangsdaten** | NAS-Anbindungen, Backup-Orte und -Aufträge, Zugänge (lokal verschlüsselt bzw. Verweise auf Vaultwarden) samt `secret.key` | ✓ |
 | **Logdaten** | die eigentlichen Logzeilen — mit Abstand der größte Teil | — |
 
 Logdaten sind absichtlich nicht vorausgewählt: Vor einem Update will man die

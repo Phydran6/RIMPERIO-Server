@@ -18,7 +18,7 @@ ausführt.
 | **Weg zum Server** | nur ausgehend: HTTPS + `Authorization: Bearer <AGENT-TOKEN>` |
 | **Konfiguration** | `C:\ProgramData\RIMPERIO\agent.json` bzw. `/opt/RMM/rimperio/etc/agent.json` (0600, gehört dem Dienstkonto) |
 | **Läuft als** | Windows: `SYSTEM` · Linux: eigenes Dienstkonto (Standard `rimperio`), **nicht root** — siehe [Linux: Dienstkonto statt root](#linux-dienstkonto-statt-root) |
-| **Plattformen** | Windows (amd64), Linux (amd64/arm64); baubar auch für macOS |
+| **Plattformen** | Windows (amd64), Linux (amd64/arm64/armv7/armv6 – auch Raspberry Pi mit 32-Bit-System bis Pi Zero); baubar auch für macOS |
 
 ---
 
@@ -100,7 +100,7 @@ Paketnamen, keine Dateien oder Pfade, Minuten als Zahl):
 
 | Stufe | Darf | Befehle aus der Oberfläche |
 |---|---|---|
-| `limited` *(Standard)* | Paketlisten auffrischen, die freigegebenen Updates einspielen, Neustart, sich selbst deinstallieren | laufen als Dienstkonto, ohne root |
+| `limited` *(Standard)* | Paketlisten auffrischen, die freigegebenen Updates einspielen, Neustart, sich selbst deinstallieren, Ordner für Backup-Aufträge **lesen** (`backup-tar`: nur absolute, vorhandene Pfade, kein `..`, Ausgabe als tar.gz an den Agent) | laufen als Dienstkonto, ohne root |
 | `full` | zusätzlich `sudo` für alles | dürfen `sudo …` benutzen |
 | `none` | nichts davon — keine Updates, kein Neustart aus der Ferne | laufen als Dienstkonto, ohne root |
 
@@ -178,6 +178,8 @@ go build -o bin/rimperio-agent ./cmd/rimperio-agent
 # Release-artig (klein, getrimmt)
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o bin/rimperio-agent.exe ./cmd/rimperio-agent
 CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o bin/rimperio-agent-linux-arm64 ./cmd/rimperio-agent
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm GOARM=7 go build -trimpath -ldflags "-s -w" -o bin/rimperio-agent-linux-armv7 ./cmd/rimperio-agent
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm GOARM=6 go build -trimpath -ldflags "-s -w" -o bin/rimperio-agent-linux-armv6 ./cmd/rimperio-agent
 ```
 
 Mit Versions-Ressource und Signatur fürs .exe/.msi: siehe

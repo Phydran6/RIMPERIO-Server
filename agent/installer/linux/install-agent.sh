@@ -3,7 +3,7 @@
 # Datei:        install-agent.sh
 # Projekt:      RIMPERIO — Agent
 # Autor:        Phydran6
-# Version:      2026.11.20.22.00.00
+# Version:      2026.11.26.22.00.00
 #
 # Beschreibung: Richtet den RIMPERIO-Agent (Fernwartung) auf Linux ein — nicht
 #               als root, sondern unter einem eigenen Dienstkonto:
@@ -199,6 +199,10 @@ ensure_account() {
         say "Dienstkonto \"$AGENT_USER\" angelegt (Systemkonto, ohne Anmeldung und ohne Passwort)."
     fi
     AGENT_GROUP="$(id -gn "$AGENT_USER")"
+    # Raspberry Pi: vcgencmd (Temperatur, Drosselung) braucht die Gruppe video.
+    if [ -e /dev/vchiq ] && getent group video >/dev/null 2>&1 && ! id -nG "$AGENT_USER" | grep -qw video; then
+        usermod -aG video "$AGENT_USER" 2>/dev/null && say "Raspberry Pi erkannt: \"$AGENT_USER\" in die Gruppe video (für vcgencmd)." || true
+    fi
 }
 
 # Wer in einen der Ordner über dem Hilfsskript schreiben darf, könnte es
@@ -300,6 +304,9 @@ install_binary() {
         case "$(uname -m)" in
             x86_64|amd64)  arch="amd64" ;;
             aarch64|arm64) arch="arm64" ;;
+            # Raspberry Pi mit 32-Bit-System: Pi 2/3/4 (armv7), Pi 1 und Zero (armv6)
+            armv7l|armv7*|armv8l) arch="armv7" ;;
+            armv6l|armv6*) arch="armv6" ;;
             *) die "Nicht unterstützte Architektur: $(uname -m)" ;;
         esac
         url="${BASE_URL}/rimperio-agent-linux-${arch}"
@@ -346,6 +353,9 @@ write_helper() {
 #   pkg-upgrade [PAKET …]   genannte Pakete aktualisieren, ohne Angabe alle
 #   reboot [MINUTEN]        Neustart planen (Standard: in 1 Minute)
 #   uninstall               Agent vollständig entfernen
+#   backup-tar [--exclude=MUSTER …] PFAD …
+#                           Ordner als tar.gz auf die Standardausgabe (für Backup-
+#                           Aufträge; nur absolute, vorhandene Pfade, kein ..)
 #   version
 # Paketnamen werden geprüft: nur Buchstaben, Ziffern und . _ : + ~ -, keine
 # Pfade, keine Paketdateien. Aus der Umgebung des Aufrufers zählt nichts.
@@ -499,6 +509,29 @@ cmd_uninstall() {
     echo "RIMPERIO-Agent entfernt."
 }
 
+cmd_backup_tar() {
+    # "--check": nur melden, dass es die Aufgabe gibt (der Server fragt vorher).
+    if [ "${1:-}" = "--check" ]; then echo "backup-tar ok"; return 0; fi
+    local args=() paths=() p
+    for p in "$@"; do
+        case "$p" in
+            --exclude=*)
+                [[ "$p" != *$'\n'* ]] || die "ungültiges Muster"
+                args+=("$p") ;;
+            -*) die "unbekannte Angabe: $p" ;;
+            *)
+                [[ "$p" == /* ]] || die "nur absolute Pfade: $p"
+                [[ "$p" != *$'\n'* && "/$p/" != */../* ]] || die "ungültiger Pfad: $p"
+                [ -e "$p" ] || die "gibt es nicht: $p"
+                paths+=("$p") ;;
+        esac
+    done
+    [ ${#paths[@]} -gt 0 ] || die "backup-tar erwartet mindestens einen Pfad"
+    command -v tar >/dev/null 2>&1 || die "tar fehlt"
+    # Nur lesen, nichts schreiben: Ausgabe geht auf stdout an den Agent.
+    tar -czf - --ignore-failed-read --warning=no-file-changed ${args[@]+"${args[@]}"} -- "${paths[@]}"
+}
+
 # Jede Aufgabe steht im Journal (journalctl -t rimperio-helper) - auch abgelehnte.
 logger -t rimperio-helper -p authpriv.notice -- "Aufgabe von ${SUDO_USER:-root}: $*" 2>/dev/null || true
 
@@ -507,8 +540,9 @@ case "${1:-}" in
     pkg-upgrade) shift; cmd_pkg_upgrade "$@" ;;
     reboot)      shift; cmd_reboot "$@" ;;
     uninstall)   shift; cmd_uninstall "$@" ;;
+    backup-tar)  shift; cmd_backup_tar "$@" ;;
     version)     echo "rimperio-helper $HELPER_VERSION (Konto $AGENT_USER)" ;;
-    *) die "unbekannte Aufgabe \"${1:-}\" — erlaubt: pkg-refresh, pkg-upgrade [PAKET …], reboot [MINUTEN], uninstall, version" ;;
+    *) die "unbekannte Aufgabe \"${1:-}\" — erlaubt: pkg-refresh, pkg-upgrade [PAKET …], reboot [MINUTEN], uninstall, backup-tar PFAD …, version" ;;
 esac
 HELPER
     } > "$tmp"
@@ -618,7 +652,7 @@ write_sudoers() {
     for tty_line in "Defaults:$AGENT_USER !requiretty" ""; do
         {
             echo "# RIMPERIO-Agent: Rechte des Dienstkontos \"$AGENT_USER\" — angelegt von install-agent.sh."
-            echo "# Updates, Neustart und Deinstallation gehen nur über das Hilfsskript; es prüft"
+            echo "# Updates, Neustart, Deinstallation und Backups (lesen) gehen nur über das Hilfsskript; es prüft"
             echo "# jede Angabe selbst. Die Datei verschwindet mit dem Agent."
             if [ -n "$tty_line" ]; then echo "$tty_line"; fi
             echo "$AGENT_USER ALL=(root) NOPASSWD: $HELPER"

@@ -27,3 +27,5 @@ webauthn==2.0.0
 tzdata==2025.2
 # Proxmox-Konsolen (app/pveterm.py): WebSocket-Client zu termproxy/vncwebsocket
 websockets>=13,<18
+# Vaultwarden-Konten mit Argon2id-Schluesselableitung (app/vault.py)
+argon2-cffi==25.1.0

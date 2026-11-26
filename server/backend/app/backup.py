@@ -139,6 +139,16 @@ SCOPES: Dict[str, dict] = {
         "order": 57,
         "sensitive": True,
     },
+    "nas_backup": {
+        "label": "NAS, Backup & Zugangsdaten",
+        "label_en": "NAS, backup & credentials",
+        "hint": "NAS-Anbindungen, Backup-Orte und -Aufträge samt Verlauf, Zugangsdaten (lokal "
+                "verschlüsselt bzw. Verweise auf Vaultwarden) und der Schlüssel dazu (secret.key).",
+        "tables": ["stored_secrets", "nas_devices", "nas_jobs", "backup_targets", "backup_jobs", "backup_runs"],
+        "files": ["secret.key"],
+        "order": 58,
+        "sensitive": True,
+    },
     "logs": {
         "label": "Logdaten",
         "label_en": "Log data",
@@ -149,7 +159,7 @@ SCOPES: Dict[str, dict] = {
 }
 
 # Bereiche, die standardmaessig angehakt sind, wenn vor einem Eingriff gefragt wird.
-DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks", "rmm", "patching", "snmp"]
+DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks", "rmm", "patching", "snmp", "nas_backup"]
 
 
 def scope_catalog() -> List[dict]:

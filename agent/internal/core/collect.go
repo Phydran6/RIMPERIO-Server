@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.11.08.17.00.00
+// Version:      2026.11.26.22.00.00
 //
 // Beschreibung: Erhebt, was der Server wissen will: einmalig die Inventur
 //               (OS, Hardware, Platten, Netz) und laufend die Messwerte
@@ -72,6 +72,7 @@ type Inventory struct {
 	Software    []SoftwareItem `json:"software"`
 	AgentVer    string         `json:"agent_version"`
 	AgentUser   string         `json:"agent_user,omitempty"` // Konto, unter dem der Agent läuft (Linux: Dienstkonto)
+	Hardware    *HardwareInfo  `json:"hardware,omitempty"`   // Einplatinenrechner (Raspberry Pi …): Modell, Temperatur, Drosselung
 	CollectedAt time.Time      `json:"collected_at"`
 }
 
@@ -173,6 +174,7 @@ func CollectInventory() Inventory {
 		inv.MemTotalMB = round1(float64(vm.Total) / mib)
 	}
 	inv.Software = collectSoftware()
+	inv.Hardware = collectHardware()
 	return inv
 }
 
