@@ -419,6 +419,18 @@
               </p>
             </template>
 
+            <template v-else-if="selected.method === 'nas_api'">
+              <p class="text-sm">
+                <template v-if="selected.details?.nas">Hier antwortet <strong>{{ selected.details.nas.label }}</strong>
+                  ({{ selected.details.nas.scheme }}, Port {{ selected.details.nas.port }}).</template>
+                <template v-else>Ein NAS.</template>
+                RIMPERIO spricht es über seine HTTPS-Schnittstelle an – Zustand, Platten, DSM- und Paket-Updates,
+                SNMP und Sicherungen, ganz ohne Agent. Anmeldung mit einem Administratorkonto, Zwei-Faktor (TOTP) geht.
+              </p>
+              <router-link class="btn btn-primary btn-sm" :to="{ path: '/devices/nas', query: { connect: selected.ip_address } }">Als NAS anbinden</router-link>
+              <p class="hint">Logs des NAS zusätzlich per Syslog: {{ SYSLOG_HINTS.nas }} Server {{ selected.syslog_target || serverHost }}, Port 514.</p>
+            </template>
+
             <template v-else-if="selected.method === 'collector'">
               <p class="text-sm">
                 Die FRITZ!Box spricht kein Syslog. Ihr Ereignisprotokoll holt der <strong>n8n-Sammler</strong> ab
@@ -577,10 +589,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, h } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
 
 const auth = useAuthStore()
+const route = useRoute()
 
 const STATUS = {
   delivering: { label: 'Liefert Logs', badge: 'badge-success' },
@@ -741,6 +755,11 @@ onMounted(async () => {
   await loadStatus()
   await loadDevices()
   if (scan.value.running) startPolling()
+  // Sprung aus anderen Seiten (z. B. Raspberry Pi & Spezialsysteme): ?ip=… oeffnet das Geraet.
+  if (route.query.ip) {
+    const d = devices.value.find(x => x.ip_address === String(route.query.ip))
+    if (d) openDevice(d)
+  }
 })
 
 onBeforeUnmount(() => { stopPolling(); stopOnboardPoll() })

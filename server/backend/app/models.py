@@ -801,3 +801,164 @@ class BillingStatement(Base):
 
 
 LICENSE_TABLES = [LicenseDevice.__table__, LicenseDeviceDay.__table__, BillingStatement.__table__]
+
+
+# ==============================================================================
+# Zugangsdaten: lokal verschluesselt oder in Vaultwarden (app/vault.py)
+# ==============================================================================
+class StoredSecret(Base):
+    """Ein Zugang, den RIMPERIO braucht (NAS-Anmeldung, Backup-Passwort, Ziel).
+
+    Andere Tabellen zeigen nur auf diese Zeile (``secret_id``). Wo der Inhalt
+    liegt, entscheidet ``backend``: ``vaultwarden`` = als Eintrag im Tresor
+    (``external_id`` = Cipher-ID, hier steht nichts Geheimes), ``local`` =
+    hier in ``data`` mit secretbox verschluesselt.
+    """
+    __tablename__ = "stored_secrets"
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(32), default="login", index=True)   # nas | backup_key | backup_target | ssh | other
+    name = Column(String(255), nullable=False)
+    backend = Column(String(16), default="local")            # local | vaultwarden
+    external_id = Column(String(64), default="")             # Cipher-ID in Vaultwarden
+    data = Column(Text, default="")                          # secretbox-Chiffrat (nur local)
+    username = Column(String(255), default="")               # nicht geheim, fuer die Anzeige
+    uri = Column(String(512), default="")
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+VAULT_TABLES = [StoredSecret.__table__]
+
+
+# ==============================================================================
+# NAS und Spezialsysteme per HTTPS (app/nas.py)
+# ==============================================================================
+class NasDevice(Base):
+    """Ein NAS, das RIMPERIO ueber seine Web-API anspricht (Synology DSM, TrueNAS …)."""
+    __tablename__ = "nas_devices"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(128), nullable=False)
+    vendor = Column(String(24), default="synology")          # synology | truenas | generic
+    host = Column(String(255), nullable=False)               # IP oder Name
+    port = Column(Integer, default=5001)
+    scheme = Column(String(8), default="https")
+    verify_tls = Column(Boolean, default=False)
+    secret_id = Column(Integer, ForeignKey("stored_secrets.id", ondelete="SET NULL"), nullable=True)
+    enabled = Column(Boolean, default=True)
+    site = Column(String(128), default="Standard")
+    status = Column(String(16), default="unknown")           # ok | warning | critical | down | unknown
+    model = Column(String(128), default="")
+    serial = Column(String(128), default="")
+    firmware = Column(String(128), default="")
+    state = Column(JSON, default=dict)                       # letzter Gesamtzustand (System, Speicher, Platten …)
+    checks = Column(JSON, default=list)                      # Ergebnis der Einrichtungs-Pruefung
+    updates = Column(JSON, default=dict)                     # {"dsm": {...}, "packages": [...], "checked_at"}
+    # Automatik: {"dsm": "off|notify|auto", "packages": "off|notify|auto", "days": [0..6],
+    #             "start": "03:00", "duration_min": 120, "tz": "Europe/Berlin",
+    #             "dsm_major": false, "exclude": [paket-ids], "backup_config_first": true}
+    automation = Column(JSON, default=dict)
+    snmp_device_id = Column(Integer, nullable=True)
+    discovered_device_id = Column(Integer, nullable=True)
+    poll_interval_sec = Column(Integer, default=600)
+    last_poll_at = Column(DateTime, nullable=True)
+    last_ok_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NasJob(Base):
+    """Ein Vorgang am NAS: Firmware-Update, Paket-Updates, SNMP einschalten …"""
+    __tablename__ = "nas_jobs"
+    id = Column(Integer, primary_key=True)
+    nas_id = Column(Integer, ForeignKey("nas_devices.id", ondelete="CASCADE"), index=True, nullable=False)
+    kind = Column(String(32), nullable=False)                # dsm_update | package_update | snmp_enable | config_backup
+    trigger = Column(String(16), default="manual")           # manual | schedule
+    status = Column(String(16), default="running", index=True)  # running | done | error
+    target = Column(JSON, default=dict)                      # z. B. {"packages": ["Docker"]} / {"version": "7.2.2-72806"}
+    log = Column(JSON, default=list)
+    error = Column(Text, nullable=True)
+    created_by = Column(String(64), default="")
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+NAS_TABLES = [NasDevice.__table__, NasJob.__table__]
+
+
+# ==============================================================================
+# Backup: Orte, Auftraege, Laeufe (app/backupjobs.py)
+# ==============================================================================
+class BackupTarget(Base):
+    """Wohin gesichert wird: Ordner am Server, SMB-Freigabe (z. B. das NAS), SFTP, FTP(S)."""
+    __tablename__ = "backup_targets"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(128), nullable=False)
+    kind = Column(String(16), default="local")               # local | smb | sftp | ftp | ftps
+    host = Column(String(255), default="")
+    port = Column(Integer, nullable=True)
+    share = Column(String(255), default="")                  # SMB-Freigabe
+    path = Column(String(512), default="")                   # Unterordner / Pfad
+    secret_id = Column(Integer, ForeignKey("stored_secrets.id", ondelete="SET NULL"), nullable=True)
+    nas_id = Column(Integer, ForeignKey("nas_devices.id", ondelete="SET NULL"), nullable=True)
+    enabled = Column(Boolean, default=True)
+    last_ok_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    free_bytes = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BackupJob(Base):
+    """Was gesichert wird, wann und wohin."""
+    __tablename__ = "backup_jobs"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(128), nullable=False)
+    # rimperio   = RIMPERIO selbst (Datenbank-Bereiche wie unter Sicherung)
+    # files      = Ordner auf einem Rechner mit Agent (Linux/Windows/Raspberry Pi)
+    # nas_config = Konfiguration eines NAS (Synology .dss)
+    # nas_task   = Sicherungsaufgabe auf dem NAS anstossen und ueberwachen (Hyper Backup)
+    # pve        = Proxmox-VM/-Container per vzdump
+    kind = Column(String(16), nullable=False)
+    source = Column(JSON, default=dict)                      # je Art: scopes | agent_id+paths | nas_id | task_id | host_id+vmid
+    target_id = Column(Integer, ForeignKey("backup_targets.id", ondelete="SET NULL"), nullable=True)
+    key_secret_id = Column(Integer, ForeignKey("stored_secrets.id", ondelete="SET NULL"), nullable=True)
+    encrypt = Column(Boolean, default=True)
+    # {"type": "daily|weekly|hourly|manual", "time": "02:30", "days": [0..6], "every_hours": 6, "tz": "Europe/Berlin"}
+    schedule = Column(JSON, default=dict)
+    keep_last = Column(Integer, default=14)
+    keep_days = Column(Integer, default=0)                   # 0 = nur keep_last
+    max_age_hours = Column(Integer, default=0)               # 0 = aus Zeitplan ableiten; danach "ueberfaellig"
+    enabled = Column(Boolean, default=True)
+    note = Column(Text, default="")
+    last_run_at = Column(DateTime, nullable=True)
+    last_ok_at = Column(DateTime, nullable=True)
+    last_status = Column(String(16), default="")
+    next_run_at = Column(DateTime, nullable=True)
+    created_by = Column(String(64), default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BackupRun(Base):
+    """Ein Lauf eines Auftrags - mit Ort, Groesse, Pruefsumme und Protokoll."""
+    __tablename__ = "backup_runs"
+    id = Column(Integer, primary_key=True)
+    job_id = Column(Integer, ForeignKey("backup_jobs.id", ondelete="CASCADE"), index=True, nullable=False)
+    status = Column(String(16), default="running", index=True)  # running | waiting | done | error | deleted
+    trigger = Column(String(16), default="schedule")         # schedule | manual
+    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    file_name = Column(String(255), default="")
+    location = Column(String(1024), default="")              # wo die Datei liegt (lesbar)
+    size_bytes = Column(Float, nullable=True)
+    plain_bytes = Column(Float, nullable=True)
+    sha256 = Column(String(64), default="")                  # ueber die gespeicherte (verschluesselte) Datei
+    encrypted = Column(Boolean, default=False)
+    upload_token_hash = Column(String(64), default="", index=True)   # nur Rechner-Sicherungen
+    command_id = Column(Integer, nullable=True)
+    detail = Column(JSON, default=dict)
+    log = Column(JSON, default=list)
+    error = Column(Text, nullable=True)
+    created_by = Column(String(64), default="")
+
+
+BACKUP_TABLES = [BackupTarget.__table__, BackupJob.__table__, BackupRun.__table__]

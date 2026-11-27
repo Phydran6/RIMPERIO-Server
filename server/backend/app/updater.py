@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.11.20.23.00.00
+# Version:     2026.11.27.14.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Patchmanagement: Versionsvergleich, Update, Rueckfall
 # ==============================================================================
@@ -40,6 +40,7 @@ from sqlalchemy import select
 
 from .config import settings
 from . import hostexec
+from .versioning import compare_versions, is_newer, is_prerelease, version_key
 from .events import UPDATE_AVAILABLE, bus
 
 logger = logging.getLogger("rimperio.updater")
@@ -257,14 +258,13 @@ def _cache_remote(info: dict) -> dict:
 # =============================================================================
 # Gesamtbild
 # =============================================================================
-def parse_version(value: str) -> tuple:
-    """'2026.09.09.22.00.00' -> (2026, 9, 9, 22, 0, 0). Unlesbares -> ().
+def parse_version(value: str) -> Optional[tuple]:
+    """Sortierschluessel einer Version (SemVer oder altes Zeitstempel-Schema).
 
-    Auf sechs Stellen begrenzt, damit ein Zusatz wie '-rc1' den Vergleich nicht
-    kippt: verglichen wird der Zeitstempel, nicht das Anhaengsel.
+    Unlesbares -> None. Die Regeln stehen in `versioning.py`: jede SemVer-
+    Version (ab 0.0.1) gilt als neuer als jeder alte Zeitstempel.
     """
-    parts = re.findall(r"\d+", str(value or ""))
-    return tuple(int(p) for p in parts[:6]) if parts else ()
+    return version_key(value)
 
 
 def compare(local: dict, remote: dict) -> tuple:
@@ -288,10 +288,11 @@ def compare(local: dict, remote: dict) -> tuple:
     remote_version = parse_version(remote.get("version"))
 
     # 1. Versionsstaende, sofern beide lesbar: die tragen die Reihenfolge.
-    if local_version and remote_version:
-        if remote_version > local_version:
+    order = compare_versions(remote.get("version"), local.get("version"))
+    if order is not None:
+        if order > 0:
             return True, "Auf GitHub liegt ein neuerer Stand.", "behind"
-        if remote_version < local_version:
+        if order < 0:
             return False, (
                 f"Der installierte Stand ({local.get('version')}) ist NEUER als das, "
                 f"worauf der eingestellte Kanal zeigt ({remote.get('version')}). "
@@ -359,7 +360,7 @@ async def update_status(force: bool = False) -> dict:
     if ref != REPO_BRANCH:
         newest = await branch_version(force=force)
         reference = remote.get("version") or ""
-        if newest and parse_version(newest) and parse_version(newest) > parse_version(reference):
+        if newest and is_newer(newest, reference):
             unreleased = {"version": newest, "branch": REPO_BRANCH}
 
     oneliner = (f"curl -sSL https://raw.githubusercontent.com/{REPO_SLUG}/{REPO_BRANCH}/install.sh "
@@ -874,14 +875,29 @@ async def list_releases(force: bool = False, limit: int = 30) -> dict:
     }
 
 
-async def latest_release(force: bool = False) -> Optional[dict]:
-    """Das neueste veroeffentlichte Release (ohne Prerelease)."""
-    data = await list_releases(force=force)
-    for entry in data.get("releases", []):
-        if not entry.get("prerelease"):
-            return entry
-    releases = data.get("releases") or []
+def pick_latest(releases: list) -> Optional[dict]:
+    """Das hoechste stabile Release - nach Version, nicht nach Datum.
+
+    Frueher galt "das zuletzt angelegte". Mit SemVer kann aber ein Wartungs-
+    Release (1.2.4) nach einem neueren (1.3.0) erscheinen; das darf den Kanal
+    "Stabil" nicht zurueckziehen. Prereleases (GitHub-Haken oder SemVer-Vorab-
+    Kennung wie 1.3.0-rc.1) zaehlen nicht. Ist kein Tag als Version lesbar,
+    bleibt es bei der Reihenfolge von GitHub (neuestes zuerst).
+    """
+    stable = [r for r in releases
+              if not r.get("prerelease") and not is_prerelease(r.get("tag"))]
+    ranked = [r for r in stable if version_key(r.get("tag")) is not None]
+    if ranked:
+        return max(ranked, key=lambda r: version_key(r.get("tag")))
+    if stable:
+        return stable[0]
     return releases[0] if releases else None
+
+
+async def latest_release(force: bool = False) -> Optional[dict]:
+    """Das hoechste veroeffentlichte Release (ohne Prerelease)."""
+    data = await list_releases(force=force)
+    return pick_latest(data.get("releases") or [])
 
 
 # =============================================================================

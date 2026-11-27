@@ -3,7 +3,7 @@
   Datei:        rimperio-agent.wxs
   Projekt:      RIMPERIO — Agent-Installer (MSI)
   Autor:        Phydran6
-  Version:      2026.11.07.02.30.00
+  Version:      2026.11.27.14.00.00
 
   Beschreibung: WiX-v4-Quelle für das MSI-Paket des Agents. Bewusst ohne eigene
                 Custom-Action-DLL — nur Bordmittel von WiX:
@@ -22,13 +22,14 @@
                 und löscht C:\ProgramData\RIMPERIO\agent.json. Mit KEEP_RECORD=1
                 bleibt der Eintrag auf dem Server stehen.
 
-  Bauen:        wix build rimperio-agent.wxs -d Version=26.10.31 -o rimperio-agent.msi
+  Bauen:        wix build rimperio-agent.wxs -d Version=0.0.1 -o rimperio-agent.msi
   Verteilen:    msiexec /i rimperio-agent.msi SERVER=https://rmm.example.de SECRET=... SITE=Buero /qn
   Entfernen:    msiexec /x rimperio-agent.msi /qn /norestart [KEEP_RECORD=1]
 -->
-<!-- Version kommt per  -d Version=YY.MM.DD  aus build-msi.ps1; sonst dieser Wert. -->
+<!-- Version kommt per  -d Version=MAJOR.MINOR.PATCH  aus build-msi.ps1 (aus der
+     Datei VERSION); sonst dieser Wert. -->
 <?ifndef Version ?>
-<?define Version = "26.10.31" ?>
+<?define Version = "0.0.0" ?>
 <?endif?>
 
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
@@ -42,7 +43,11 @@
     <SummaryInformation Description="RIMPERIO — Remote Monitoring &amp; Management Agent"
                         Manufacturer="Phydran6" />
 
-    <MajorUpgrade DowngradeErrorMessage="Eine neuere Version des RIMPERIO-Agents ist bereits installiert." />
+    <!-- AllowDowngrades: Beim Wechsel auf Semantic Versioning faellt die MSI-
+         Version von 26.11.x (altes Datumsschema) auf 0.0.1. Ohne diesen Schalter
+         brache Windows Installer das Update mit "neuere Version installiert" ab.
+         Ersetzt wird ohnehin immer genau der eine RIMPERIO-Agent (UpgradeCode). -->
+    <MajorUpgrade AllowDowngrades="yes" />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- Vom Administrator bei der Installation mitgegeben. -->

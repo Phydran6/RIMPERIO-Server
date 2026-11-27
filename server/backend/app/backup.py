@@ -49,6 +49,7 @@ from sqlalchemy import delete as sa_delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
+from .versioning import version_key
 
 logger = logging.getLogger("rimperio.backup")
 
@@ -139,6 +140,16 @@ SCOPES: Dict[str, dict] = {
         "order": 57,
         "sensitive": True,
     },
+    "nas_backup": {
+        "label": "NAS, Backup & Zugangsdaten",
+        "label_en": "NAS, backup & credentials",
+        "hint": "NAS-Anbindungen, Backup-Orte und -Aufträge samt Verlauf, Zugangsdaten (lokal "
+                "verschlüsselt bzw. Verweise auf Vaultwarden) und der Schlüssel dazu (secret.key).",
+        "tables": ["stored_secrets", "nas_devices", "nas_jobs", "backup_targets", "backup_jobs", "backup_runs"],
+        "files": ["secret.key"],
+        "order": 58,
+        "sensitive": True,
+    },
     "logs": {
         "label": "Logdaten",
         "label_en": "Log data",
@@ -149,7 +160,7 @@ SCOPES: Dict[str, dict] = {
 }
 
 # Bereiche, die standardmaessig angehakt sind, wenn vor einem Eingriff gefragt wird.
-DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks", "rmm", "patching", "snmp"]
+DEFAULT_SCOPES = ["settings", "branding", "users", "agents", "webhooks", "rmm", "patching", "snmp", "nas_backup"]
 
 
 def scope_catalog() -> List[dict]:
@@ -176,10 +187,12 @@ def normalize_scopes(scopes: Optional[Iterable[str]]) -> List[str]:
 # =============================================================================
 # Versionen vergleichen
 # =============================================================================
-def parse_version(value: str) -> Tuple[int, ...]:
-    """'2026.08.14.14.00.00' -> (2026, 8, 14, 14, 0, 0). Unlesbares -> ()."""
-    parts = re.findall(r"\d+", str(value or ""))
-    return tuple(int(p) for p in parts[:6]) if parts else ()
+def parse_version(value: str):
+    """Sortierschluessel (SemVer oder alter Zeitstempel), unlesbar -> None.
+
+    Die Regeln stehen in `versioning.py`.
+    """
+    return version_key(value)
 
 
 def compare_versions(backup_version: str, server_version: str) -> dict:
@@ -191,7 +204,7 @@ def compare_versions(backup_version: str, server_version: str) -> dict:
     Spalten enthalten, die er nicht kennt.
     """
     a, b = parse_version(backup_version), parse_version(server_version)
-    if not a or not b:
+    if a is None or b is None:
         return {
             "level": "warn",
             "match": False,

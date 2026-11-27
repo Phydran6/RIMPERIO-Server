@@ -11,7 +11,7 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
-## v2026.11.27.14.00.00 (2026-11-27) – Lizenz je Gerät, Instanz oder Mandant; Abrechnung für Systemhäuser
+## v0.1.0 (2026-11-27) – Lizenz je Gerät, Instanz oder Mandant; Abrechnung für Systemhäuser
 
 - **Der Server bleibt lizenzfrei.** Ohne Lizenz läuft RIMPERIO als Community-Ausgabe – vollständig, ohne
   Gerätegrenze. Eine Lizenz braucht nur der gewerbliche Einsatz; sie schaltet Abrechnung, Abrechnungs-API und
@@ -25,6 +25,59 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 - **Abrechnung je Gerät:** Preise frei wählbar – Standard, je Geräteklasse, je Mandant, je Gerät; Grundgebühr,
   Mindestbetrag, Rabatt, Inklusiv-Geräte, Steuer. Zählweise je angefangenem Monat, anteilig oder Höchststand.
   Monatsabrechnung mit Festschreiben, CSV-Export und Gerätenachweis, **Abrechnungs-API** für ERP/Rechnungsprogramm.
+
+## v0.0.1 (2026-11-27) – Semantic Versioning
+
+Das erste Release nach dem allgemeinen Standard **[Semantic Versioning 2.0.0](https://semver.org/lang/de/)**. Ab jetzt
+heißt jede Version `MAJOR.MINOR.PATCH`: Fehlerbehebungen zählen `PATCH` hoch, neue Funktionen `MINOR`, Inkompatibles
+`MAJOR`. Das Release-Tag ist `v` + Version, also `v0.0.1`. Einzelheiten: [Versionsschema](README.md#versionsschema).
+
+- Inhaltlich gleich mit `v2026.11.27.14.00.00`: nur die Nummer wechselt.
+- **Server, die noch vor `v2026.11.27.14.00.00` stehen**, zeigen bei `0.0.1` „Server ist voraus“ statt eines
+  Updates. Einmalig, ohne Kommandozeile: *RIMPERIO-Server → Updates* → Kanal **Festgelegt** → `v2026.11.27` →
+  einspielen → danach den Kanal wieder auf **Stabil** stellen; dann wird `0.0.1` normal angeboten.
+  Oder direkt auf dem Server: `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v0.0.1`
+
+## v2026.11.27.14.00.00 (2026-11-27) – Vorbereitung auf Semantic Versioning
+
+Der letzte Stand mit Zeitstempel-Version. Das **nächste Release heißt `v0.0.1`** — ab dann gilt der allgemeine
+Standard **Semantic Versioning** (`MAJOR.MINOR.PATCH`, siehe [Versionsschema](README.md#versionsschema)).
+
+- **Bitte dieses Update einspielen, bevor `v0.0.1` erscheint.** Ältere Server lesen `0.0.1` als „älter als
+  2026.11.25“ und würden es als Rückschritt sperren. Ab diesem Stand gilt jede SemVer-Version als neuer als jeder
+  Zeitstempel; der Update-Kanal „Stabil“ nimmt das **höchste** Release statt des zuletzt angelegten.
+- **Sicherungen** werden über den Wechsel hinweg richtig eingeordnet (Sicherung `2026.11.x` auf Server `0.0.1` = älter).
+- **Agent:** trägt die Version aus `VERSION` (auch `rimperio-agent version` und im Check-in) statt einer fest
+  eingetragenen Nummer. Das MSI lässt sich über den Wechsel `26.11.x` → `0.0.1` hinweg drüberinstallieren, der
+  Linux-Installer nimmt SemVer-Agents an.
+- **Release-Automatik:** `VERSION` = `0.0.1` → Tag `v0.0.1`; Vorab-Stände wie `0.1.0-rc.1` werden Prerelease. Das
+  alte Schema wird nach dem ersten SemVer-Release abgelehnt.
+- **Neu:** `scripts/version.sh bump patch|minor|major` zieht die Nummer an allen Stellen nach; die CI prüft das.
+
+## v2026.11.26.22.00.00 (2026-11-26) – NAS per HTTPS (Synology), Backup-Bereich, Vaultwarden, Raspberry Pi
+
+- **NAS ohne Agent, nur über HTTPS** (Geräte → NAS & Spezialsysteme → NAS). Schwerpunkt **Synology DSM**: Die
+  Netzwerksuche erkennt DSM an seiner Schnittstelle, der Assistent übernimmt die IP, Anmeldung mit einem
+  Administratorkonto **samt TOTP** – danach vertraut DSM RIMPERIO als Gerät. Beim Einrichten wird alles geprüft
+  (Zertifikat, Zwei-Faktor, Rechte, Speicher, Updates, Hyper Backup) und **SNMP v2c automatisch eingeschaltet**
+  und als SNMP-Gerät angelegt. Laufend: Volumes, Pools, Platten (S.M.A.R.T., Temperatur), CPU/RAM, Pakete,
+  Zertifikat – Probleme als Meldung.
+- **DSM- und Paket-Updates automatisieren:** von Hand oder im Wartungsfenster je NAS (`aus` / `nur melden` /
+  `installieren`), Hauptversionen nur auf Wunsch, Pakete ausschließbar, vorher Konfigurationssicherung; nach einem
+  DSM-Update wartet RIMPERIO den Neustart ab und prüft die Version. TrueNAS mit API-Schlüssel (Zustand, Update).
+- **Backup als eigener Bereich:** **Aufträge** (was & wann: RIMPERIO, Ordner auf Rechnern und Raspberry Pis,
+  NAS-Konfiguration, Hyper Backup anstoßen und überwachen, Proxmox-VMs), **Orte** (wohin: SMB-Freigabe am NAS,
+  SFTP, FTP(S), Ordner am Server), **Verlauf** mit Herunterladen, Probe-Wiederherstellung und Zurückspielen.
+  Alles **AES-256-GCM-verschlüsselt** (Format `RIMPBAK1`, Notfall-Entschlüsselung ohne RIMPERIO:
+  `docs/backup/rimperio-decrypt.py`), Zeitplan, Aufbewahrung, Meldung bei Fehlschlag und Überfälligkeit.
+- **Zugangsdaten in Vaultwarden:** NAS-Anmeldungen (mit TOTP und Geräte-Token), Backup-Passwort und Zugänge zu
+  Backup-Orten liegen in deinem Vaultwarden – angesprochen nur per HTTPS, ver-/entschlüsselt in RIMPERIO.
+  Ohne Vaultwarden lokal AES-verschlüsselt; ein Klick verschiebt alles in den Tresor.
+- **Raspberry Pi & Spezialsysteme:** Agent auch für 32-Bit-ARM (armv7, armv6 – bis Pi Zero), Modell,
+  SoC-Temperatur und Drosselung (Unterspannung!) in der Inventur und auf eigener Seite; Pis ohne Agent erkennt
+  die Netzwerksuche an der MAC.
+- **App:** neue Bereiche *NAS* (Zustand, DSM-/Paket-Updates anstoßen) und *Backup* (Aufträge, jetzt sichern,
+  Verlauf, Prüfen).
 
 ## v2026.11.25.22.00.00 (2026-11-25) – Patchmanagement mit Stufen und Dringlichkeit
 

@@ -2,13 +2,21 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
-## 2026.11.27.14.00.00
+## 0.1.0
 
 ### Added
 - **Menü „Lizenz & Abrechnung“** (nur Administratoren) mit zwei Seiten:
   - **Lizenz & Geräte** (`/license`): Ausgabe (Community/Enterprise), lizenzierte Geräte mit Kontingent-Balken, Mandanten, Lizenznehmer; Instanz-ID und Lizenzanfrage zum Kopieren, neue Kennung; Lizenzquelle (GitHub-Lizenzbereich, eigener Lizenz-Endpunkt, von Hand) mit „Lizenz jetzt prüfen“; Lizenzdatei einfügen/hochladen/entfernen; gezählte Geräte mit Zustand, Mandant, Klasse, Preis – je Gerät „abrechnen“, eigener Preis, Mandant, Klasse, Notiz.
   - **Abrechnung** (`/billing`): Preise (Standard, Zählweise, Steuer, je Geräteklasse inkl. „abrechnen“), Mandanten mit eigenen Bedingungen, Monatsabrechnung als Rechnungsvorschau je Mandant, CSV und Gerätenachweis, Festschreiben, festgeschriebene Monate, Abrechnungs-API-Schlüssel mit Beispielaufrufen.
 - **Kopfzeile:** Hinweis „Lizenz“ für Administratoren, wenn Geräte über dem Kontingent sind oder die Lizenz abläuft bzw. nicht mehr gilt.
+
+## 2026.11.26.22.00.00
+
+### Added
+- **Geräte → NAS & Spezialsysteme:** `NasDevices.vue` (Übersicht mit Belegung, Updates, Problemen; Assistent: aus der Netzwerksuche übernehmen oder IP prüfen → Anmelden mit Zwei-Faktor-Code (Feld erscheint, wenn DSM ihn verlangt) → Prüfliste), `NasDetail.vue` (System, Speicher, Platten, DSM-/Paket-Updates mit Auswahl, Automatik & Wartungsfenster, Hyper Backup, Pakete, Prüfliste, Vorgänge mit Protokoll, neu anmelden), `SpecialSystems.vue` (Raspberry Pi & Co.: Modell, Temperatur, Drosselung; Pis ohne Agent → Netzwerksuche).
+- **Neuer Bereich Backup:** `BackupJobs.vue` (Kennzahlen, Aufträge je Art mit Quelle, Ort, Zeitplan, Aufbewahrung, Verschlüsselung; jetzt sichern), `BackupTargets.vue` (Orte mit Test, NAS übernehmen), `BackupRuns.vue` (Verlauf, Herunterladen per Ticket, Prüfen, Zurückspielen, Protokoll). „RIMPERIO selbst sichern“ (bisher unter RIMPERIO-Server) steht jetzt hier.
+- **Integrationen → Zugangsdaten → Vaultwarden:** `VaultSettings.vue` (Verbindung mit API-Schlüssel/Master-Passwort, TOTP bei Bedarf, Organisation/Sammlung, Stand, lokale Zugänge verschieben, Liste aller Zugänge mit Verwendung).
+- **Netzwerksuche:** Empfehlung „Als NAS anbinden“ für erkannte Synology/TrueNAS; `?ip=` öffnet ein Gerät.
 
 ## 2026.11.25.22.00.00
 

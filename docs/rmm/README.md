@@ -4,7 +4,7 @@ Rechner mit RIMPERIO-Agent aus der Ferne überwachen und steuern. In der Oberfl�
 **Fernwartung**.
 
 ← [Dokumentation](../README.md) · [Agent](../../agent/README.md) · [Installer & Signatur](../../agent/installer/README.md)
-· [Patchmanagement](patching.md) · [SNMP](snmp.md)
+· [Patchmanagement](patching.md) · [SNMP](snmp.md) · [NAS & Raspberry Pi](nas.md)
 
 ## Ein Gerät, eine Zeile
 
@@ -31,6 +31,8 @@ SHA-256. „Agent entfernen“ trennt den Agent vom Gerät, die Logs bleiben.
 | **Rechner** | Liste mit Status, Standort, System, CPU/RAM/Platte; Detail mit Befehlen, Skripten, Patches, Checks, Platten/Prozessen und Inventur |
 | **Skripte** | Bibliothek (PowerShell, cmd, bash, sh), Ausführung je Rechner |
 | **Checks** | Prüfungen, die der Agent selbst im Takt ausführt: CPU, RAM, Platte, Dienst, Port, Ping, Skript (Exit-Code) – global, je Standort oder je Rechner |
+| **NAS** | Synology DSM und TrueNAS über HTTPS – Zustand, Updates, SNMP, Hyper Backup – siehe [NAS und Spezialsysteme](nas.md) |
+| **Raspberry Pi & Spezialsysteme** | Einplatinenrechner mit Agent (arm64, armv7, armv6): Modell, Temperatur, Drosselung |
 | **Patch-Center** | Windows-, Linux- und Docker-Updates: Freigaben mit KI-Einschätzung, Läufe mit Proxmox-Snapshot und Prüfung — siehe [Patchmanagement](patching.md) |
 | **Patch-Richtlinien** | Zeitplan, Wartungsfenster, Freigaberegeln, KI, Sicherung, Prüfung, Docker — global, je Standort oder Rechner |
 | **Update-Quellen** | Sicherheitsmeldungen, bekannte Probleme, Release-Notizen, eigene RSS-Feeds, Websuche |

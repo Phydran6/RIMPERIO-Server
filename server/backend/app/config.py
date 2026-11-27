@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
-    app_version: str = "2026.11.06.23.28.43"
+    app_version: str = "0.1.0"
     caddy_admin_url: str = "http://caddy:2019"
     caddy_certs_dir: str = "/caddy-certs"
     # Notausstieg ohne Web-UI: CADDY_FORCE_HTTP=true startet mit reinem HTTP auf
