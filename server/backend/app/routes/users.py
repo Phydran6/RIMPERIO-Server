@@ -5,19 +5,34 @@
 # Beschreibung: RIMPERIO - Users API Endpoints (inkl. Admin-MFA-Reset)
 # ==============================================================================
 
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
-from ..models import User, MFABackupCode
+from ..models import MFABackupCode, Tenant, User
 from ..schemas import UserCreate, UserUpdate, UserResponse
 from ..auth import (get_current_user, get_current_admin, get_password_hash,
                     verify_password)
 from ..limiter import client_ip as real_client_ip
-from .. import journal
+from .. import journal, tenancy
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
+
+
+async def _pick_tenant(db: AsyncSession, wanted: Optional[int]) -> Optional[int]:
+    """Welcher Mandant bekommt das Konto? Mandanten-Admins: immer der eigene."""
+    scope = tenancy.current()
+    if tenancy.forced():
+        return scope
+    if not wanted:
+        # Betreiber, der gerade auf einen Mandanten umgeschaltet hat: dorthin.
+        return scope if scope else None
+    if not tenancy.enabled():
+        raise HTTPException(status_code=400, detail="Die Mandantenfähigkeit ist ausgeschaltet.")
+    if await db.get(Tenant, int(wanted)) is None:
+        raise HTTPException(status_code=400, detail="Unbekannter Mandant.")
+    return int(wanted)
 
 @router.get("", response_model=List[UserResponse])
 async def list_users(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
@@ -34,10 +49,15 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(g
 
 @router.post("", response_model=UserResponse, status_code=201)
 async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db), _=Depends(get_current_admin)):
-    exists = (await db.execute(select(User).where(User.username == data.username))).scalar_one_or_none()
+    # Benutzernamen gelten ueber alle Mandanten hinweg (die Anmeldung fragt
+    # nicht nach dem Mandanten) - deshalb ohne Mandanten-Filter pruefen.
+    exists = (await db.execute(select(User).where(User.username == data.username)
+                               .execution_options(**tenancy.ALL_TENANTS))).scalar_one_or_none()
     if exists:
         raise HTTPException(status_code=400, detail="Username existiert bereits")
-    user = User(username=data.username, email=data.email, password_hash=get_password_hash(data.password), role=data.role)
+    tenant_id = await _pick_tenant(db, data.tenant_id)
+    user = User(username=data.username, email=data.email, password_hash=get_password_hash(data.password),
+                role=data.role, tenant_id=tenant_id)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -107,6 +127,15 @@ async def update_user(user_id: int, data: UserUpdate, request: Request,
     if data.is_active is not None:
         user.is_active = data.is_active
         changed.append("aktiv" if data.is_active else "deaktiviert")
+    if data.tenant_id is not None:
+        if current_user.tenant_id is not None or not is_admin:
+            raise HTTPException(status_code=403, detail="Den Mandanten eines Kontos ändert nur der Betreiber.")
+        if is_self:
+            raise HTTPException(status_code=400, detail="Das eigene Konto lässt sich keinem Mandanten zuordnen.")
+        new_tid = await _pick_tenant(db, data.tenant_id) if data.tenant_id else None
+        if new_tid != user.tenant_id:
+            user.tenant_id = new_tid
+            changed.append(f"Mandant → {new_tid or 'Betreiber'}")
     if data.password:
         user.password_hash = get_password_hash(data.password)
         # Ein Admin, der ein Passwort fuer jemand anderen setzt, vergibt ein

@@ -49,7 +49,7 @@ from .config import settings
 
 logger = logging.getLogger("rimperio.dbswitch")
 
-LOCAL_CONTAINER = "rimperio-ext-postgres"
+LOCAL_CONTAINER = settings.container("ext-postgres")
 EXTERNAL_COMPOSE = "server/deploy/external-db.yml"
 SSL_MODES = ("", "require", "verify-ca", "verify-full")
 

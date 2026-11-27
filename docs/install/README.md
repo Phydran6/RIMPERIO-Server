@@ -25,9 +25,10 @@ Der Installer läuft in dieser Reihenfolge:
    Nichts drücken → alles läuft mit Standardwerten durch.
 2. **Auswahl:** RIMPERIO allein oder mit Zusatzdiensten.
 3. **HTTPS:** Domain und Zertifikat (leer = erst mal nur HTTP).
-4. **Systemprüfung** gegen genau diese Auswahl.
-5. **Docker** wird geholt, falls er fehlt.
-6. **Bauen und starten.**
+4. **Mandanten:** soll die Instanz mehrere Kunden getrennt verwalten? (Standard: nein)
+5. **Systemprüfung** gegen genau diese Auswahl.
+6. **Docker** wird geholt, falls er fehlt.
+7. **Bauen und starten.**
 
 Ohne jede Rückfrage:
 
@@ -67,6 +68,25 @@ Die Werte landen in der `.env` (`RIMPERIO_DOMAIN`, `RIMPERIO_TLS`, `RIMPERIO_ACM
 beim ersten Start richtet das Backend daraus den Reverse Proxy ein. Danach gilt, was im
 Browser unter *Einstellungen → HTTPS & Adresse* steht – dort lässt sich alles
 ändern, ohne eine Datei anzufassen. Port 80 bleibt immer als Rettungsweg offen.
+
+### Mehrere Kunden
+
+Mandantenfähig, also eine Instanz für mehrere Kunden, sauber getrennt (später jederzeit
+unter *Benutzer → Mandanten* umschaltbar):
+
+```bash
+curl -sSL … /install.sh | sudo bash -s -- --multi-tenant --yes
+```
+
+Eine weitere, eigenständige Instanz auf demselben Server (eigenes Verzeichnis, eigene
+Datenbank, freie Ports ab 8080/8443/1514):
+
+```bash
+curl -sSL … /install.sh | sudo bash -s -- --instance kunde1 --yes
+```
+
+Was beides bedeutet, wer was sieht und wie man eine bestehende Installation aufteilt:
+[Mandanten](../tenants/README.md).
 
 Aus einem geklonten Repository:
 
@@ -207,7 +227,8 @@ Was genau bleibt und was weg ist, dazu die Reste danach:
 [Deinstallieren](../../README.md#deinstallieren).
 
 **Optionen:** `--dir` · `--repo` · `--branch` · `--ref` · `--with` · `--no-addons` ·
-`--skip-preflight` · `--no-build` · `--yes` · `--timeout`
+`--multi-tenant` · `--single-tenant` · `--instance` · `--http-port` · `--https-port` ·
+`--syslog-port` · `--db-port` · `--skip-preflight` · `--no-build` · `--yes` · `--timeout`
 (alle auch als `RIMPERIO_*`-Umgebungsvariable).
 
 Eine vorhandene `.env` wird **nie** überschrieben — sonst passte das

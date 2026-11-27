@@ -12,12 +12,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
-from ..models import Agent, AgentToken, Log, User, Setting
+from ..models import Agent, AgentToken, Log, Setting, Tenant, User
 from ..schemas import (AgentResponse, AgentListResponse, AgentDecommissionRequest,
                        AgentRetentionUpdate)
 from ..auth import get_current_user, get_current_admin
 from ..limiter import limiter, client_ip as real_client_ip
-from .. import journal, tokens
+from .. import journal, tenancy, tokens
 
 router = APIRouter(prefix="/api/agents", tags=["Agents"])
 
@@ -202,6 +202,9 @@ async def decommission_agent(
             message=f"Abmeldung abgelehnt: {deny_reason}",
             actor="agent", source_ip=source_ip, target=payload.hostname or "", ok=False)
         raise HTTPException(status_code=401, detail="Ungültiger Agent-Token")
+    if agent_token.tenant_id is not None:
+        # Abmelden nur innerhalb des eigenen Mandanten.
+        tenancy.set_scope(int(agent_token.tenant_id), force=True)
 
     # Zuordnung, vom Genauesten zum Ungenauesten. `matched_by` wandert in die
     # Antwort - der Agent kann dann sagen, ob wirklich sein eigener Eintrag
@@ -397,6 +400,9 @@ class TokenCreateRequest(BaseModel):
     expires_in_hours: Optional[int] = Field(default=None, ge=1, le=24 * 365 * 5)
     max_uses: Optional[int] = Field(default=None, ge=1, le=10000)
     note: str = Field(default="", max_length=500)
+    # Fuer welchen Mandanten? Nur der Betreiber waehlt; Mandanten-Admins
+    # bekommen immer Schluessel ihres eigenen Mandanten.
+    tenant_id: Optional[int] = Field(default=None, ge=1)
 
 
 class TokenUpdateRequest(BaseModel):
@@ -430,11 +436,27 @@ async def list_agent_tokens(db: AsyncSession = Depends(get_db), _=Depends(get_cu
 async def create_agent_token(data: TokenCreateRequest, request: Request,
                              db: AsyncSession = Depends(get_db),
                              admin=Depends(get_current_admin)):
-    """Legt einen Schlüssel an und zeigt ihn **einmalig** an."""
+    """Legt einen Schlüssel an und zeigt ihn **einmalig** an.
+
+    Mit Mandanten gilt: jeder Mandant kann einen eigenen Generalschlüssel
+    haben - der meldet nur Geräte dieses Mandanten an.
+    """
+    scope = tenancy.current()
+    if tenancy.forced():
+        target = scope
+    elif data.tenant_id:
+        if not tenancy.enabled() or await db.get(Tenant, data.tenant_id) is None:
+            raise HTTPException(status_code=400, detail="Unbekannter Mandant.")
+        target = data.tenant_id
+    else:
+        target = scope or None
     if data.kind == "global":
         existing = (await db.execute(
             select(AgentToken).where(AgentToken.kind == "global",
-                                     AgentToken.revoked_at.is_(None))
+                                     AgentToken.revoked_at.is_(None),
+                                     AgentToken.tenant_id.is_(None) if target is None
+                                     else AgentToken.tenant_id == target)
+            .execution_options(**tenancy.ALL_TENANTS)
         )).scalars().first()
         if existing:
             raise HTTPException(
@@ -451,7 +473,7 @@ async def create_agent_token(data: TokenCreateRequest, request: Request,
                               or (tokens.DEFAULT_ENROLL_HOURS if data.kind == "enroll" else None)),
             max_uses=(data.max_uses
                       or (tokens.DEFAULT_ENROLL_USES if data.kind == "enroll" else None)),
-            created_by=admin.username, note=data.note)
+            created_by=admin.username, note=data.note, tenant_id=target)
         await db.commit()
     except ValueError as exc:
         await db.rollback()
@@ -621,6 +643,8 @@ async def enroll_agent(data: EnrollRequest, request: Request,
         raise HTTPException(status_code=401, detail="Ungültiger oder nicht berechtigter Schlüssel")
 
     hostname = data.hostname.strip()
+    if presenter.tenant_id is not None:
+        tenancy.set_scope(int(presenter.tenant_id), force=True)
 
     # Gibt es das Geraet schon? Dann bindet der neue Schluessel daran.
     agent = (await db.execute(

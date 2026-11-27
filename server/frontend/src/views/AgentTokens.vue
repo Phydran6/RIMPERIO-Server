@@ -103,6 +103,19 @@
 
         <p class="hint">{{ kindHint }}</p>
 
+        <!-- Mandant: nur der Betreiber waehlt. Kunden bekommen Schluessel ihres eigenen. -->
+        <div v-if="tenantStore.enabled && tenantStore.isProvider">
+          <label class="label">Für Mandant</label>
+          <select v-model="form.tenant_id" class="select">
+            <option :value="null">Betreiber (ohne Mandant)</option>
+            <option v-for="tn in tenantStore.tenants" :key="tn.id" :value="tn.id">{{ tn.name }}</option>
+          </select>
+          <p class="hint">
+            Geräte, die sich mit diesem Schlüssel anmelden, gehören diesem Mandanten. Ein
+            Generalschlüssel je Mandant meldet nur Geräte dieses Mandanten an.
+          </p>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div v-if="form.kind === 'enroll'">
             <label class="label">Gilt für (Stunden)</label>
@@ -150,6 +163,9 @@
                 <p style="color: var(--color-text-primary)">{{ item.name }}</p>
                 <p v-if="item.agent_hostname" class="text-xs" style="color: var(--color-text-muted)">
                   Gerät: {{ item.agent_hostname }}
+                </p>
+                <p v-if="tenantStore.enabled && tenantStore.isProvider" class="text-xs" style="color: var(--color-text-muted)">
+                  Mandant: {{ tenantName(item.tenant_id) }}
                 </p>
                 <p v-if="item.warning" class="text-xs mt-0.5" style="color: var(--color-warning)">
                   {{ item.warning }}
@@ -207,9 +223,16 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { useTenantStore } from '../stores/tenantStore'
 import AppIcon from '../components/AppIcon.vue'
 
 const auth = useAuthStore()
+const tenantStore = useTenantStore()
+
+function tenantName(id) {
+  if (id === null || id === undefined) return 'Betreiber'
+  return tenantStore.tenants.find(tn => tn.id === id)?.name || `#${id}`
+}
 
 const items = ref([])
 const note = ref('')
@@ -227,6 +250,8 @@ const form = reactive({
   allowed_cidrs: '',
   expires_in_hours: 24,
   max_uses: 1,
+  // Vorgabe: der Mandant, auf den gerade umgeschaltet ist
+  tenant_id: null,
 })
 
 const legacyCount = computed(() => items.value.filter(item => item.legacy_plaintext).length)
@@ -288,6 +313,7 @@ async function create() {
       name: form.name.trim(),
       kind: form.kind,
       allowed_cidrs: form.allowed_cidrs.trim(),
+      tenant_id: form.tenant_id || null,
     }
     if (form.kind === 'enroll') {
       body.expires_in_hours = form.expires_in_hours
@@ -352,5 +378,10 @@ async function copy(value) {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  load()
+  await tenantStore.load()
+  const scoped = Number(tenantStore.scope)
+  if (scoped > 0) form.tenant_id = scoped
+})
 </script>

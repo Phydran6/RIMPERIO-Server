@@ -25,7 +25,7 @@ In der Oberfläche: **Lizenz & Abrechnung → Lizenz & Geräte** und **→ Abrec
 |---|---|
 | **je Gerät** (`per_device`) | Jedes angeschlossene Gerät belegt einen Platz. Mit `max_devices` begrenzt – oder ohne Grenze, dann wird nach tatsächlicher Nutzung abgerechnet (siehe *Nutzung melden*). |
 | **je Instanz** (`per_instance`) | Pauschal für diese RIMPERIO-Installation, beliebig viele Geräte. |
-| **je Mandant** (`per_tenant`) | Je Mandant, mit `max_tenants` begrenzbar. Bis die Mandantenfähigkeit fertig ist, gilt der **Standort** eines Geräts als Mandant. |
+| **je Mandant** (`per_tenant`) | Je Mandant, mit `max_tenants` begrenzbar. Gezählt wird je [Mandant](../tenants/README.md); Geräte ohne Mandant (Betreiber, oder Mandanten ausgeschaltet) zählen wie bisher nach ihrem **Standort**. |
 
 ## Geräte lizenzieren sich selbst
 

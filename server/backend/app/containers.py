@@ -144,7 +144,7 @@ def _classify(name: str, labels: Dict[str, str]) -> dict:
 
     if not component:
         # Aus dem Namen ableiten: rimperio-app-backend -> backend
-        component = re.sub(r"^rimperio-(app|ext)-", "", name) or name
+        component = re.sub(r"^rimperio(-[a-z0-9-]+?)?-(app|ext)-", "", name) or name
 
     if not origin:
         # Weder Label noch bekannter Name: gehoert nicht zu RIMPERIO.

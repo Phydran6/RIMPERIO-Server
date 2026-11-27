@@ -185,7 +185,26 @@ ablesen, was dieser Server kann, statt es auszuprobieren.
 | Reverse Proxy und TLS | `/api/caddy` |
 | Netzwerk und DNS | `/api/network` |
 
-Alles davon ist Administratoren vorbehalten.
+Alles davon ist Administratoren vorbehalten – und zwar Betreiber-Administratoren
+(Konten ohne Mandant).
+
+### Mandanten
+
+| Weg | Wer | Was |
+|---|---|---|
+| `GET /api/tenants/context` | alle | an/aus, eigener Mandant, wohin umschaltbar |
+| `GET /api/tenants` | Betreiber-Admin | Liste mit Bestand je Mandant und `unassigned` |
+| `POST /api/tenants` | Betreiber-Admin | anlegen (`name`, optional `slug`, `contact_*`, `alert_emails`, `adopt_unassigned`) |
+| `PUT /api/tenants/{id}` | Betreiber-Admin | ändern, `is_active: false` sperrt |
+| `DELETE /api/tenants/{id}?move_to=&delete_users=` | Betreiber-Admin | löschen, Bestand an `move_to` (0 = Betreiber) |
+| `POST /api/tenants/enable` | Betreiber-Admin | `{ "enabled": true }` |
+| `GET /api/tenants/assignable` · `POST /api/tenants/assign` | Betreiber-Admin | Geräte, Schlüssel, Proxmox, SNMP, Skripte, Checks, Richtlinien zuordnen |
+
+Mit dem Kopf `X-Rimperio-Tenant: <id>` sieht ein Betreiber jede andere Anfrage so, wie
+dieser Mandant sie sieht (`0` = nur ohne Mandant, leer = alles). Konten mit Mandant
+sehen immer nur ihren; Wege außerhalb ihres Mandanten (Server, Instanz-Einstellungen)
+beantwortet der Server mit 403. `POST /api/users` und `POST /api/agent-tokens` nehmen
+`tenant_id` (nur Betreiber). Einzelheiten: [Mandanten](../tenants/README.md).
 
 **Systemeingriffe verlangen zwei Dinge im Rumpf:** ein Bestätigungswort
 (`confirm: "UPDATE"`, `"ROLLBACK"`, `"RESTORE"`, `"CHANGE"`) und die

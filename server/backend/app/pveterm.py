@@ -326,6 +326,7 @@ async def _run_upgrade(host: PveHost, node: str, job: dict) -> None:
                               body=("Neustart empfohlen (neuer Kernel)." if job["reboot_recommended"] else "")
                               or (job.get("error") or ""),
                               link="/devices/proxmox/patching", data={"pve_job": job["id"], "node": node},
+                              tenant_id=getattr(host, "tenant_id", None),
                               event="patch_done" if ok else "patch_failed")
     except Exception as exc:                                        # defensiv
         logger.debug("Meldung zum Upgrade nicht angelegt: %s", exc)

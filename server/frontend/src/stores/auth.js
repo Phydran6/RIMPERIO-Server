@@ -7,12 +7,31 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
+// Mandant, auf den ein Betreiber umgeschaltet hat (siehe stores/tenantStore.js).
+// Leer = alle. Der Server ignoriert den Kopf bei Mandanten-Konten - die sehen
+// ohnehin nur ihren eigenen Mandanten.
+export const TENANT_SCOPE_KEY = 'rimperio.tenantScope'
+export const TENANT_HEADER = 'X-Rimperio-Tenant'
+
+export function tenantHeaders() {
+  try {
+    const scope = localStorage.getItem(TENANT_SCOPE_KEY)
+    return scope ? { [TENANT_HEADER]: scope } : {}
+  } catch {
+    return {}
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || null)
   const user = ref(null)
 
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
+  // Betreiber = Konto ohne Mandant. Nur Betreiber-Admins erreichen Server,
+  // Updates, Sicherungen, Konsole und die Mandantenverwaltung.
+  const isProvider = computed(() => !!user.value && (user.value.tenant_id ?? null) === null)
+  const isSystemAdmin = computed(() => isAdmin.value && isProvider.value)
 
   async function parseError(res) {
     try {
@@ -114,7 +133,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function api(url, options = {}) {
-    const headers = { ...options.headers }
+    const headers = { ...tenantHeaders(), ...options.headers }
     if (token.value) headers['Authorization'] = `Bearer ${token.value}`
     if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json'
@@ -185,6 +204,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { adoptToken, token, user, isAuthenticated, isAdmin, login, loginMfa, loginPasskey, logout, fetchUser, api,
+  return { adoptToken, token, user, isAuthenticated, isAdmin, isProvider, isSystemAdmin, login, loginMfa, loginPasskey, logout, fetchUser, api,
            ticket, eventStream }
 })

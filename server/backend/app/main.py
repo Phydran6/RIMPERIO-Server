@@ -60,6 +60,8 @@ from .routes.nas import router as nas_router
 from .routes.backupjobs import router as backupjobs_router, upload_router as backup_upload_router
 from .routes.vault import router as vault_router
 from .routes.licensing import router as licensing_router
+from .routes.tenants import router as tenants_router
+from . import tenancy
 from . import advisories, backupjobs, dbmigrate, licensing, loghandling, nas, patchmgmt, pvepatch, snmpmon
 
 # =============================================================================
@@ -89,6 +91,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Antworten mit Anmeldung haben in keinem Zwischenspeicher etwas verloren.
         if "authorization" in request.headers or "token=" in (request.url.query or ""):
             response.headers.setdefault("Cache-Control", "no-store")
+            # Kurz zwischengespeicherte Antworten (Log-Zahlen) haengen am Konto
+            # und an der gewaehlten Mandanten-Ansicht (app/tenancy.py).
+            response.headers["Vary"] = ", ".join(filter(None, [
+                response.headers.get("Vary", ""), "Authorization", tenancy.HEADER]))
         # Ein Reverse Proxy mit TLS davor - dann soll der Browser gar nicht erst
         # versuchen, unverschluesselt anzuklopfen. Nur setzen, wenn die Anfrage
         # wirklich ueber HTTPS kam: sonst sperrt man sich auf einer reinen
@@ -132,7 +138,7 @@ if _cors_origins:
         allow_origins=_cors_origins,
         allow_credentials=False,      # Bearer-Token in Header, kein Cookie-basiertes Auth
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept"],
+        allow_headers=["Authorization", "Content-Type", "Accept", tenancy.HEADER],
     )
 
 # Security-Headers zuletzt (werden nach CORS-Middleware eingefügt)
@@ -182,6 +188,7 @@ app.include_router(backupjobs_router)
 app.include_router(backup_upload_router)
 app.include_router(vault_router)
 app.include_router(licensing_router)
+app.include_router(tenants_router)
 app.include_router(caddy_router.router)
 app.include_router(network_router.router)
 
@@ -189,6 +196,19 @@ app.include_router(network_router.router)
 # =============================================================================
 # Startup Events
 # =============================================================================
+@app.on_event("startup")
+async def ensure_tenant_schema():
+    # Als Erstes: die Modelle kennen tenant_id schon - jede Abfrage davor
+    # scheiterte sonst an der fehlenden Spalte (app/tenancy.py).
+    await tenancy.ensure_schema(engine)
+
+
+@app.exception_handler(tenancy.TenantViolation)
+async def tenant_violation_handler(request: Request, exc: tenancy.TenantViolation):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=403, content={"detail": str(exc) or "Gehört zu einem anderen Mandanten."})
+
+
 @app.on_event("startup")
 async def startup_security_check():
     validate_security_settings()
@@ -815,6 +835,12 @@ async def ingest_logs(
                 actor="agent", source_ip=source_ip, target=data.hostname, ok=False)
         raise HTTPException(status_code=401, detail="Ungültiger Agent-Token")
 
+    # Mandant des Schluessels: ab hier sieht und legt diese Lieferung nur
+    # Geraete dieses Mandanten an. Zwei Kunden mit "server01" im selben
+    # privaten Netz bleiben so zwei getrennte Geraete.
+    if agent_token.tenant_id is not None:
+        tenancy.set_scope(int(agent_token.tenant_id), force=True)
+
     device_ip = (data.ip_address or "").strip() or source_ip
     proxy_ip = request.client.host if request.client else None
     device_type = data.device_type or _agent_type_fallback(
@@ -1190,6 +1216,12 @@ async def start_background_tasks():
     # app/advisories.py, app/snmpmon.py).
     await patchmgmt.ensure_schema()
     await snmpmon.ensure_schema()
+    # Mandantenfaehigkeit: Schalter laden (beim ersten Start aus der .env).
+    try:
+        async with async_session() as db:
+            await tenancy.load_state(db)
+    except Exception as exc:                                        # defensiv
+        logging.getLogger("rimperio.startup").warning("Mandanten-Schalter nicht geladen: %s", exc)
     _spawn(patchmgmt.loop())
     _spawn(advisories.loop())
     _spawn(snmpmon.loop())

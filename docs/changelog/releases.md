@@ -11,6 +11,24 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.2.0 (2026-11-27) – Mandantenfähig, auf Wunsch
+
+- **Eine Instanz, mehrere Kunden:** RIMPERIO lässt sich mandantenfähig betreiben. Jeder Kunde (Mandant) hat eigene
+  Konten und sieht nur seine Geräte, Logs, Alarme, Updates, Proxmox-Hosts, SNMP-Geräte und Meldungen. Systemfunktionen
+  (Konsole, Updates, Sicherung, Container, Netzwerk …) bleiben beim Betreiber – auch für Kunden-Admins. Getrennt wird
+  zentral in der Datenbankschicht, nicht in jeder Ansicht einzeln.
+- **Einschalten beim Installieren** (`--multi-tenant`, der Installer fragt im manuellen Modus, der Assistent immer)
+  **oder jederzeit später** unter *Benutzer → Mandanten*. Den bisherigen Bestand kann der erste Mandant übernehmen,
+  oder Geräte, Schlüssel und Proxmox-Hosts werden einzeln zugeordnet.
+- **Betreiber schalten um:** oben rechts in der Oberfläche und in der App (*Mehr → Mandant*) – dann sieht man genau,
+  was der Kunde sieht.
+- **Je Mandant:** eigene Zugangsschlüssel und Generalschlüssel (Geräte landen automatisch beim richtigen Kunden, auch
+  bei gleichen Hostnamen und IPs), eigene Skripte, Checks und Patch-Richtlinien neben den gemeinsamen des Betreibers,
+  Meldungen zusätzlich an eigene Adressen.
+- **Oder eine Instanz je Kunde** auf demselben Server: `install.sh --instance kunde1` – eigenes Verzeichnis, eigene
+  Datenbank, eigene Container und freie Ports.
+- Anleitung: [Mandanten](../tenants/README.md).
+
 ## v0.1.0 (2026-11-27) – Lizenz je Gerät, Instanz oder Mandant; Abrechnung für Systemhäuser
 
 - **Der Server bleibt lizenzfrei.** Ohne Lizenz läuft RIMPERIO als Community-Ausgabe – vollständig, ohne

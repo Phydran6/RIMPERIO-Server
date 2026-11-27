@@ -10,7 +10,7 @@
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold" :style="{ color: 'var(--color-text-primary)' }">Benutzer</h1>
       <button
-        @click="showCreateModal = true"
+        @click="form.tenant_id = scopedTenant(); showCreateModal = true"
         class="text-white px-4 py-2 rounded hover:opacity-90"
         :style="{ backgroundColor: 'var(--color-primary)' }"
       >
@@ -26,6 +26,7 @@
             <th class="px-6 py-3 text-left text-xs font-medium uppercase" :style="{ color: 'var(--color-text-muted)' }">Benutzername</th>
             <th class="px-6 py-3 text-left text-xs font-medium uppercase" :style="{ color: 'var(--color-text-muted)' }">E-Mail</th>
             <th class="px-6 py-3 text-left text-xs font-medium uppercase" :style="{ color: 'var(--color-text-muted)' }">Rolle</th>
+            <th v-if="showTenants" class="px-6 py-3 text-left text-xs font-medium uppercase" :style="{ color: 'var(--color-text-muted)' }">Mandant</th>
             <th class="px-6 py-3 text-left text-xs font-medium uppercase" :style="{ color: 'var(--color-text-muted)' }">Status</th>
             <th class="px-6 py-3 text-left text-xs font-medium uppercase" :style="{ color: 'var(--color-text-muted)' }">Erstellt</th>
             <th class="px-6 py-3 text-right text-xs font-medium uppercase" :style="{ color: 'var(--color-text-muted)' }">Aktionen</th>
@@ -42,6 +43,9 @@
               >
                 {{ user.role }}
               </span>
+            </td>
+            <td v-if="showTenants" class="px-6 py-4 text-sm" :style="{ color: 'var(--color-text-muted)' }">
+              {{ tenantName(user.tenant_id) }}
             </td>
             <td class="px-6 py-4">
               <span 
@@ -152,6 +156,17 @@
               <option value="admin">Admin</option>
             </select>
           </div>
+          <!-- Mandant: nur der Betreiber ordnet Konten zu (nie das eigene) -->
+          <div v-if="showTenants && !(editingUser && editingUser.id === authStore.user?.id)">
+            <label class="block text-sm font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">Mandant</label>
+            <select v-model="form.tenant_id" class="w-full rounded px-3 py-2" :style="inputStyle">
+              <option :value="null">Betreiber (sieht alle Mandanten)</option>
+              <option v-for="tn in tenantStore.tenants" :key="tn.id" :value="tn.id">{{ tn.name }}</option>
+            </select>
+            <p class="text-xs mt-1" :style="{ color: 'var(--color-text-muted)' }">
+              Ein Konto mit Mandant sieht nur dessen Geräte, Logs und Updates – auch als Admin.
+            </p>
+          </div>
           <div v-if="editingUser" class="flex items-center">
             <input
               v-model="form.is_active"
@@ -230,6 +245,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { useTenantStore } from '../stores/tenantStore'
 import MfaSettings from '../components/MfaSettings.vue'
 
 const authStore = useAuthStore()
@@ -249,8 +265,21 @@ const form = ref({
   email: '',
   password: '',
   role: 'user',
-  is_active: true
+  is_active: true,
+  tenant_id: null
 })
+
+// Mandanten (stores/tenantStore.js): Spalte und Auswahl nur fuer den Betreiber
+const tenantStore = useTenantStore()
+const showTenants = computed(() => tenantStore.enabled && tenantStore.isProvider)
+function tenantName(id) {
+  if (id === null || id === undefined) return 'Betreiber'
+  return tenantStore.tenants.find(tn => tn.id === id)?.name || `#${id}`
+}
+function scopedTenant() {
+  const scoped = Number(tenantStore.scope)
+  return scoped > 0 ? scoped : null
+}
 
 // Computed Styles
 const cardStyle = computed(() => ({
@@ -278,7 +307,7 @@ const buttonSecondaryStyle = computed(() => ({
   border: '1px solid var(--color-border)'
 }))
 
-onMounted(() => loadUsers())
+onMounted(() => { loadUsers(); tenantStore.load() })
 onUnmounted(() => { if (qrCountdownTimer) clearInterval(qrCountdownTimer) })
 
 function formatQrCountdown(secs) {
@@ -350,7 +379,8 @@ function editUser(user) {
     password: '',
     current_password: '',
     role: user.role,
-    is_active: user.is_active
+    is_active: user.is_active,
+    tenant_id: user.tenant_id ?? null
   }
   if (user.id === authStore.user?.id) {
     generateQR()
@@ -360,7 +390,7 @@ function editUser(user) {
 function closeModal() {
   showCreateModal.value = false
   editingUser.value = null
-  form.value = { username: '', email: '', password: '', role: 'user', is_active: true }
+  form.value = { username: '', email: '', password: '', role: 'user', is_active: true, tenant_id: scopedTenant() }
   qrData.value = null
   qrError.value = ''
   if (qrCountdownTimer) clearInterval(qrCountdownTimer)
@@ -373,6 +403,9 @@ async function saveUser() {
         email: form.value.email,
         role: form.value.role,
         is_active: form.value.is_active
+      }
+      if (showTenants.value && (form.value.tenant_id ?? null) !== (editingUser.value.tenant_id ?? null)) {
+        data.tenant_id = form.value.tenant_id || 0
       }
       if (form.value.password) {
         data.password = form.value.password

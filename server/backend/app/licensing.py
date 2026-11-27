@@ -41,8 +41,9 @@ Geräte als "über Kontingent" geführt (gemeldet, aber weiter überwacht).
 Für die Monatsabrechnung wird je Gerät jeder aktive Tag festgehalten
 (`license_device_days`, siehe app/billing.py).
 
-Mandanten: Bis die Mandantenfähigkeit da ist, gilt der Standort (`site`) als
-Mandant. `tenant_of()` ist die einzige Stelle, die das entscheidet.
+Mandanten: Gehört ein Gerät einem Mandanten (app/tenancy.py), zählt es für
+diesen Mandanten (sein Name). Sonst gilt wie bisher der Standort (`site`).
+`tenant_of()` ist die einzige Stelle, die das entscheidet.
 """
 
 import asyncio
@@ -591,16 +592,20 @@ async def _after_change(db: AsyncSession, before: dict, actor: str) -> dict:
 # ==============================================================================
 # Geräte: erkennen, zählen, Plätze verteilen
 # ==============================================================================
-def tenant_of(row: Any) -> str:
+def tenant_of(row: Any, names: Optional[Dict[int, str]] = None) -> str:
     """Zu welchem Mandanten gehört ein Gerät?
 
-    Heute: Standort (`site`). Sobald die Mandantenfähigkeit da ist, liefert
-    das Gerät `tenant_key`/`tenant` - dann gilt das, ohne weitere Änderung.
+    Gehört es einem Mandanten (`tenant_id`, app/tenancy.py), dessen Name aus
+    `names` ({id: Name}). Sonst - Betreiber-Geräte oder ohne Mandanten - der
+    Standort (`site`).
     """
-    for attr in ("tenant_key", "tenant", "tenant_id"):
+    for attr in ("tenant_key", "tenant"):
         val = getattr(row, attr, None)
         if val not in (None, ""):
             return str(val)[:128]
+    tid = getattr(row, "tenant_id", None)
+    if tid is not None:
+        return str((names or {}).get(tid) or f"Mandant {tid}")[:128]
     return (str(getattr(row, "site", "") or "").strip() or DEFAULT_TENANT)[:128]
 
 
@@ -622,25 +627,37 @@ def _latest(*values: Optional[datetime]) -> Optional[datetime]:
 
 
 async def discover(db: AsyncSession) -> List[dict]:
-    """Alle überwachten Geräte mit Klasse, Mandant und letztem Lebenszeichen."""
+    """Alle überwachten Geräte mit Klasse, Mandant und letztem Lebenszeichen.
+
+    Immer über alle Mandanten (ALL_TENANTS) - die Lizenz zählt die ganze
+    Instanz, auch wenn der Betreiber gerade auf einen Mandanten umgeschaltet hat.
+    """
+    from . import tenancy
+    from .models import Tenant
+    every = tenancy.ALL_TENANTS
+    names = {tid: name for tid, name in (await db.execute(
+        select(Tenant.id, Tenant.name).execution_options(**every))).all()}
     found: List[dict] = []
     agents = (await db.execute(select(Agent).options(
-        defer(Agent.inventory), defer(Agent.docker_inventory), defer(Agent.extra_data)))).scalars().all()
+        defer(Agent.inventory), defer(Agent.docker_inventory), defer(Agent.extra_data))
+        .execution_options(**every))).scalars().all()
     for a in agents:
         found.append({"device_key": f"agent:{a.id}", "kind": "agent", "ref_id": a.id,
                       "name": a.hostname or f"Gerät {a.id}", "device_class": classify_agent(a),
-                      "tenant": tenant_of(a), "last_active": _latest(a.last_seen, a.rmm_last_seen)})
+                      "tenant": tenant_of(a, names), "last_active": _latest(a.last_seen, a.rmm_last_seen)})
     snmp = (await db.execute(select(SnmpDevice).options(
-        defer(SnmpDevice.state), defer(SnmpDevice.custom), defer(SnmpDevice.overrides)))).scalars().all()
+        defer(SnmpDevice.state), defer(SnmpDevice.custom), defer(SnmpDevice.overrides))
+        .execution_options(**every))).scalars().all()
     for s in snmp:
         found.append({"device_key": f"snmp:{s.id}", "kind": "snmp", "ref_id": s.id,
-                      "name": s.name or s.host, "device_class": "network", "tenant": tenant_of(s),
+                      "name": s.name or s.host, "device_class": "network", "tenant": tenant_of(s, names),
                       # Abgeschaltet = nicht überwacht = nicht gezählt.
                       "last_active": s.last_poll_at if s.enabled else None})
-    hosts = (await db.execute(select(PveHost).options(defer(PveHost.guests)))).scalars().all()
+    hosts = (await db.execute(select(PveHost).options(defer(PveHost.guests))
+                              .execution_options(**every))).scalars().all()
     for h in hosts:
         found.append({"device_key": f"pve:{h.id}", "kind": "pve", "ref_id": h.id,
-                      "name": h.name or h.url, "device_class": "hypervisor", "tenant": tenant_of(h),
+                      "name": h.name or h.url, "device_class": "hypervisor", "tenant": tenant_of(h, names),
                       # Proxmox meldet sich nicht von selbst: angebunden = überwacht.
                       "last_active": datetime.utcnow() if h.enabled else None})
     return found

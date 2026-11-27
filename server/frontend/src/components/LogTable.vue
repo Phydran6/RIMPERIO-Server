@@ -523,7 +523,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore, tenantHeaders } from '../stores/auth'
 
 const props = defineProps({
   // Fixiert die Liste auf genau ein Geraet (exakter Hostname-Vergleich).
@@ -894,7 +894,7 @@ async function exportLogs(format) {
     p.append('format', format)
 
     const res = await fetch(`/api/logs/export?${p}`, {
-      headers: authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {},
+      headers: { ...tenantHeaders(), ...(authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {}) },
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 

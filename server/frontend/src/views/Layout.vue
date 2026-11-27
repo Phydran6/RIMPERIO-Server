@@ -263,6 +263,24 @@
           <AppIcon name="key" :size="14" />
           <span class="hidden sm:inline">Lizenz</span>
         </router-link>
+        <!-- Mandant: Kunden sehen ihren Namen, Betreiber koennen umschalten -->
+        <span v-if="tenantStore.enabled && tenantStore.ownTenant" class="tenant-pill"
+              :title="t('tenants.ownTenant')">
+          <AppIcon name="stacks" :size="14" />
+          <span class="hidden sm:inline">{{ tenantStore.ownTenant.name }}</span>
+        </span>
+        <label v-else-if="tenantStore.enabled && tenantStore.isProvider" class="tenant-switch"
+               :class="{ 'is-scoped': !!tenantStore.scope }" :title="t('tenants.switchHint')">
+          <AppIcon name="stacks" :size="14" />
+          <select :value="tenantStore.scope" :aria-label="t('tenants.switchHint')"
+                  @change="tenantStore.setScope($event.target.value)">
+            <option value="">{{ t('tenants.allTenants') }}</option>
+            <option value="0">{{ t('tenants.providerOnly') }}</option>
+            <option v-for="tn in tenantStore.tenants" :key="tn.id" :value="String(tn.id)">
+              {{ tn.name }}{{ tn.is_active ? '' : ' (' + t('tenants.locked') + ')' }}
+            </option>
+          </select>
+        </label>
 
         <NotificationBell />
       </header>
@@ -285,6 +303,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useThemeStore } from '../stores/themeStore'
 import { useBrandingStore } from '../stores/brandingStore'
+import { useTenantStore } from '../stores/tenantStore'
 import { useI18n } from '../i18n'
 import { sectionsFor, isEntryActive, findActive, rowsFor } from '../navigation'
 import AppIcon from '../components/AppIcon.vue'
@@ -296,6 +315,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const themeStore = useThemeStore()
 const brandingStore = useBrandingStore()
+const tenantStore = useTenantStore()
 const { t, locale, locales, localeInfo, setLocale } = useI18n()
 
 const appVersion = pkg.version
@@ -361,7 +381,7 @@ const roleLabel = computed(() => (
 // =============================================================================
 // Menü
 // =============================================================================
-const sections = computed(() => sectionsFor(auth.isAdmin))
+const sections = computed(() => sectionsFor(auth.isAdmin, { provider: auth.isProvider }))
 const active = computed(() => findActive(sections.value, route))
 
 const searching = computed(() => query.value.trim().length > 0)
@@ -541,7 +561,7 @@ const proxyNotice = ref('')
 const PROXY_CHECK_KEY = 'rimperio.proxyAutoChecked'
 
 async function adoptExternalProxy() {
-  if (!auth.isAdmin || window.location.protocol !== 'https:') return
+  if (!auth.isSystemAdmin || window.location.protocol !== 'https:') return
   try {
     if (sessionStorage.getItem(PROXY_CHECK_KEY) === '1') return
     sessionStorage.setItem(PROXY_CHECK_KEY, '1')
@@ -569,7 +589,7 @@ let updateStream = null
 // (Community) ist alles in Ordnung - dann bleibt die Kopfzeile ruhig.
 const licenseNotice = ref('')
 async function checkLicense() {
-  if (!auth.isAdmin) return
+  if (!auth.isSystemAdmin) return
   try {
     const s = await auth.api('/api/license/summary')
     // Fehler gibt es nur, wenn eine Lizenz hinterlegt ist, die nicht (mehr) gilt.
@@ -580,7 +600,7 @@ async function checkLicense() {
 }
 
 function listenForUpdates() {
-  if (!auth.isAdmin || typeof EventSource === 'undefined') return
+  if (!auth.isSystemAdmin || typeof EventSource === 'undefined') return
   updateStream = auth.eventStream('/api/updates/stream', 'updates', (source) => {
     source.addEventListener('update.available', (event) => {
       try {
@@ -601,6 +621,7 @@ onMounted(() => {
     mediaQuery.addEventListener('change', syncWidth)
   }
   window.addEventListener('keydown', onKey)
+  tenantStore.load()
   listenForUpdates()
   checkLicense()
   adoptExternalProxy()
@@ -1108,6 +1129,38 @@ function handleLogout() {
   background: var(--warning-soft, #fef3c7);
   color: var(--color-warning, #b45309);
   margin-right: 0.5rem;
+}
+
+/* ------------------------------------------------------------------ Mandant */
+.tenant-pill,
+.tenant-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  max-width: 14rem;
+}
+
+.tenant-switch select {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  max-width: 11rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.tenant-switch.is-scoped,
+.tenant-pill {
+  background-color: var(--primary-soft);
+  border-color: transparent;
+  color: var(--color-primary);
 }
 
 .update-pill:hover {

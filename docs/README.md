@@ -9,6 +9,7 @@ sortiert, nicht nach Bauteilen.
 |------------|----------|
 | RIMPERIO aufsetzen | [Installation](install/README.md) |
 | wissen, ob mein Server reicht | [Installation → Systemprüfung](install/README.md#systemprüfung) |
+| mehrere Kunden betreuen (Mandanten oder eine Instanz je Kunde) | [Mandanten](tenants/README.md) |
 | Portainer, Tugtainer, n8n, Open WebUI, Postfix dazunehmen | [Installation → Zusatzdienste](install/README.md#zusatzdienste) |
 | täglich damit arbeiten | [Betrieb](operate/README.md) |
 | die Oberfläche auf Englisch stellen | [Betrieb → Sprache](operate/README.md#sprache) |

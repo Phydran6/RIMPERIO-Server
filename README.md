@@ -30,6 +30,7 @@ alles im Browser.
 | **Melden & Auswerten** | Mail, Telegram, Webhook/n8n; KI-Auswertung (Claude, ChatGPT, Open WebUI lokal); Handy-App |
 | **Zugang** | Benutzer und Rollen, MFA, Passkeys, LDAP, Microsoft 365 (SSO), Zugangsschlüssel und Einladungen; **Zugangsdaten in Vaultwarden** (per HTTPS, Ende-zu-Ende verschlüsselt) |
 | **Lizenz & Abrechnung** | Server lizenzfrei (Community); Lizenz je Gerät, Instanz oder Mandant – gesteuert über ein GitHub-Lizenz-Repository oder eigenen Lizenz-Endpunkt; Geräte lizenzieren sich selbst; **Abrechnung je Gerät** mit eigenen Preisen (Klasse, Mandant, Gerät), Monatsabrechnung, CSV, Abrechnungs-API – [mehr](docs/license/README.md) |
+| **Mandanten** | Auf Wunsch **mandantenfähig**: eine Instanz, mehrere Kunden, sauber getrennt (eigene Konten, Geräte, Logs, Updates, Meldungen; Betreiber schaltet um) – beim Installieren (`--multi-tenant`) oder jederzeit später. Oder **eine Instanz je Kunde** auf demselben Server (`--instance kunde1`) – [Mandanten](docs/tenants/README.md) |
 | **Betrieb** | Updates per Klick, Sicherungen (auch verschlüsselt), Konsole im Browser, Container-Verwaltung, Plattenwächter, Systemtagebuch, TLS/Reverse Proxy |
 
 ## Schnellstart
@@ -63,6 +64,7 @@ nicht als root, und liegen unter `/opt/RMM/rimperio`
 | Ich will … | Hier |
 |---|---|
 | installieren, aktualisieren, deinstallieren | [docs/install](docs/install/README.md) · [docs/updates](docs/updates/README.md) |
+| mehrere Kunden betreuen | [docs/tenants](docs/tenants/README.md) |
 | den Betrieb verstehen (Platte, Aufbewahrung, Wächter) | [docs/operate](docs/operate/README.md) · [docs/backup](docs/backup/README.md) |
 | Rechner fernwarten, Agent bauen und signieren | [agent](agent/README.md) · [agent/installer](agent/installer/README.md) |
 | Logs von Geräten einsammeln | [agent/logship](agent/logship/README.md) · [docs/integrations](docs/integrations/README.md) |

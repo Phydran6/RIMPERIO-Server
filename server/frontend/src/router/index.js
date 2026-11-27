@@ -24,6 +24,7 @@
 
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { tenantMayOpen } from '../navigation'
 
 // =============================================================================
 // Route-Definitionen
@@ -84,6 +85,7 @@ const routes = [
       },
 
       // --- Fernwartung (RMM) --------------------------------------------------
+      { path: 'tenants', name: 'Tenants', component: () => import('../views/Tenants.vue'), meta: { admin: true, provider: true } },
       { path: 'rmm', name: 'RmmAgents', component: () => import('../views/RmmAgents.vue') },
       { path: 'rmm/agents/:uid', name: 'RmmAgentDetail', component: () => import('../views/RmmAgentDetail.vue') },
       { path: 'rmm/scripts', name: 'RmmScripts', component: () => import('../views/RmmScripts.vue') },
@@ -299,6 +301,10 @@ router.beforeEach(async (to, from, next) => {
   // Admin-Bereiche: Nicht-Admins landen auf dem Dashboard statt in einer
   // Ansicht, die ihnen ohnehin nur Fehler zeigen würde.
   if (to.meta.admin && !auth.isAdmin) return next('/')
+  // Mandanten-Konten: nur, was ihren Mandanten betrifft - keine Server- und
+  // Instanz-Einstellungen (der Server sperrt sie ohnehin).
+  if (!auth.isProvider && !tenantMayOpen(to)) return next('/')
+  if (to.meta.provider && !auth.isProvider) return next('/')
 
   next()
 })

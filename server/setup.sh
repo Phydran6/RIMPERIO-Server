@@ -293,8 +293,38 @@ ask_ref() {
     [[ "$c" == "2" ]] && ask_required REF "Release, Tag oder Commit (z.B. v2026.09.10)" ""
 }
 
+# Setzt INSTANCE (leer = Standard-Instanz) und passt SERVER_DIR_DEFAULT an.
+ask_instance() {
+    echo ""
+    echo "  Mehrere RIMPERIO auf diesem Server? Für eine weitere, eigenständige"
+    echo "  Instanz (z.B. je Kunde) einen Namen angeben - sie bekommt eigenes"
+    echo "  Verzeichnis, eigene Datenbank und eigene Ports. Leer = Standard-Instanz."
+    INSTANCE=""
+    ask INSTANCE "Name der Instanz" ""
+    INSTANCE="${INSTANCE,,}"
+    INSTANCE="${INSTANCE#rimperio-}"
+    if [[ -n "$INSTANCE" ]]; then
+        [[ "$INSTANCE" =~ ^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$ ]] \
+            || fail "Ungültiger Name '$INSTANCE' (a-z, 0-9, Bindestrich)."
+        SERVER_DIR_DEFAULT="/opt/rimperio-${INSTANCE}"
+    fi
+}
+
+# Setzt MULTITENANT (true|false)
+ask_multitenant() {
+    echo ""
+    echo "  Mandanten: soll diese Instanz mehrere Kunden getrennt verwalten?"
+    echo "    Jeder Kunde bekommt eigene Konten und sieht nur seine Geräte, Logs"
+    echo "    und Updates. Später jederzeit unter Benutzer -> Mandanten änderbar."
+    MULTITENANT="false"
+    if yes_no "Mandantenfähig einrichten?" "n"; then
+        MULTITENANT="true"
+    fi
+}
+
 server_install() {
     heading "RIMPERIO-Server installieren"
+    ask_instance
     ask_server_dir
     if server_installed "$SERVER_DIR"; then
         log_warn "In $SERVER_DIR ist RIMPERIO schon installiert."
@@ -306,6 +336,7 @@ server_install() {
     fi
     ask_addons
     ask_https
+    ask_multitenant
     ask_ref
 
     local skip=""
@@ -314,8 +345,11 @@ server_install() {
         skip="--skip-preflight"
     fi
 
-    local args=(install --dir "$SERVER_DIR")
+    local args=(install)
+    [[ -n "$INSTANCE" ]] && args+=(--instance "$INSTANCE")
+    args+=(--dir "$SERVER_DIR")
     [[ -n "$ADDON_LIST" ]] && args+=(--with "$ADDON_LIST") || args+=(--no-addons)
+    [[ "$MULTITENANT" == "true" ]] && args+=(--multi-tenant)
     [[ -n "$DOMAIN" ]] && args+=(--domain "$DOMAIN" --tls "$TLS_MODE")
     [[ -n "$ACME_EMAIL" ]] && args+=(--email "$ACME_EMAIL")
     [[ -n "$REF" ]] && args+=(--ref "$REF")

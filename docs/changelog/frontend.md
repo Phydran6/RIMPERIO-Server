@@ -2,6 +2,16 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.2.0
+
+### Added
+- **Benutzer → Mandanten** (`views/Tenants.vue`, nur Betreiber-Admins): ein-/ausschalten, Mandanten anlegen (optional mit Übernahme des bisherigen Bestands), bearbeiten, sperren, löschen (Bestand an Betreiber oder anderen Mandanten), „Ansehen“; Zuordnen von Geräten, Schlüsseln, Proxmox-Hosts, SNMP, Skripten, Checks, Richtlinien.
+- **Umschalter in der Kopfzeile** für Betreiber (alle / nur Betreiber / je Mandant), Kopf `X-Rimperio-Tenant` an jeder Anfrage (`stores/tenantStore.js`, `stores/auth.js`). Kunden-Konten sehen ihren Mandanten als Plakette.
+- **Benutzer:** Spalte und Auswahl „Mandant“. **Zugangsschlüssel:** Mandant beim Anlegen, Anzeige in der Liste.
+
+### Changed
+- Menü und Router-Wächter: Kunden-Konten sehen nur, was ihren Mandanten betrifft (Geräte, Logs, Überwachung, Patchmanagement, Skripte, Benutzer, Mein Konto) – keine Server-, Integrations- und Instanz-Einstellungen (`navigation.js`: `TENANT_KEYS`, `tenantMayOpen`). Update-Meldung und Proxy-Übernahme nur für Betreiber-Admins.
+
 ## 0.1.0
 
 ### Added

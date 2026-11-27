@@ -21,7 +21,7 @@ from ..database import get_db, async_session
 from ..models import Log, Agent, User
 from ..schemas import LogResponse, LogDetailResponse, LogListResponse, LogStatsResponse
 from ..auth import get_current_user
-from .. import logparse
+from .. import logparse, tenancy
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/logs", tags=["Logs"])
@@ -84,8 +84,9 @@ def _readable_items(rows: list) -> list:
     return items
 
 # Kleiner In-Memory-Cache für Dashboard-Stats, um wiederholte Aufrufe zu entlasten
-_stats_cache = None
-_stats_cache_expires = datetime.min
+# Je Mandanten-Ansicht ein eigener Eintrag (Schluessel: tenancy.current()) -
+# sonst saehe ein Kunde 30 Sekunden lang die Zahlen der ganzen Instanz.
+_stats_cache: dict = {}
 _stats_cache_lock = asyncio.Lock()
 _stats_cache_ttl = int(os.getenv("LOG_STATS_CACHE_SECONDS", "30"))
 
@@ -319,9 +320,7 @@ async def list_logs(
         count_query = _apply_filters(select(func.count(Log.id)), **filter_args)
         total = (await db.execute(count_query)).scalar() or 0
     else:
-        total = (await db.execute(text(
-            "SELECT GREATEST(reltuples::bigint, 0) FROM pg_class WHERE relname = 'logs'"
-        ))).scalar() or 0
+        total = await tenancy.log_total(db)
 
     logger.info(f"Log-Filter Ergebnis: {total} Treffer")
 
@@ -377,23 +376,24 @@ async def get_recent_logs(limit: int = Query(10, ge=1, le=100),
     rows = result.mappings().all()
     items = _readable_items(rows) if readable else [dict(row) for row in rows]
     if response is not None:
-        response.headers["Cache-Control"] = "public, max-age=15"
+        response.headers["Cache-Control"] = "private, max-age=15"
     return items
 
 
 @router.get("/stats", response_model=LogStatsResponse)
 async def get_log_stats(db: AsyncSession = Depends(get_db), _=Depends(get_current_user), response: Response = None):
     """Schnelle Dashboard-Stats mit kurzem Cache, um DB-Last zu senken."""
-    global _stats_cache, _stats_cache_expires
-
+    key = tenancy.current()
     now = datetime.utcnow()
-    if _stats_cache and now < _stats_cache_expires:
-        return _stats_cache
+    hit = _stats_cache.get(key)
+    if hit and now < hit[0]:
+        return hit[1]
 
     async with _stats_cache_lock:
         now = datetime.utcnow()
-        if _stats_cache and now < _stats_cache_expires:
-            return _stats_cache
+        hit = _stats_cache.get(key)
+        if hit and now < hit[0]:
+            return hit[1]
 
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -403,9 +403,7 @@ async def get_log_stats(db: AsyncSession = Depends(get_db), _=Depends(get_curren
         by_source = dict((await db.execute(select(Log.source, func.count(Log.id)).where(Log.timestamp >= today).group_by(Log.source).order_by(desc(func.count(Log.id))).limit(10))).all())
 
         # Gesamtzahl aus pg_class Statistik (sofort, kein Full-Scan über 8M+ Zeilen)
-        total = (await db.execute(text(
-            "SELECT GREATEST(reltuples::bigint, 0) FROM pg_class WHERE relname = 'logs'"
-        ))).scalar() or 0
+        total = await tenancy.log_total(db)
 
         # Unique Hosts aus agents-Tabelle (7 Zeilen statt 41k+ Logs scannen)
         unique = (await db.execute(select(func.count(Agent.id)))).scalar() or 0
@@ -418,10 +416,9 @@ async def get_log_stats(db: AsyncSession = Depends(get_db), _=Depends(get_curren
             unique_hosts=unique
         )
 
-        _stats_cache = stats
-        _stats_cache_expires = datetime.utcnow() + timedelta(seconds=_stats_cache_ttl)
+        _stats_cache[key] = (datetime.utcnow() + timedelta(seconds=_stats_cache_ttl), stats)
         if response is not None:
-            response.headers["Cache-Control"] = f"public, max-age={_stats_cache_ttl}"
+            response.headers["Cache-Control"] = f"private, max-age={_stats_cache_ttl}"
         return stats
 
 

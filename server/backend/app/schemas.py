@@ -74,6 +74,9 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
+    # Mandant (nur Betreiber duerfen ihn waehlen; leer = Betreiber-Konto bzw.
+    # beim Mandanten-Admin automatisch dessen Mandant)
+    tenant_id: Optional[int] = None
 
     @field_validator("password")
     @classmethod
@@ -88,6 +91,8 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    # Mandant wechseln: nur der Betreiber. 0 = Betreiber-Konto (kein Mandant).
+    tenant_id: Optional[int] = None
     password: Optional[str] = Field(default=None, min_length=8, max_length=128)
     # Pflicht, wenn jemand SEIN EIGENES Passwort aendert. Ohne das genuegte eine
     # gueltige Sitzung, um das Passwort zu setzen - wer sich einen Token
@@ -111,6 +116,7 @@ class UserResponse(UserBase):
     id: int
     is_active: bool
     must_change_password: bool = False
+    tenant_id: Optional[int] = None
     created_at: datetime
     class Config:
         from_attributes = True

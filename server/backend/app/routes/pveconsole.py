@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import journal, pve, pvepatch, pveterm
+from .. import journal, pve, pvepatch, pveterm, tenancy
 from ..auth import admin_from_token, get_current_admin, get_current_user
 from ..database import async_session, get_db
 from ..limiter import client_ip as real_client_ip
@@ -130,7 +130,8 @@ async def all_updates(force: bool = Query(False), db: AsyncSession = Depends(get
     for h in hosts:
         db.expunge(h)
     results = await asyncio.gather(*(_collect_updates(h, force) for h in hosts))
-    jobs = pveterm.jobs_for()
+    visible = {h.id for h in hosts}
+    jobs = [j for j in pveterm.jobs_for() if tenancy.current() is None or j.get("host_id") in visible]
     return {"hosts": list(results), "jobs": jobs,
             "total": sum(n.get("count", 0) for r in results for n in r["nodes"])}
 
@@ -189,13 +190,25 @@ async def reboot(host_id: int, node: str, data: ConfirmIn, db: AsyncSession = De
 
 
 @router.get("/jobs")
-async def jobs(host_id: Optional[int] = Query(None), _: User = Depends(get_current_user)):
-    return {"items": pveterm.jobs_for(host_id)}
+async def jobs(host_id: Optional[int] = Query(None), db: AsyncSession = Depends(get_db),
+               _: User = Depends(get_current_user)):
+    items = pveterm.jobs_for(host_id)
+    if tenancy.current() is not None:
+        visible = await _visible_hosts(db)
+        items = [j for j in items if j.get("host_id") in visible]
+    return {"items": items}
+
+
+async def _visible_hosts(db: AsyncSession) -> set:
+    """Proxmox-Hosts, die der Anfragende sehen darf (Mandanten-Filter greift)."""
+    return set((await db.execute(select(PveHost.id))).scalars().all())
 
 
 @router.get("/jobs/{job_id}")
-async def job(job_id: str, _: User = Depends(get_current_user)):
+async def job(job_id: str, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     j = pveterm.JOBS.get(job_id)
+    if j is not None and tenancy.current() is not None and j.get("host_id") not in await _visible_hosts(db):
+        j = None
     if j is None:
         raise HTTPException(status_code=404, detail="Unbekannter Vorgang (nach einem Neustart des Servers vergessen).")
     return pveterm.public_job(j)
@@ -248,13 +261,16 @@ async def patch_host(host_id: int, data: PatchRunIn, db: AsyncSession = Depends(
 
 
 @router.get("/patching/runs/{run_id}")
-async def patch_run(run_id: str, _: User = Depends(get_current_user)):
+async def patch_run(run_id: str, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     run = pvepatch.RUNS.get(run_id)
+    visible = await _visible_hosts(db) if tenancy.current() is not None else None
     if run is None:
         old = next((r for r in await pvepatch.history() if r.get("id") == run_id), None)
-        if old is None:
+        if old is None or (visible is not None and old.get("host_id") not in visible):
             raise HTTPException(status_code=404, detail="Unbekannter Patch-Lauf.")
         return old
+    if visible is not None and run.get("host_id") not in visible:
+        raise HTTPException(status_code=404, detail="Unbekannter Patch-Lauf.")
     return pvepatch.public_run(run)
 
 

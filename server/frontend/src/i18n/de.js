@@ -107,6 +107,7 @@ export default {
     webhooks: 'Webhooks',
     ai: 'KI-Anbieter',
     users: 'Benutzer',
+    tenants: 'Mandanten',
     sso: 'Microsoft 365 / Entra ID (SSO)',
     ldap: 'Active Directory / LDAP',
     password: 'Passwort',
@@ -155,6 +156,13 @@ export default {
     toDark: 'Zu dunklem Design wechseln',
   },
 
+  tenants: {
+    ownTenant: 'Ihr Mandant',
+    switchHint: 'Ansicht auf einen Mandanten beschränken',
+    allTenants: 'Alle Mandanten',
+    providerOnly: 'Nur Betreiber (ohne Mandant)',
+    locked: 'gesperrt',
+  },
   backup: {
     title: 'Sicherung & Wiederherstellung',
     intro: 'Sicherungen liegen als ZIP-Datei auf dem Server. Was hineinkommt, ' +
