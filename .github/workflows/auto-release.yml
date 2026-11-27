@@ -123,7 +123,26 @@ jobs:
           awk -v v="## v$VERSION" '!on && ($0 == v || index($0, v " ") == 1) {on=1; print; next} on && /^## v/ {exit} on {print}' \
             docs/changelog/releases.md > notes.md || true
           [ -s notes.md ] || echo "RIMPERIO $VERSION" > notes.md
+          # Links in releases.md sind relativ zu docs/changelog/ - auf der
+          # Release-Seite fuehrten sie ins Leere. Hier absolut machen.
+          base="https://github.com/${GITHUB_REPOSITORY}/blob/main/docs"
+          sed -i -E "s#\]\(\.\./#](${base}/#g; s#\]\(([^):\#/][^):]*)\)#](${base}/changelog/\1)#g" notes.md
           title="$(head -n1 notes.md | sed 's/^## //')"
+          # Hinweis zu den Agent-Dateien - genau einmal. Die Dateien haengt
+          # agent-release.yml danach an (ohne den Text noch einmal anzufuegen).
+          cat >> notes.md <<'AGENT'
+
+          RIMPERIO-Agent für Windows (`.exe`, `.msi`) und Linux (amd64, arm64, armv7, armv6 –
+          Raspberry Pi mit 32- und 64-Bit-System),
+          gebaut von GitHub Actions ausschließlich aus dem Quellcode dieses Repositorys.
+
+          Installation und Verteilung: [agent/installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/agent/installer/README.md)
+
+          **Code signing:** Free code signing provided by [SignPath.io](https://about.signpath.io/),
+          certificate by [SignPath Foundation](https://signpath.org/).
+          See the [code signing policy](https://github.com/Phydran6/RIMPERIO-Server#code-signing-policy)
+          and [privacy policy](https://github.com/Phydran6/RIMPERIO-Server#privacy-policy).
+          AGENT
           extra=()
           [ "$PRERELEASE" = "true" ] && extra+=(--prerelease)
           gh release create "$TAG" --title "$title" --notes-file notes.md --verify-tag "${extra[@]}"

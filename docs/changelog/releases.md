@@ -18,6 +18,8 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
   Höchstzahl bekommen die zuerst angelegten die Plätze; Geräte des Betreibers zählen nicht mit.
 - **Grundgebühr je Mandant** in der Abrechnung – für jeden Mandanten, auch ohne Geräte, je Mandant änderbar.
 - *Benutzer → Mandanten* zeigt den Lizenzstand.
+- **Release-Seite:** der Hinweis zu den Agent-Dateien steht nur noch einmal da, Links aus dem Release-Verlauf
+  führen auf GitHub statt ins Leere.
 
 ## v0.2.0 (2026-11-27) – Mandantenfähig, auf Wunsch
 
