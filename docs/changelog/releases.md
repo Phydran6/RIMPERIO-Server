@@ -18,10 +18,10 @@ heißt jede Version `MAJOR.MINOR.PATCH`: Fehlerbehebungen zählen `PATCH` hoch, 
 `MAJOR`. Das Release-Tag ist `v` + Version, also `v0.0.1`. Einzelheiten: [Versionsschema](README.md#versionsschema).
 
 - Inhaltlich gleich mit `v2026.11.27.14.00.00`: nur die Nummer wechselt.
-- **Server, die noch vor `v2026.11.27.14.00.00` stehen**, sehen `0.0.1` als Rückschritt. Einmalig auf der
-  Kommandozeile aktualisieren:
-  `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v0.0.1`
-  Danach läuft alles wieder über *RIMPERIO-Server → Updates*.
+- **Server, die noch vor `v2026.11.27.14.00.00` stehen**, zeigen bei `0.0.1` „Server ist voraus“ statt eines
+  Updates. Einmalig, ohne Kommandozeile: *RIMPERIO-Server → Updates* → Kanal **Festgelegt** → `v2026.11.27` →
+  einspielen → danach den Kanal wieder auf **Stabil** stellen; dann wird `0.0.1` normal angeboten.
+  Oder direkt auf dem Server: `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v0.0.1`
 
 ## v2026.11.27.14.00.00 (2026-11-27) – Vorbereitung auf Semantic Versioning
 
