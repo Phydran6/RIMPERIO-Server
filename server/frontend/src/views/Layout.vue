@@ -258,6 +258,11 @@
           <span class="hidden sm:inline">{{ t('updates.updateAvailable') }}</span>
         </router-link>
 
+        <!-- Lizenz: Kontingent erschöpft, läuft ab, nicht mehr gültig -->
+        <router-link v-if="licenseNotice" to="/license" class="license-pill" :title="licenseNotice">
+          <AppIcon name="key" :size="14" />
+          <span class="hidden sm:inline">Lizenz</span>
+        </router-link>
         <!-- Mandant: Kunden sehen ihren Namen, Betreiber koennen umschalten -->
         <span v-if="tenantStore.enabled && tenantStore.ownTenant" class="tenant-pill"
               :title="t('tenants.ownTenant')">
@@ -580,6 +585,20 @@ async function adoptExternalProxy() {
 const updateNotice = ref('')
 let updateStream = null
 
+// Lizenz: nur Administratoren, nur wenn es etwas zu tun gibt. Ohne Lizenz
+// (Community) ist alles in Ordnung - dann bleibt die Kopfzeile ruhig.
+const licenseNotice = ref('')
+async function checkLicense() {
+  if (!auth.isSystemAdmin) return
+  try {
+    const s = await auth.api('/api/license/summary')
+    // Fehler gibt es nur, wenn eine Lizenz hinterlegt ist, die nicht (mehr) gilt.
+    licenseNotice.value = [...(s.warnings || []), ...(s.errors || [])].join(' ')
+  } catch {
+    licenseNotice.value = ''
+  }
+}
+
 function listenForUpdates() {
   if (!auth.isSystemAdmin || typeof EventSource === 'undefined') return
   updateStream = auth.eventStream('/api/updates/stream', 'updates', (source) => {
@@ -604,6 +623,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKey)
   tenantStore.load()
   listenForUpdates()
+  checkLicense()
   adoptExternalProxy()
   loadCounters()
   counterTimer = setInterval(loadCounters, 60000)
@@ -1096,6 +1116,19 @@ function handleLogout() {
 .proxy-pill {
   background-color: var(--success-soft);
   color: var(--color-success);
+}
+
+.license-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--warning-soft, #fef3c7);
+  color: var(--color-warning, #b45309);
+  margin-right: 0.5rem;
 }
 
 /* ------------------------------------------------------------------ Mandant */

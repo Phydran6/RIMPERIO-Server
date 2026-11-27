@@ -50,7 +50,7 @@ NC='\033[0m'
 # Konfiguration (Vorrang: Parameter > Umgebungsvariable > Default)
 # ==============================================================================
 
-RIMPERIO_VERSION="0.1.0"
+RIMPERIO_VERSION="0.2.0"
 
 INSTALL_DIR="${RIMPERIO_DIR:-/opt/rimperio}"
 REPO_URL="${RIMPERIO_REPO:-https://github.com/Phydran6/RIMPERIO-Server.git}"

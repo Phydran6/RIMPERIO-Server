@@ -37,6 +37,9 @@ sortiert, nicht nach Bauteilen.
 | das Ganze mit einer lokalen KI, ohne Datenabfluss | [Integrationen → Open WebUI](integrations/README.md#open-webui) |
 | Mails vom Server bekommen | [Integrationen → Mail](integrations/README.md#mail-postfix) |
 | die API benutzen | [API](api/README.md) |
+| RIMPERIO als Systemhaus je Gerät abrechnen | [Lizenz & Abrechnung](license/README.md) |
+| wissen, wann eine Lizenz nötig ist (je Gerät, Instanz, Mandant) | [Lizenz & Abrechnung](license/README.md) |
+| Lizenzen über GitHub ausstellen und widerrufen | [Lizenzen ausstellen](../licensing/README.md) |
 | Rechner fernwarten (Befehle, Skripte, Patches, Checks) | [Fernwartung](rmm/README.md) |
 | Windows, Linux und Docker patchen (Freigaben, KI, Proxmox-Snapshot) | [Patchmanagement](rmm/patching.md) |
 | Netzwerkgeräte per SNMP überwachen | [SNMP](rmm/snmp.md) |

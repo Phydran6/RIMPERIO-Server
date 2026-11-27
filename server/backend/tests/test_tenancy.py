@@ -105,6 +105,19 @@ class Criteria(unittest.TestCase):
         self.assertIn("agents.tenant_id IS NULL", text)
 
 
+class Licensing(unittest.TestCase):
+    def test_tenant_name_wins_over_site(self):
+        from app import licensing as lic
+        agent = Agent(id=1, hostname="a", tenant_id=3, site="Lager")
+        self.assertEqual(lic.tenant_of(agent, {3: "Müller GmbH"}), "Müller GmbH")
+        self.assertEqual(lic.tenant_of(agent), "Mandant 3")
+
+    def test_without_tenant_site_as_before(self):
+        from app import licensing as lic
+        agent = Agent(id=1, hostname="a", tenant_id=None, site="Lager")
+        self.assertEqual(lic.tenant_of(agent, {3: "Müller GmbH"}), "Lager")
+
+
 class Policies(unittest.TestCase):
     def pol(self, pid, tenant_id, scope="global", value="", priority=100):
         return PatchPolicy(id=pid, name=f"p{pid}", enabled=True, tenant_id=tenant_id, scope_type=scope,

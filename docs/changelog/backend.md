@@ -2,7 +2,7 @@
 
 FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
-## 0.1.0
+## 0.2.0
 
 ### Added
 - **Mandanten** (`app/tenancy.py`, `app/routes/tenants.py`): Tabelle `tenants`, Spalte `tenant_id` an `users`, `agents`, `agent_tokens`, `pve_hosts`, `notifications`, `snmp_devices`, `snmp_credentials` (genau ein Mandant) und `scripts`, `checks`, `patch_policies`, `snmp_templates` (leer = für alle). Angelegt als erster Start-Schritt (`ensure_tenant_schema`).
@@ -15,12 +15,25 @@ FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versio
 - **Schalter:** Einstellung `tenancy` (`enabled`, `env_seen`); `RIMPERIO_MULTITENANT=true` schaltet beim ersten Start oder beim ersten Start nach dem Setzen ein.
 - **Instanzname** `RIMPERIO_NAME` (Vorsilbe der Container; `settings.container()`), genutzt für Zusatzdienste, Datenbank-Umzug und Hinweise.
 - **NAS und Sicherungen:** `tenant_id` an `nas_devices`, `backup_targets`, `backup_jobs`; `nas_jobs` und `backup_runs` über ihr Eltern-Objekt. Mandanten sehen, aktualisieren und sichern; Anlegen, Verbindungen, Herunterladen und Zurückspielen bleiben beim Betreiber. Die Sicherung von RIMPERIO selbst lässt sich keinem Mandanten zuordnen.
+- **Lizenz und Abrechnung:** `licensing.tenant_of()` nimmt den Namen des Mandanten (Geräte ohne Mandant weiter nach Standort); die Geräte-Erkennung zählt immer über alle Mandanten, auch in einer umgeschalteten Ansicht.
 - **Tests:** `tests/test_tenancy.py`.
 
 ### Changed
 - Eindeutigkeit von Geräten je Mandant: Index `idx_agents_hostname_ip_tenant` (Hostname, IP, Mandant) ersetzt `idx_agents_hostname_ip`.
 - Log-Zahlen (`/api/logs`, `/api/logs/stats`, App-Übersicht): mit Mandant exakt gezählt statt der Instanz-Schätzung; Zwischenspeicher je Ansicht, `Cache-Control: private`, `Vary: Authorization, X-Rimperio-Tenant`.
 - Proxmox-Vorgänge und -Läufe (im Speicher) nur für sichtbare Hosts. SNMP über den Server ist Mandanten verwehrt (eigener Agent als Abfragepunkt).
+
+## 0.1.0
+
+### Added
+- **Lizenz (`app/licensing.py`, `app/license_keys.py`):** Der Server bleibt lizenzfrei (Community, `COMMUNITY_FEATURES` leer – die Überwachung ist nie eine Funktion). Lizenzmodelle `per_device` (optional `max_devices`), `per_instance`, `per_tenant` (optional `max_tenants`); Funktionen `billing`, `billing_api`, `tenants`. Lizenzdatei `rimperio-license/1`: Ed25519-signiert über kanonisches JSON, öffentliche Schlüssel nur im Code (`TRUSTED_KEYS`). Prüft Instanz-ID, Status (`active`/`suspended`/`revoked`), `valid_from`/`valid_until`, Kulanz `grace_days`; Rollback auf älteres `issued_at` derselben Lizenz wird ignoriert.
+- **Lizenzquellen** (Einstellung `license_source`): `github` (`<repo>/<branch>/<pfad>/<instanz-id>.json`, raw bzw. API mit `RIMPERIO_LICENSE_GITHUB_TOKEN`/`GITHUB_TOKEN` für private Repositories), `url` (eigener Lizenz-Endpunkt: POST mit Instanz-ID, Version, Nutzung; optional Bearer-Token), `manual` (Upload). Online bezogene Lizenzen müssen sich innerhalb von `grace_days` bestätigen, sonst Community. Instanz-ID in `license_instance`, Zustand in `license_state`.
+- **Geräte lizenzieren sich selbst:** Tabellen `license_devices`, `license_device_days`. Takt alle 5 min (`licensing.loop`): Rechner/Log-Quellen (`agents`), SNMP-Geräte, Proxmox-Hosts erkennen, Klasse (`windows_server`, `windows_client`, `linux`, `macos`, `network`, `hypervisor`, `log_source`, `other`) und Mandant (`tenant_of`: heute Standort, später `tenant_key`/`tenant`/`tenant_id`) bestimmen, Plätze verteilen (`allocate`: wer einen Platz hat, behält ihn; inaktiv nach `release_after_days` gibt ihn frei; „nicht abrechnen“ belegt keinen), aktive Tage festhalten. Über Kontingent: Systemtagebuch + Meldung `license`, Überwachung läuft weiter.
+- **Abrechnung (`app/billing.py`):** Preise in `billing_config` – Standard, je Klasse, je Mandant (Standard, Klassenpreise, Grundgebühr, Mindestbetrag, Rabatt, Inklusiv-Geräte, nicht abrechnen), je Gerät; Klassen abschaltbar; Steuer. Zählweisen `month` (ab `min_days`), `prorata`, `peak`. Monatsabrechnung je Mandant, Festschreiben in `billing_statements` (automatisch am Monatsersten mit Lizenz), CSV (`;`, Dezimalkomma, BOM) je Position oder je Gerät. Nachweis 800 Tage.
+- **API `/api/license/*`:** `summary` (alle), `status`, `request`, `source`, `check`, `upload`, `remove` (ENTFERNEN), `instance/regenerate` (NEU), `sync`, `devices` (+ PATCH), `billing/config`, `billing/report`, `billing/report.csv` (Ticket-Zweck `license-export`), `billing/statements[/{monat}]`, `api-keys`. **Abrechnungs-API** `/api/license/v1/status|devices|usage` mit Schlüssel `rbk_…` (nur Prüfsumme gespeichert), 60/min. Enterprise-Funktionen antworten ohne Lizenz mit 402.
+- **Werkzeug `licensing/rimperio_license.py`** (`keygen`, `new`, `sign`, `sign-dir`, `verify`) und Vorlage für das Lizenz-Repository mit Signier-Action (`licensing/repo-template/`).
+- Systemtagebuch-Kategorie `license`, Meldungsereignis `license`.
+- **Tests:** `server/backend/tests/test_licensing.py` (Signatur Werkzeug ↔ Server, Bewertung, Kontingent, Preise, Zählweisen, CSV).
 
 ## 2026.11.27.14.00.00
 

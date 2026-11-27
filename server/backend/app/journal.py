@@ -64,6 +64,7 @@ CATEGORIES: Dict[str, str] = {
     "archiving": "Archivierung",
     "mail": "Mail",
     "ai": "KI-Auswertung",
+    "license": "Lizenz",
     "system": "System",
 }
 

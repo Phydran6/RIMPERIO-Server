@@ -3,7 +3,7 @@
 Datenbank-Image & Deploy-Konfiguration (`docker-compose.yml`, `db/`, `install.sh`).
 Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
-## 0.1.0
+## 0.2.0
 
 ### Added
 - `install.sh --multi-tenant` (Rückfrage im manuellen Modus, `RIMPERIO_MULTITENANT` in der `.env`), `--single-tenant`.

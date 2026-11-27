@@ -2,7 +2,7 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
-## 0.1.0
+## 0.2.0
 
 ### Added
 - **Benutzer → Mandanten** (`views/Tenants.vue`, nur Betreiber-Admins): ein-/ausschalten, Mandanten anlegen (optional mit Übernahme des bisherigen Bestands), bearbeiten, sperren, löschen (Bestand an Betreiber oder anderen Mandanten), „Ansehen“; Zuordnen von Geräten, Schlüsseln, Proxmox-Hosts, SNMP, Skripten, Checks, Richtlinien.
@@ -11,6 +11,14 @@ Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
 ### Changed
 - Menü und Router-Wächter: Kunden-Konten sehen nur, was ihren Mandanten betrifft (Geräte, Logs, Überwachung, Patchmanagement, Skripte, Benutzer, Mein Konto) – keine Server-, Integrations- und Instanz-Einstellungen (`navigation.js`: `TENANT_KEYS`, `tenantMayOpen`). Update-Meldung und Proxy-Übernahme nur für Betreiber-Admins.
+
+## 0.1.0
+
+### Added
+- **Menü „Lizenz & Abrechnung“** (nur Administratoren) mit zwei Seiten:
+  - **Lizenz & Geräte** (`/license`): Ausgabe (Community/Enterprise), lizenzierte Geräte mit Kontingent-Balken, Mandanten, Lizenznehmer; Instanz-ID und Lizenzanfrage zum Kopieren, neue Kennung; Lizenzquelle (GitHub-Lizenzbereich, eigener Lizenz-Endpunkt, von Hand) mit „Lizenz jetzt prüfen“; Lizenzdatei einfügen/hochladen/entfernen; gezählte Geräte mit Zustand, Mandant, Klasse, Preis – je Gerät „abrechnen“, eigener Preis, Mandant, Klasse, Notiz.
+  - **Abrechnung** (`/billing`): Preise (Standard, Zählweise, Steuer, je Geräteklasse inkl. „abrechnen“), Mandanten mit eigenen Bedingungen, Monatsabrechnung als Rechnungsvorschau je Mandant, CSV und Gerätenachweis, Festschreiben, festgeschriebene Monate, Abrechnungs-API-Schlüssel mit Beispielaufrufen.
+- **Kopfzeile:** Hinweis „Lizenz“ für Administratoren, wenn Geräte über dem Kontingent sind oder die Lizenz abläuft bzw. nicht mehr gilt.
 
 ## 2026.11.26.22.00.00
 

@@ -29,6 +29,7 @@ alles im Browser.
 | **Netz** | Netzwerk-Discovery (Subnetze, SNMP), Einbindung von Linux-Rechnern per SSH |
 | **Melden & Auswerten** | Mail, Telegram, Webhook/n8n; KI-Auswertung (Claude, ChatGPT, Open WebUI lokal); Handy-App |
 | **Zugang** | Benutzer und Rollen, MFA, Passkeys, LDAP, Microsoft 365 (SSO), Zugangsschlüssel und Einladungen; **Zugangsdaten in Vaultwarden** (per HTTPS, Ende-zu-Ende verschlüsselt) |
+| **Lizenz & Abrechnung** | Server lizenzfrei (Community); Lizenz je Gerät, Instanz oder Mandant – gesteuert über ein GitHub-Lizenz-Repository oder eigenen Lizenz-Endpunkt; Geräte lizenzieren sich selbst; **Abrechnung je Gerät** mit eigenen Preisen (Klasse, Mandant, Gerät), Monatsabrechnung, CSV, Abrechnungs-API – [mehr](docs/license/README.md) |
 | **Mandanten** | Auf Wunsch **mandantenfähig**: eine Instanz, mehrere Kunden, sauber getrennt (eigene Konten, Geräte, Logs, Updates, Meldungen; Betreiber schaltet um) – beim Installieren (`--multi-tenant`) oder jederzeit später. Oder **eine Instanz je Kunde** auf demselben Server (`--instance kunde1`) – [Mandanten](docs/tenants/README.md) |
 | **Betrieb** | Updates per Klick, Sicherungen (auch verschlüsselt), Konsole im Browser, Container-Verwaltung, Plattenwächter, Systemtagebuch, TLS/Reverse Proxy |
 

@@ -176,6 +176,11 @@ EVENTS: Dict[str, Dict[str, Any]] = {
         "hint": "Ein Update steht bereit.",
         "default": True,
     },
+    "license": {
+        "label": "Lizenz",
+        "hint": "Kontingent erschöpft (Gerät über Kontingent), Lizenz läuft ab oder ist nicht mehr gültig.",
+        "default": True,
+    },
     "recovered": {
         "label": "Entwarnung",
         "hint": "Meldung, sobald ein Problem von oben wieder behoben ist.",
@@ -533,7 +538,7 @@ _APP_CATEGORY = {
     "patch_approval": "patch", "patch_failed": "patch", "patch_done": "patch",
     "snmp_alert": "snmp", "agent_offline": "rmm", "log_critical": "logs", "log_error": "logs",
     "update_available": "system", "db_down": "system", "disk": "system", "silence": "system",
-    "flood": "logs", "recovered": "system",
+    "flood": "logs", "recovered": "system", "license": "system",
     "nas_problem": "nas", "nas_update_available": "nas", "nas_update": "nas", "nas_update_failed": "nas",
     "backup_failed": "backup", "backup_overdue": "backup", "backup_done": "backup",
 }
