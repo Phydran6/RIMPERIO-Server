@@ -118,6 +118,52 @@ class Licensing(unittest.TestCase):
         self.assertEqual(lic.tenant_of(agent, {3: "Müller GmbH"}), "Lager")
 
 
+class LicenseAndBilling(unittest.TestCase):
+    """Mandanten sind frei nutzbar - lassen sich aber je Mandant lizenzieren und abrechnen."""
+
+    def setUp(self):
+        from datetime import datetime as dt, timedelta as td
+        from app.models import LicenseDevice
+        self.now = dt(2026, 11, 27, 12, 0)
+
+        def dev(i, tenant):
+            return LicenseDevice(id=i, device_key=f"agent:{i}", kind="agent", ref_id=i, name=f"pc{i}",
+                                 device_class="linux", tenant=tenant, billable=True,
+                                 first_seen_at=self.now - td(days=100 - i), last_active_at=self.now,
+                                 licensed_at=None, removed_at=None, tenant_override=None)
+        self.dev = dev
+
+    def test_per_tenant_counts_real_tenants_in_creation_order(self):
+        from app import licensing as lic
+        devices = [self.dev(1, "Kunde B"), self.dev(2, "Kunde A"), self.dev(3, "Lager")]
+        lic.allocate(devices, {"edition": "enterprise", "model": "per_tenant", "max_tenants": 1,
+                               "tenant_order": ["Kunde A", "Kunde B"]}, self.now)
+        state = {d.tenant: d.state for d in devices}
+        self.assertEqual(state["Kunde A"], "licensed")      # zuerst angelegt
+        self.assertEqual(state["Kunde B"], "over_limit")
+        self.assertEqual(state["Lager"], "licensed")        # Betreiber-Gerät belegt keinen Platz
+
+    def test_tenant_fee_also_without_devices(self):
+        from datetime import date
+        from app import billing
+        cfg = billing.clean_config({"tenant_fee": 25, "tenants": {"Kunde B": {"flat_fee": 5}}})
+        rep = billing.build_report("2026-11", [], {}, cfg, today=date(2026, 12, 2),
+                                   tenant_names=["Kunde A", "Kunde B"])
+        fees = {t["tenant"]: t["flat_fee"] for t in rep["tenants"]}
+        self.assertEqual(fees, {"Kunde A": 25.0, "Kunde B": 5.0})
+        self.assertEqual(rep["totals"]["net"], 30.0)
+
+    def test_tenant_fee_not_for_sites_and_zero_override_drops(self):
+        from datetime import date
+        from app import billing
+        cfg = billing.clean_config({"tenant_fee": 25, "tenants": {"Kunde A": {"flat_fee": 0}}})
+        rows = [(date(2026, 11, 3), "agent:9", "Lager", "linux")]
+        rep = billing.build_report("2026-11", rows, {}, cfg, today=date(2026, 12, 2),
+                                   tenant_names=["Kunde A"])
+        names = {t["tenant"]: t["flat_fee"] for t in rep["tenants"]}
+        self.assertEqual(names, {"Lager": 0.0})             # Standort: keine Mandanten-Gebühr
+
+
 class Policies(unittest.TestCase):
     def pol(self, pid, tenant_id, scope="global", value="", priority=100):
         return PatchPolicy(id=pid, name=f"p{pid}", enabled=True, tenant_id=tenant_id, scope_type=scope,

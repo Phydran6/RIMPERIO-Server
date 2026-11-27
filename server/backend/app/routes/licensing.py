@@ -260,7 +260,8 @@ async def get_billing_config(db: AsyncSession = Depends(get_db), _: User = Depen
     cfg = await billing.get_config(db)
     rows = (await db.execute(select(LicenseDevice.tenant, LicenseDevice.tenant_override)
                              .where(LicenseDevice.state != "removed"))).all()
-    known = sorted({(o or t or lic.DEFAULT_TENANT) for t, o in rows} | set(cfg["tenants"]))
+    known = sorted({(o or t or lic.DEFAULT_TENANT) for t, o in rows} | set(cfg["tenants"])
+                   | set(await lic.real_tenants(db)))
     return {"config": cfg, "classes": lic.DEVICE_CLASSES, "methods": billing.METHODS,
             "known_tenants": known, "licensed": await lic.has_feature(db, "billing")}
 

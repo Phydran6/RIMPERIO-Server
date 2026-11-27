@@ -11,6 +11,14 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.3.0 (2026-11-27) – Mandanten lizenzieren und abrechnen
+
+- **Mandanten bleiben frei nutzbar** – wer sie seinen Kunden berechnen will, kann sie jetzt lizenzieren und abrechnen.
+- **Lizenz „je Mandant“** zählt die angelegten Mandanten (auch ohne Geräte), nicht mehr die Standorte. Bei einer
+  Höchstzahl bekommen die zuerst angelegten die Plätze; Geräte des Betreibers zählen nicht mit.
+- **Grundgebühr je Mandant** in der Abrechnung – für jeden Mandanten, auch ohne Geräte, je Mandant änderbar.
+- *Benutzer → Mandanten* zeigt den Lizenzstand.
+
 ## v0.2.0 (2026-11-27) – Mandantenfähig, auf Wunsch
 
 - **Eine Instanz, mehrere Kunden:** RIMPERIO lässt sich mandantenfähig betreiben. Jeder Kunde (Mandant) hat eigene

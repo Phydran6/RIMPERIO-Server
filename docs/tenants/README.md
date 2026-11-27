@@ -122,6 +122,23 @@ ehemaliger Kunde damit nichts mehr anmelden kann; Geräteschlüssel wandern mit 
 Geräten. Gibt es beim Ziel schon ein Gerät mit gleichem Namen und gleicher IP, bricht
 RIMPERIO ab und nennt die Geräte.
 
+### Lizenz und Abrechnung
+
+Mandanten zu nutzen ist frei – auch ohne Lizenz. Wer seinen Kunden RIMPERIO berechnen
+will, kann Mandanten lizenzieren und abrechnen ([Lizenz & Abrechnung](../license/README.md)):
+
+- **Lizenz „je Mandant“** zählt die angelegten, aktiven Mandanten (auch ohne Geräte).
+  Mit Höchstzahl bekommen die zuerst angelegten die Plätze; darüber laufen Geräte
+  weiter, werden aber als „über Kontingent“ gemeldet. Geräte des Betreibers belegen
+  keinen Mandanten-Platz.
+- **Abrechnung je Mandant:** Gerätepreise, Rabatt, Inklusiv-Geräte, Mindestbetrag und
+  eine **Grundgebühr je Mandant** (*Lizenz & Abrechnung → Abrechnung*), die auch für
+  Mandanten ohne Geräte anfällt. Auf der Abrechnung steht der Name des Mandanten.
+- Die Seite *Benutzer → Mandanten* zeigt den Stand der Lizenz.
+
+Wird ein Mandant umbenannt, unter *Abrechnung* seine eigenen Bedingungen dem neuen Namen
+zuordnen – gerechnet wird mit dem Namen.
+
 ### App
 
 Die App zeigt Kunden-Konten ihren Mandanten unter *Mehr*. Betreiber schalten dort die
