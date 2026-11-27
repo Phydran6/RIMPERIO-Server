@@ -2,6 +2,14 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.27.14.00.00
+
+### Added
+- **Menü „Lizenz & Abrechnung“** (nur Administratoren) mit zwei Seiten:
+  - **Lizenz & Geräte** (`/license`): Ausgabe (Community/Enterprise), lizenzierte Geräte mit Kontingent-Balken, Mandanten, Lizenznehmer; Instanz-ID und Lizenzanfrage zum Kopieren, neue Kennung; Lizenzquelle (GitHub-Lizenzbereich, eigener Lizenz-Endpunkt, von Hand) mit „Lizenz jetzt prüfen“; Lizenzdatei einfügen/hochladen/entfernen; gezählte Geräte mit Zustand, Mandant, Klasse, Preis – je Gerät „abrechnen“, eigener Preis, Mandant, Klasse, Notiz.
+  - **Abrechnung** (`/billing`): Preise (Standard, Zählweise, Steuer, je Geräteklasse inkl. „abrechnen“), Mandanten mit eigenen Bedingungen, Monatsabrechnung als Rechnungsvorschau je Mandant, CSV und Gerätenachweis, Festschreiben, festgeschriebene Monate, Abrechnungs-API-Schlüssel mit Beispielaufrufen.
+- **Kopfzeile:** Hinweis „Lizenz“ für Administratoren, wenn Geräte über dem Kontingent sind oder die Lizenz abläuft bzw. nicht mehr gilt.
+
 ## 2026.11.25.22.00.00
 
 ### Added

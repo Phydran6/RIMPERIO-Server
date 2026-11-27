@@ -206,6 +206,14 @@ services:
       RIMPERIO_BRANCH: ${RIMPERIO_BRANCH:-main}
       # Optional: hebt das Limit der anonymen GitHub-Abfragen an.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Lizenz (Lizenz & Abrechnung): woher die Lizenzdatei kommt. Die
+      # Oberflaeche kann das ueberschreiben. Ohne Lizenz: Community (lizenzfrei).
+      # Siehe docs/license/README.md.
+      RIMPERIO_LICENSE_REPO: ${RIMPERIO_LICENSE_REPO:-Phydran6/RIMPERIO-Licenses}
+      RIMPERIO_LICENSE_BRANCH: ${RIMPERIO_LICENSE_BRANCH:-main}
+      RIMPERIO_LICENSE_PATH: ${RIMPERIO_LICENSE_PATH:-licenses}
+      RIMPERIO_LICENSE_URL: ${RIMPERIO_LICENSE_URL:-}
+      RIMPERIO_LICENSE_GITHUB_TOKEN: ${RIMPERIO_LICENSE_GITHUB_TOKEN:-}
       # Sofortmeldung bei neuem Stand: Takt des eigenen Beobachters und das
       # Secret fuer den GitHub-Webhook (ohne Secret nimmt der Server keine
       # Webhook-Meldung an). Siehe app/updater.py.

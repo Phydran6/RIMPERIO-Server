@@ -1,0 +1,64 @@
+# ---------------------------------------------------------------------------
+# Datei:        .github/workflows/sign-licenses.yml   (im Lizenz-Repository)
+# Projekt:      RIMPERIO
+# Autor:        Phydran6
+# Beschreibung: Signiert jede Lizenz unter sources/ und legt die Lizenzdatei
+#               unter licenses/<instanz-id>.json ab. Von dort holt sich jede
+#               RIMPERIO-Instanz ihre Lizenz (Lizenz & Abrechnung → Lizenz).
+#
+# Einmalig einrichten (Settings → Secrets and variables → Actions):
+#   Secret   RIMPERIO_LICENSE_SIGNING_KEY  privater Schlüssel aus `keygen`
+#   Variable RIMPERIO_LICENSE_KEY_ID       z. B. rimperio-2026
+# und unter Settings → Actions → General → Workflow permissions
+# "Read and write permissions" erlauben.
+# ---------------------------------------------------------------------------
+name: Lizenzen signieren
+
+on:
+  push:
+    branches: [main]
+    paths: ['sources/**', '.github/workflows/sign-licenses.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sign-licenses
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Das Werkzeug kommt aus dem RIMPERIO-Server-Repository - so ist das
+      # Signaturformat immer dasselbe, das der Server prüft.
+      - uses: actions/checkout@v4
+        with:
+          repository: Phydran6/RIMPERIO-Server
+          ref: main
+          path: .rimperio
+          sparse-checkout: licensing
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install cryptography pyyaml
+      - name: Signieren
+        env:
+          RIMPERIO_LICENSE_SIGNING_KEY: ${{ secrets.RIMPERIO_LICENSE_SIGNING_KEY }}
+          RIMPERIO_LICENSE_KEY_ID: ${{ vars.RIMPERIO_LICENSE_KEY_ID }}
+        run: |
+          if [ -z "$RIMPERIO_LICENSE_SIGNING_KEY" ] || [ -z "$RIMPERIO_LICENSE_KEY_ID" ]; then
+            echo "::error::Secret RIMPERIO_LICENSE_SIGNING_KEY oder Variable RIMPERIO_LICENSE_KEY_ID fehlt."
+            exit 1
+          fi
+          python .rimperio/licensing/rimperio_license.py sign-dir sources licenses --prune
+      - name: Übernehmen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add licenses
+          if git diff --cached --quiet; then echo "Nichts zu tun."; exit 0; fi
+          git commit -m "Lizenzen signiert"
+          git push

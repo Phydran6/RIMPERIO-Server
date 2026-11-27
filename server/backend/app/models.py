@@ -6,7 +6,7 @@
 # ==============================================================================
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Float, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, Date, DateTime, ForeignKey, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -745,3 +745,59 @@ class DbMigration(Base):
 
 
 DB_MIGRATION_TABLES = [DbMigration.__table__]
+
+
+# ==============================================================================
+# Lizenz und Abrechnung je Gerät (app/licensing.py, app/billing.py)
+# ==============================================================================
+class LicenseDevice(Base):
+    """Ein Gerät, das RIMPERIO für die Lizenz und die Abrechnung zählt.
+
+    Eine Zeile je überwachtem Ding - Rechner/Log-Quelle (`agents`),
+    SNMP-Gerät, Proxmox-Host. RIMPERIO legt sie selbst an, sobald ein Gerät
+    angeschlossen ist ("lizenziert sich automatisch"); von Hand gepflegt
+    werden nur Ausnahmen: nicht abrechnen, eigener Preis, anderer Mandant.
+    """
+    __tablename__ = "license_devices"
+    id = Column(Integer, primary_key=True)
+    device_key = Column(String(64), unique=True, nullable=False)   # agent:12 | snmp:3 | pve:1
+    kind = Column(String(16), nullable=False)                      # agent | snmp | pve
+    ref_id = Column(Integer, nullable=False)
+    name = Column(String(255), default="")
+    device_class = Column(String(32), default="other")             # erkannt
+    class_override = Column(String(32), nullable=True)             # von Hand
+    tenant = Column(String(128), default="Standard")               # erkannt (Mandant/Standort)
+    tenant_override = Column(String(128), nullable=True)           # von Hand
+    state = Column(String(16), default="licensed", index=True)     # licensed | over_limit | excluded | inactive | removed
+    billable = Column(Boolean, default=True, nullable=False)       # False = nie abrechnen, belegt keinen Platz
+    price_override = Column(Float, nullable=True)                  # eigener Monatspreis
+    note = Column(Text, default="")
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    licensed_at = Column(DateTime, nullable=True)                  # seit wann belegt es einen Platz
+    last_active_at = Column(DateTime, nullable=True)
+    removed_at = Column(DateTime, nullable=True)                   # Gerät gelöscht
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LicenseDeviceDay(Base):
+    """Ein Tag, an dem ein Gerät aktiv war - die Grundlage der Monatsabrechnung."""
+    __tablename__ = "license_device_days"
+    day = Column(Date, primary_key=True)
+    device_key = Column(String(64), primary_key=True)
+    tenant = Column(String(128), default="Standard", index=True)
+    device_class = Column(String(32), default="other")
+    billable = Column(Boolean, default=True, nullable=False)
+    licensed = Column(Boolean, default=True, nullable=False)       # innerhalb des Kontingents
+
+
+class BillingStatement(Base):
+    """Festgeschriebene Monatsabrechnung - spätere Preisänderungen ändern sie nicht mehr."""
+    __tablename__ = "billing_statements"
+    id = Column(Integer, primary_key=True)
+    month = Column(String(7), unique=True, nullable=False)         # YYYY-MM
+    data = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String(64), default="system")
+
+
+LICENSE_TABLES = [LicenseDevice.__table__, LicenseDeviceDay.__table__, BillingStatement.__table__]

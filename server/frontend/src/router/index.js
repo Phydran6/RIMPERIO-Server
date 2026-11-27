@@ -221,6 +221,20 @@ const routes = [
         meta: { admin: true }
       },
 
+      // --- Lizenz & Abrechnung ------------------------------------------------
+      {
+        path: 'license',
+        name: 'License',
+        component: () => import('../views/License.vue'),
+        meta: { admin: true }
+      },
+      {
+        path: 'billing',
+        name: 'Billing',
+        component: () => import('../views/Billing.vue'),
+        meta: { admin: true }
+      },
+
       // --- Hilfe -------------------------------------------------------------
       // Bewusst für alle erreichbar, nicht nur für Administratoren: die Frage
       // "was ist das hier eigentlich und wo kommt es her?" hat jeder Benutzer.

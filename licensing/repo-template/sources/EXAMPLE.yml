@@ -1,0 +1,17 @@
+# Vorlage - wird nicht signiert (Dateien mit EXAMPLE oder _ am Anfang bleiben liegen).
+# Kopieren nach sources/<instanz-id>.yml (der Dateiname ist frei, maßgeblich ist instance_id).
+# Die Instanz-ID steht in RIMPERIO unter Lizenz & Abrechnung → Lizenz.
+license_id: LIC-2026-0001
+instance_id: 00000000-0000-0000-0000-000000000000
+licensee: "Systemhaus Muster GmbH"
+customer_no: "K-10042"
+# per_device (je Gerät) | per_instance (je Instanz) | per_tenant (je Mandant)
+model: per_device
+max_devices: 250      # nur per_device; null = unbegrenzt, abgerechnet nach Nutzung
+max_tenants: null     # nur per_tenant
+features: [billing, billing_api, tenants]
+valid_from: 2026-12-01
+valid_until: 2027-11-30   # null = unbefristet
+grace_days: 14        # so lange gilt die Lizenz weiter, wenn GitHub nicht erreichbar ist
+status: active        # active | suspended (ausgesetzt) | revoked (widerrufen)
+note: ""
