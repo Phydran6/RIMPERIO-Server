@@ -3,7 +3,7 @@
   Datei:        rimperio-agent.wxs
   Projekt:      RIMPERIO — Agent-Installer (MSI)
   Autor:        Phydran6
-  Version:      2026.11.26.20.00.00
+  Version:      2026.11.27.14.00.00
 
   Beschreibung: WiX-v4-Quelle für das MSI-Paket des Agents. Bewusst ohne eigene
                 Custom-Action-DLL — nur Bordmittel von WiX:

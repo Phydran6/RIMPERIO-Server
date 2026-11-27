@@ -2,7 +2,7 @@
   Datei:        build-agent.ps1
   Projekt:      RIMPERIO — Agent-Installer
   Autor:        Phydran6
-  Version:      2026.11.26.20.00.00
+  Version:      2026.11.27.14.00.00
 
   Beschreibung: Baut die Agent-.exe für Windows — mit Versions-Ressource
                 (goversioninfo) und schlankem, getrimmtem Binary. Optional wird

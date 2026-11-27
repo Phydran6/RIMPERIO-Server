@@ -3,7 +3,7 @@
 # Datei:        scripts/version.sh
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Version:      2026.11.26.20.00.00
+# Version:      2026.11.27.14.00.00
 # Beschreibung: Projektversion setzen, hochzaehlen und pruefen - nach
 #               Semantic Versioning 2.0.0 (https://semver.org/lang/de/).
 #

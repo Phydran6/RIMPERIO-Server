@@ -2,7 +2,7 @@
 # Datei:        .github/workflows/agent-release.yml
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Version:      2026.11.26.20.00.00
+# Version:      2026.11.27.14.00.00
 # Beschreibung: Baut die Agent-Artefakte (Windows .exe + .msi, Linux amd64/arm64),
 #               signiert sie und hängt sie bei einem v*-Tag an das GitHub-Release.
 #
@@ -38,7 +38,8 @@ permissions:
 
 env:
   RELEASE_BODY: |
-    RIMPERIO-Agent für Windows (`.exe`, `.msi`) und Linux (amd64, arm64),
+    RIMPERIO-Agent für Windows (`.exe`, `.msi`) und Linux (amd64, arm64, armv7, armv6 –
+    Raspberry Pi mit 32- und 64-Bit-System),
     gebaut von GitHub Actions ausschließlich aus dem Quellcode dieses Repositorys.
 
     Installation und Verteilung: [agent/installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/agent/installer/README.md)
@@ -228,7 +229,8 @@ jobs:
           go-version: 'stable'
           cache-dependency-path: agent/go.sum
 
-      - name: Linux-Binaries bauen (amd64 + arm64)
+      - name: Linux-Binaries bauen (amd64, arm64, armv7, armv6)
+        # armv7: Raspberry Pi 2/3/4 mit 32-Bit-System, armv6: Pi 1 und Pi Zero (W).
         working-directory: agent
         run: |
           mkdir -p bin
@@ -236,6 +238,8 @@ jobs:
           ldflags="-s -w -X github.com/Phydran6/RIMPERIO-Server/agent/internal/core.Version=$(tr -d '[:space:]' < ../VERSION)"
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o bin/rimperio-agent-linux-amd64 ./cmd/rimperio-agent
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$ldflags" -o bin/rimperio-agent-linux-arm64 ./cmd/rimperio-agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "$ldflags" -o bin/rimperio-agent-linux-armv7 ./cmd/rimperio-agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -trimpath -ldflags "$ldflags" -o bin/rimperio-agent-linux-armv6 ./cmd/rimperio-agent
           ./bin/rimperio-agent-linux-amd64 version
 
       - name: Als Release-Artefakte anhängen
@@ -248,3 +252,5 @@ jobs:
           files: |
             agent/bin/rimperio-agent-linux-amd64
             agent/bin/rimperio-agent-linux-arm64
+            agent/bin/rimperio-agent-linux-armv7
+            agent/bin/rimperio-agent-linux-armv6

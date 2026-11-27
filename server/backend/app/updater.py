@@ -1,7 +1,7 @@
 # ==============================================================================
 # Name:        Phydran6
 # Kontakt:     Phydran6
-# Version:     2026.11.26.20.00.00
+# Version:     2026.11.27.14.00.00
 # Changelog:   docs/changelog/backend.md
 # Beschreibung: RIMPERIO - Patchmanagement: Versionsvergleich, Update, Rueckfall
 # ==============================================================================

@@ -46,7 +46,7 @@ class Uebergang(unittest.TestCase):
 
     def test_semver_schlaegt_zeitstempel(self):
         self.assertEqual(v.compare_versions("0.0.1", "2026.11.25.22.00.00"), 1)
-        self.assertEqual(v.compare_versions("0.0.1-rc.1", "2026.11.26.20.00.00"), 1)
+        self.assertEqual(v.compare_versions("0.0.1-rc.1", "2026.11.27.14.00.00"), 1)
         self.assertTrue(v.is_newer("v0.0.1", "v2026.11.25"))
         self.assertFalse(v.is_newer("2026.12.31.23.59.59", "0.0.1"))
 
@@ -71,7 +71,7 @@ class Updater(unittest.TestCase):
         self.u = updater
 
     def test_vergleich_ueber_den_wechsel(self):
-        local = {"version": "2026.11.26.20.00.00", "commit": "a" * 40}
+        local = {"version": "2026.11.27.14.00.00", "commit": "a" * 40}
         remote = {"reachable": True, "version": "0.0.1", "commit": "b" * 40}
         available, _, relation = self.u.compare(local, remote)
         self.assertTrue(available)

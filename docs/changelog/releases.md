@@ -11,7 +11,7 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
-## v2026.11.26.20.00.00 (2026-11-26) – Vorbereitung auf Semantic Versioning
+## v2026.11.27.14.00.00 (2026-11-27) – Vorbereitung auf Semantic Versioning
 
 Der letzte Stand mit Zeitstempel-Version. Das **nächste Release heißt `v0.0.1`** — ab dann gilt der allgemeine
 Standard **Semantic Versioning** (`MAJOR.MINOR.PATCH`, siehe [Versionsschema](README.md#versionsschema)).
@@ -26,6 +26,31 @@ Standard **Semantic Versioning** (`MAJOR.MINOR.PATCH`, siehe [Versionsschema](RE
 - **Release-Automatik:** `VERSION` = `0.0.1` → Tag `v0.0.1`; Vorab-Stände wie `0.1.0-rc.1` werden Prerelease. Das
   alte Schema wird nach dem ersten SemVer-Release abgelehnt.
 - **Neu:** `scripts/version.sh bump patch|minor|major` zieht die Nummer an allen Stellen nach; die CI prüft das.
+
+## v2026.11.26.22.00.00 (2026-11-26) – NAS per HTTPS (Synology), Backup-Bereich, Vaultwarden, Raspberry Pi
+
+- **NAS ohne Agent, nur über HTTPS** (Geräte → NAS & Spezialsysteme → NAS). Schwerpunkt **Synology DSM**: Die
+  Netzwerksuche erkennt DSM an seiner Schnittstelle, der Assistent übernimmt die IP, Anmeldung mit einem
+  Administratorkonto **samt TOTP** – danach vertraut DSM RIMPERIO als Gerät. Beim Einrichten wird alles geprüft
+  (Zertifikat, Zwei-Faktor, Rechte, Speicher, Updates, Hyper Backup) und **SNMP v2c automatisch eingeschaltet**
+  und als SNMP-Gerät angelegt. Laufend: Volumes, Pools, Platten (S.M.A.R.T., Temperatur), CPU/RAM, Pakete,
+  Zertifikat – Probleme als Meldung.
+- **DSM- und Paket-Updates automatisieren:** von Hand oder im Wartungsfenster je NAS (`aus` / `nur melden` /
+  `installieren`), Hauptversionen nur auf Wunsch, Pakete ausschließbar, vorher Konfigurationssicherung; nach einem
+  DSM-Update wartet RIMPERIO den Neustart ab und prüft die Version. TrueNAS mit API-Schlüssel (Zustand, Update).
+- **Backup als eigener Bereich:** **Aufträge** (was & wann: RIMPERIO, Ordner auf Rechnern und Raspberry Pis,
+  NAS-Konfiguration, Hyper Backup anstoßen und überwachen, Proxmox-VMs), **Orte** (wohin: SMB-Freigabe am NAS,
+  SFTP, FTP(S), Ordner am Server), **Verlauf** mit Herunterladen, Probe-Wiederherstellung und Zurückspielen.
+  Alles **AES-256-GCM-verschlüsselt** (Format `RIMPBAK1`, Notfall-Entschlüsselung ohne RIMPERIO:
+  `docs/backup/rimperio-decrypt.py`), Zeitplan, Aufbewahrung, Meldung bei Fehlschlag und Überfälligkeit.
+- **Zugangsdaten in Vaultwarden:** NAS-Anmeldungen (mit TOTP und Geräte-Token), Backup-Passwort und Zugänge zu
+  Backup-Orten liegen in deinem Vaultwarden – angesprochen nur per HTTPS, ver-/entschlüsselt in RIMPERIO.
+  Ohne Vaultwarden lokal AES-verschlüsselt; ein Klick verschiebt alles in den Tresor.
+- **Raspberry Pi & Spezialsysteme:** Agent auch für 32-Bit-ARM (armv7, armv6 – bis Pi Zero), Modell,
+  SoC-Temperatur und Drosselung (Unterspannung!) in der Inventur und auf eigener Seite; Pis ohne Agent erkennt
+  die Netzwerksuche an der MAC.
+- **App:** neue Bereiche *NAS* (Zustand, DSM-/Paket-Updates anstoßen) und *Backup* (Aufträge, jetzt sichern,
+  Verlauf, Prüfen).
 
 ## v2026.11.25.22.00.00 (2026-11-25) – Patchmanagement mit Stufen und Dringlichkeit
 

@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.11.26.20.00.00
+// Version:      2026.11.27.14.00.00
 //
 // Beschreibung: Konfiguration des Agents: wo der Server steht, das persönliche
 //               Token, der Check-in-Takt. Liegt als JSON an einem festen,

@@ -2,7 +2,7 @@
 
 FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
-## 2026.11.26.20.00.00
+## 2026.11.27.14.00.00
 
 ### Added
 - **`app/versioning.py`:** liest und vergleicht Versionen an einer Stelle — SemVer 2.0.0 samt Vorab-Rangfolge (`1.0.0-alpha` < `1.0.0-rc.1` < `1.0.0`, Build-Angabe zählt nicht) und das alte Zeitstempel-Schema. Jede SemVer-Version ist neuer als jeder Zeitstempel; eine vierstellige Jahreszahl vorne ist immer das alte Schema (`v2026.11.25` wäre formal gültiges SemVer).
@@ -11,6 +11,19 @@ FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versio
 ### Changed
 - `updater.compare`, die „noch ohne Release“-Prüfung und `backup.compare_versions` nutzen `versioning`. Ohne das hätte ein Server auf `2026.11.25…` das Release `0.0.1` als Rückschritt gesperrt.
 - **Kanal „Stabil“ nimmt das höchste Release** (`pick_latest`, nach Version) statt des zuletzt angelegten — ein Wartungs-Release `1.2.4` nach `1.3.0` zieht den Kanal nicht mehr zurück. SemVer-Vorab-Tags (`-rc.1`) zählen nicht als stabil, auch ohne Prerelease-Haken auf GitHub.
+
+## 2026.11.26.22.00.00
+
+### Added
+- **`app/vault.py` – Zugangsdaten in Vaultwarden per HTTPS.** Bitwarden-Protokoll selbst umgesetzt: Prelogin, Master-Schlüssel (PBKDF2-SHA256 oder Argon2id, Paket `argon2-cffi`), Anmelde-Hash, HKDF-Strecken, EncString Typ 2 (AES-256-CBC + HMAC-SHA256), Organisationsschlüssel Typ 4 (RSA-OAEP-SHA1). Anmeldung mit persönlichem API-Schlüssel (`client_credentials`, umgeht 2FA) oder E-Mail + Master-Passwort (TOTP einmalig, danach „Gerät merken“-Token). Einträge im Ordner *RIMPERIO* oder in einer Sammlung (`/api/ciphers`, `/api/ciphers/create`, `encryptedFor`), Löschen in den Papierkorb. Einheitliche Schnittstelle `put/get/set_field/remove` mit lokalem Ersatz (Tabelle `stored_secrets`), `migrate_local`. Gegen einen echten Vaultwarden getestet (persönlich, API-Schlüssel, Organisation).
+- **`app/secretbox.py`:** AES-256-GCM für lokal gehaltene Geheimnisse; Schlüssel aus `RIMPERIO_SECRET_KEY` oder `<DATA_DIR>/secret.key` (0600, wird angelegt).
+- **`app/nas.py` – NAS per HTTPS.** Synology DSM: Erkennung ohne Anmeldung (`SYNO.API.Info`), Anmeldung mit `otp_code` und Geräte-Token (`enable_device_token`/`device_id`), Notfall-Code aus hinterlegtem TOTP-Geheimnis; Zustand (System, Auslastung, `SYNO.Storage.CGI.Storage`, Pakete, SNMP, Auto-Update-Einstellungen, Hyper-Backup-Aufgaben, Zertifikat); Bewertung (Platten, S.M.A.R.T., Pools, Volumes ≥ 80/95 %, Temperatur, Hyper Backup); Prüfliste beim Einrichten; SNMP v1/v2c einschalten (`SYNO.Core.SNMP`, zufällige Community), von RIMPERIO aus prüfen, SNMP-Gerät mit Vorlagen anlegen; Paket-Updates (`SYNO.Core.Package.Server` → `Installation.install/status/upgrade`); DSM-Updates (`SYNO.Core.Upgrade.Server.check`/`Download`/`PreCheck`/`SYNO.Core.Upgrade.start`, Neustart abwarten, Version vergleichen); Konfigurationssicherung (`SYNO.Backup.Config.Backup`); Hyper Backup starten/Status. TrueNAS (REST v2.0, API-Schlüssel): Info, Pools, Alarme, Update. Takt `nas.loop()` (Zustand je Intervall, Updates alle 12 h, Automatik im Wartungsfenster mit `off|notify|auto` je DSM/Pakete, Hauptversionen nur auf Wunsch, Ausschlussliste, vorher Konfiguration sichern). Tabellen `nas_devices`, `nas_jobs`.
+- **`app/backupjobs.py` – Backup-Bereich.** Orte (`backup_targets`: lokal, SMB mit Port, SFTP, FTP/FTPS; schreiben/lesen/löschen-Test), Aufträge (`backup_jobs`: `rimperio`, `files`, `nas_config`, `nas_task`, `pve`; Zeitplan täglich/Tage/stündlich/manuell, Aufbewahrung letzte n + Mindesttage, „überfällig“), Läufe (`backup_runs` mit Ort, Größe, SHA-256, Protokoll). Verschlüsselung im Strom-Format `RIMPBAK1` (AES-256-GCM je 1-MB-Block, PBKDF2 310 000, AAD mit Kopf-Hash, Blocknummer und Endkennung – Abschneiden fällt auf); Standard-Backup-Schlüssel automatisch in Vaultwarden. Rechner-Sicherungen: Skript an den Agent (Linux über `rimperio-helper backup-tar`, Windows `tar.exe`/`curl.exe`), Upload an `PUT /api/backup-upload/{lauf}` mit Einmal-Schlüssel, Verschlüsselung beim Empfang. Herunterladen (entschlüsselt oder roh), Probe-Wiederherstellung, RIMPERIO-Sicherung unter *Sicherung* bereitlegen. Takt `backupjobs.loop()`.
+- **API:** `/api/nas/*`, `/api/backups/*`, `/api/backup-upload/{id}`, `/api/vault/*` (siehe docs/rmm/nas.md, docs/backup/jobs.md, docs/integrations/README.md). App-Fähigkeiten `nas`, `backup-jobs`, `vault`.
+- **Meldungen:** `nas_problem`, `nas_update_available`, `nas_update`, `nas_update_failed`, `backup_failed`, `backup_overdue`, `backup_done` (App-Kategorien `nas`, `backup`).
+- **Netzwerksuche:** nach dem Speichern `nas.annotate_discovered()` – Systeme mit Port 5000/5001 werden nach DSM gefragt (`details.nas`, Art `nas`, Empfehlung `nas_api`); Raspberry Pis an der MAC-OUI erkannt.
+- **Sicherung:** neuer Bereich `nas_backup` (Tabellen + `secret.key`), standardmäßig dabei.
+- **Tests:** `tests/test_nas_backup_vault.py` (Format, Manipulation, Notfall-Skript, Zeitplan, Agent-Skript, Vaultwarden-Krypto, NAS-Bewertung, SNMP-Parameter, Wartungsfenster).
 
 ## 2026.11.25.22.00.00
 

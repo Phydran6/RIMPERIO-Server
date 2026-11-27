@@ -56,7 +56,10 @@ from .routes.snmp import router as snmp_router
 from .routes.loghandling import router as loghandling_router
 from .routes.pveconsole import router as pveconsole_router
 from .routes.dbmigrate import router as dbmigrate_router
-from . import advisories, dbmigrate, loghandling, patchmgmt, pvepatch, snmpmon
+from .routes.nas import router as nas_router
+from .routes.backupjobs import router as backupjobs_router, upload_router as backup_upload_router
+from .routes.vault import router as vault_router
+from . import advisories, backupjobs, dbmigrate, loghandling, nas, patchmgmt, pvepatch, snmpmon
 
 # =============================================================================
 # Security-Headers Middleware
@@ -173,6 +176,10 @@ app.include_router(snmp_router)
 app.include_router(loghandling_router)
 app.include_router(pveconsole_router)
 app.include_router(dbmigrate_router)
+app.include_router(nas_router)
+app.include_router(backupjobs_router)
+app.include_router(backup_upload_router)
+app.include_router(vault_router)
 app.include_router(caddy_router.router)
 app.include_router(network_router.router)
 
@@ -1186,6 +1193,12 @@ async def start_background_tasks():
     _spawn(snmpmon.loop())
     # Proxmox-Knoten im Wartungsfenster patchen (app/pvepatch.py).
     _spawn(pvepatch.loop())
+    # NAS per HTTPS (Synology DSM, TrueNAS): Zustand, Updates im Wartungsfenster,
+    # und der Backup-Bereich mit Zeitplan (app/nas.py, app/backupjobs.py).
+    await nas.ensure_schema()
+    await backupjobs.ensure_schema()
+    _spawn(nas.loop())
+    _spawn(backupjobs.loop())
     # Raeumt auf, BEVOR die Platte voll ist (app/diskguard.py).
     _spawn(diskguard.watch_task())
     # Merkt, wenn RIMPERIO selbst nicht mehr sammelt, und meldet es nach aussen

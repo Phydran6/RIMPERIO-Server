@@ -2,7 +2,7 @@
 # Datei:        .github/workflows/auto-release.yml
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Version:      2026.11.26.20.00.00
+# Version:      2026.11.27.14.00.00
 # Beschreibung: Legt automatisch Tag und Release an, sobald auf main eine neue
 #               VERSION liegt - und stoesst danach den Agent-Build an.
 #

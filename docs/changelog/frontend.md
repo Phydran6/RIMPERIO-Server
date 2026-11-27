@@ -2,6 +2,14 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 2026.11.26.22.00.00
+
+### Added
+- **Geräte → NAS & Spezialsysteme:** `NasDevices.vue` (Übersicht mit Belegung, Updates, Problemen; Assistent: aus der Netzwerksuche übernehmen oder IP prüfen → Anmelden mit Zwei-Faktor-Code (Feld erscheint, wenn DSM ihn verlangt) → Prüfliste), `NasDetail.vue` (System, Speicher, Platten, DSM-/Paket-Updates mit Auswahl, Automatik & Wartungsfenster, Hyper Backup, Pakete, Prüfliste, Vorgänge mit Protokoll, neu anmelden), `SpecialSystems.vue` (Raspberry Pi & Co.: Modell, Temperatur, Drosselung; Pis ohne Agent → Netzwerksuche).
+- **Neuer Bereich Backup:** `BackupJobs.vue` (Kennzahlen, Aufträge je Art mit Quelle, Ort, Zeitplan, Aufbewahrung, Verschlüsselung; jetzt sichern), `BackupTargets.vue` (Orte mit Test, NAS übernehmen), `BackupRuns.vue` (Verlauf, Herunterladen per Ticket, Prüfen, Zurückspielen, Protokoll). „RIMPERIO selbst sichern“ (bisher unter RIMPERIO-Server) steht jetzt hier.
+- **Integrationen → Zugangsdaten → Vaultwarden:** `VaultSettings.vue` (Verbindung mit API-Schlüssel/Master-Passwort, TOTP bei Bedarf, Organisation/Sammlung, Stand, lokale Zugänge verschieben, Liste aller Zugänge mit Verwendung).
+- **Netzwerksuche:** Empfehlung „Als NAS anbinden“ für erkannte Synology/TrueNAS; `?ip=` öffnet ein Gerät.
+
 ## 2026.11.25.22.00.00
 
 ### Added

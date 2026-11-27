@@ -126,6 +126,41 @@ EVENTS: Dict[str, Dict[str, Any]] = {
         "hint": "Gerät nicht erreichbar oder ein Wert über der Schwelle (Toner, USV, RAID, Port …).",
         "default": True,
     },
+    "nas_problem": {
+        "label": "NAS meldet ein Problem",
+        "hint": "NAS nicht erreichbar, Platte/Speicherpool/Volume nicht in Ordnung, Volume fast voll, Hyper Backup fehlgeschlagen.",
+        "default": True,
+    },
+    "nas_update_available": {
+        "label": "NAS: Updates verfügbar",
+        "hint": "Neue DSM-Version oder Paket-Updates (einmal je Stand).",
+        "default": False,
+    },
+    "nas_update": {
+        "label": "NAS-Update erledigt",
+        "hint": "DSM- oder Paket-Update eingespielt.",
+        "default": False,
+    },
+    "nas_update_failed": {
+        "label": "NAS-Update fehlgeschlagen",
+        "hint": "Ein DSM- oder Paket-Update ist nicht durchgelaufen.",
+        "default": True,
+    },
+    "backup_failed": {
+        "label": "Sicherung fehlgeschlagen",
+        "hint": "Ein Backup-Auftrag ist schiefgegangen.",
+        "default": True,
+    },
+    "backup_overdue": {
+        "label": "Sicherung überfällig",
+        "hint": "Ein Auftrag hatte zu lange keinen erfolgreichen Lauf.",
+        "default": True,
+    },
+    "backup_done": {
+        "label": "Sicherung erledigt",
+        "hint": "Ein Backup-Auftrag ist erfolgreich durchgelaufen.",
+        "default": False,
+    },
     "log_critical": {
         "label": "Kritische Logzeile",
         "hint": "Ein Gerät meldet eine kritische Zeile (critical/alert/emergency).",
@@ -160,7 +195,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # was Aufmerksamkeit braucht - unabhaengig davon, ob Mail/Telegram an sind.
     "app": {
         "enabled": True,
-        "events": {key: key not in ("rmm_patches", "patch_done", "agent_offline", "rmm_threshold")
+        "events": {key: key not in ("rmm_patches", "patch_done", "agent_offline", "rmm_threshold",
+                                    "nas_update", "backup_done")
                    for key in EVENTS},
     },
     "silence_minutes": 60,          # 0 = nicht ueberwachen
@@ -498,6 +534,8 @@ _APP_CATEGORY = {
     "snmp_alert": "snmp", "agent_offline": "rmm", "log_critical": "logs", "log_error": "logs",
     "update_available": "system", "db_down": "system", "disk": "system", "silence": "system",
     "flood": "logs", "recovered": "system",
+    "nas_problem": "nas", "nas_update_available": "nas", "nas_update": "nas", "nas_update_failed": "nas",
+    "backup_failed": "backup", "backup_overdue": "backup", "backup_done": "backup",
 }
 
 

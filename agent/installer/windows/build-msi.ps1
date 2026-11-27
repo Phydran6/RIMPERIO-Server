@@ -2,7 +2,7 @@
   Datei:        build-msi.ps1
   Projekt:      RIMPERIO — Agent-Installer
   Autor:        Phydran6
-  Version:      2026.11.26.20.00.00
+  Version:      2026.11.27.14.00.00
 
   Beschreibung: Packt die Agent-.exe in ein MSI (WiX v4). Reihenfolge beim
                 Signieren: erst die .exe signieren, dann einpacken, dann das MSI

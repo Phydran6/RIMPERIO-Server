@@ -1,6 +1,6 @@
 # Integrationen
 
-Webhooks, KI, Mail und die Zusatzdienste.
+Webhooks, KI, Mail, Vaultwarden (Zugangsdaten) und die Zusatzdienste.
 
 ← [Übersicht](../../README.md) · [Alle Dokumente](../README.md)
 
@@ -22,6 +22,53 @@ fertige URL kommt in den HTTP-Request-Knoten.
 Gebremst auf 60 Aufrufe pro Minute: Der Endpunkt ist ohne Anmeldung erreichbar
 und liefert Logdaten — das reicht für Abholdienste und begrenzt zugleich, was
 jemand mit geratenen Tokens anrichten kann.
+
+---
+
+## Vaultwarden (Zugangsdaten)
+
+*Integrationen → Zugangsdaten → Vaultwarden* — nur für Administratoren.
+
+Alle Zugänge, die RIMPERIO braucht, liegen an **einer** Stelle – in deinem Vaultwarden:
+
+* NAS-Anmeldungen (Benutzer, Passwort, TOTP-Geheimnis, Geräte-Token der Synology),
+* das Passwort der verschlüsselten Sicherungen („RIMPERIO · Backup-Schlüssel“),
+* Zugänge zu Backup-Orten (SMB, SFTP, FTP).
+
+RIMPERIO spricht Vaultwarden **nur per HTTPS** an – über dieselbe Schnittstelle wie die Bitwarden-Apps
+(`/identity/connect/token`, `/api/sync`, `/api/ciphers`). Ver- und entschlüsselt wird in RIMPERIO mit dem
+Schlüssel des Kontos (PBKDF2 oder Argon2id, AES-256-CBC + HMAC wie Bitwarden); **Vaultwarden sieht nie
+einen Klartext**. Die Einträge heißen „RIMPERIO · …“ und liegen im Ordner *RIMPERIO* oder in einer
+Sammlung einer Organisation. Wer sie in Vaultwarden ändert (neues NAS-Passwort, neues TOTP), ändert sie
+für RIMPERIO – beim nächsten Gebrauch gilt der neue Wert (zwischengespeichert höchstens 5 Minuten).
+
+**Einrichten:**
+
+1. In Vaultwarden ein eigenes Konto für RIMPERIO anlegen (oder eine Organisation, deren Sammlung das Team
+   mitliest).
+2. Dort *Konto → Sicherheit → Schlüssel → API-Schlüssel anzeigen*: `client_id` (`user.…`) und
+   `client_secret`. Damit meldet sich RIMPERIO auch bei aktivem Zwei-Faktor ohne Code an.
+3. In RIMPERIO Adresse, E-Mail, **Master-Passwort** (nur damit lassen sich die Einträge entschlüsseln)
+   und den API-Schlüssel eintragen → *Verbinden und speichern*. Ohne API-Schlüssel geht auch E-Mail +
+   Master-Passwort; bei Zwei-Faktor wird dann einmal ein Code abgefragt und das Gerät gemerkt.
+4. Liegen schon Zugänge lokal: *Alle nach Vaultwarden verschieben*.
+
+**Wo der Zugang zu Vaultwarden selbst liegt:** irgendwo muss der erste Schlüssel wohnen. Master-Passwort
+und `client_secret` liegen mit AES-256-GCM verschlüsselt in der Datenbank; der Schlüssel dazu ist die Datei
+`secret.key` im Volume `app_data` (oder die Umgebungsvariable `RIMPERIO_SECRET_KEY`). Ohne Vaultwarden
+liegen auch alle anderen Zugänge so – lokal, aber nie im Klartext. Die Sicherung von RIMPERIO nimmt
+`secret.key` im Bereich *NAS, Backup & Zugangsdaten* mit.
+
+**Abschalten** stellt nur neue Zugänge wieder auf lokal; vorhandene Einträge werden weiter aus Vaultwarden
+gelesen. Entfernt RIMPERIO einen Zugang (NAS entfernt), landet der Eintrag im **Papierkorb** von Vaultwarden.
+
+| Methode | Pfad | |
+|---|---|---|
+| GET/PUT/DELETE | `/api/vault/config` | Einstellung (Geheimnisse leer = unverändert); PUT verbindet und prüft, 409 `need_totp: …` bei fehlendem Code |
+| POST | `/api/vault/test` | anmelden und Tresor lesen |
+| POST | `/api/vault/migrate` | lokale Zugänge nach Vaultwarden |
+| GET | `/api/vault/entries` | alle Zugänge mit Verwendung (ohne Inhalt) |
+| POST | `/api/vault/entries/{id}/check` | lesbar? (ohne Inhalt) |
 
 ---
 
