@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import agentwake, patchmgmt, rmm, snmpmon, tokens
+from .. import agentwake, patchmgmt, rmm, snmpmon, tenancy, tokens
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
 from ..limiter import client_ip
@@ -238,6 +238,10 @@ async def current_agent(authorization: str = Header(default=""),
     )).scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=401, detail="Agent-Token unbekannt.")
+    # Ab hier gilt der Mandant des Geraets: Checks, Skripte und Befehle nur
+    # aus seinem Mandanten (und die gemeinsamen des Betreibers).
+    if agent.tenant_id is not None:
+        tenancy.set_scope(int(agent.tenant_id), force=True)
     return agent
 
 
@@ -254,6 +258,10 @@ async def enroll(data: EnrollIn, request: Request, db: AsyncSession = Depends(ge
                    actor=data.hostname, target=data.hostname, source_ip=ip)
         raise HTTPException(status_code=401, detail="Zugangsschlüssel ungültig.")
     tokens.note_use(key, ip)
+    if key.tenant_id is not None:
+        # Einladung eines Mandanten: das Geraet gehoert ihm, und nur unter
+        # seinen Geraeten wird nach dem Hostnamen gesucht.
+        tenancy.set_scope(int(key.tenant_id), force=True)
 
     hostname = data.hostname.strip()[:255]
     agent = (await db.execute(

@@ -32,7 +32,7 @@ from ..schemas import (
     LoginMFARequired,
     MFALoginRequest,
 )
-from .. import journal, ldap_auth
+from .. import journal, ldap_auth, tenancy
 from ..limiter import client_ip as real_client_ip
 from ..auth import (
     verify_password,
@@ -216,7 +216,7 @@ def _hint_text() -> str:
     return (f"Das Startpasswort für „admin“ hat der Installer am Ende in der Konsole angezeigt. "
             f"Es steht außerdem in {install_dir}/.env (Zeile RIMPERIO_ADMIN_INITIAL_PASSWORD, "
             f"nur als root lesbar: sudo grep INITIAL {install_dir}/.env) bzw. im Protokoll: "
-            f"sudo docker logs rimperio-app-backend 2>&1 | grep Startpasswort")
+            f"sudo docker logs {settings.container('app-backend')} 2>&1 | grep Startpasswort")
 
 
 @router.get("/initial-hint")
@@ -283,6 +283,8 @@ async def issue_ticket(request: Request, data: TicketRequest,
     if data.purpose not in TICKET_PURPOSES:
         raise HTTPException(status_code=400,
                             detail=f"Unbekannter Zweck. Erlaubt: {', '.join(TICKET_PURPOSES)}")
+    if admin.tenant_id is not None and data.purpose not in tenancy.TENANT_TICKETS:
+        raise HTTPException(status_code=403, detail="Diese Funktion steht nur dem Betreiber zur Verfügung.")
     return {"ticket": create_ticket(admin, data.purpose), "expires_in_seconds": TICKET_SECONDS}
 
 

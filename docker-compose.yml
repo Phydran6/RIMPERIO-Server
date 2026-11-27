@@ -54,7 +54,7 @@ services:
     # dann laeuft alles sofort weiter. Datenerhaltendes Upgrade: db/migrate.sh.
     # Details: README -> "Update / PostgreSQL-Major-Upgrade".
     image: postgres:${POSTGRES_VERSION:-17}-alpine
-    container_name: rimperio-ext-postgres
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-postgres
     hostname: postgres
     restart: unless-stopped
     logging: *default-logging
@@ -82,7 +82,7 @@ services:
       # Schnittstellen offen - die Datenbank hing damit ungeschuetzt im
       # Netz und war nur durch das Passwort getrennt.
       # Zugriff von aussen wirklich noetig? Dann DB_BIND=0.0.0.0 in der .env.
-      - "${DB_BIND:-127.0.0.1}:5432:5432"
+      - "${DB_BIND:-127.0.0.1}:${DB_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-rimperio} -d ${DB_NAME:-rimperio}"]
       interval: 5s
@@ -100,7 +100,7 @@ services:
   syslog:
     build: ./server/syslog
     image: rimperio/syslog:local
-    container_name: rimperio-app-syslog
+    container_name: ${RIMPERIO_NAME:-rimperio}-app-syslog
     hostname: syslog
     restart: unless-stopped
     logging: *default-logging
@@ -127,8 +127,8 @@ services:
       # damit die Datenbank nicht an voller Platte stirbt. Gleicher Wert wie im Backend.
       DISK_INGEST_STOP: ${DISK_INGEST_STOP:-95}
     ports:
-      - "514:514/udp"
-      - "514:514/tcp"
+      - "${SYSLOG_PORT:-514}:514/udp"
+      - "${SYSLOG_PORT:-514}:514/tcp"
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,7 +144,7 @@ services:
   backend:
     build: ./server/backend
     image: rimperio/backend:local
-    container_name: rimperio-app-backend
+    container_name: ${RIMPERIO_NAME:-rimperio}-app-backend
     hostname: backend
     restart: unless-stopped
     logging: *default-logging
@@ -246,6 +246,11 @@ services:
       # Anmeldung ueber Microsoft 365 / Entra ID (OpenID Connect).
       # Eingerichtet wird das in der Oberflaeche unter Sicherheit -> Single Sign-on.
       OIDC_ENABLED: ${OIDC_ENABLED:-}
+      # Mandantenfaehigkeit beim ersten Start (install.sh --multi-tenant).
+      # Danach gilt der Schalter in der Oberflaeche (Benutzer -> Mandanten).
+      RIMPERIO_MULTITENANT: ${RIMPERIO_MULTITENANT:-false}
+      # Name dieser Instanz (install.sh --instance) - Vorsilbe der Container.
+      RIMPERIO_NAME: ${RIMPERIO_NAME:-rimperio}
       # Sprache der Oberflaeche, wenn ein Browser nichts anderes verlangt.
       RIMPERIO_DEFAULT_LANGUAGE: ${RIMPERIO_DEFAULT_LANGUAGE:-de}
       # API-Dokumentation (/api/docs): admin = nur mit Ticket aus der Oberflaeche
@@ -285,7 +290,7 @@ services:
   frontend:
     build: ./server/frontend
     image: rimperio/frontend:local
-    container_name: rimperio-app-frontend
+    container_name: ${RIMPERIO_NAME:-rimperio}-app-frontend
     hostname: frontend
     restart: unless-stopped
     logging: *default-logging
@@ -313,7 +318,7 @@ services:
   # ============================================================================
   caddy:
     image: caddy:${CADDY_VERSION:-2}-alpine
-    container_name: rimperio-ext-caddy
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-caddy
     hostname: caddy
     restart: unless-stopped
     logging: *default-logging
@@ -327,8 +332,8 @@ services:
       de.rimperio.role: "Reverse Proxy und TLS-Zertifikate"
       de.rimperio.critical: "true"
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     volumes:
       - ./server/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

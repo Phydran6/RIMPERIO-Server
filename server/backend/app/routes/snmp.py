@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import journal, snmpmon
+from .. import journal, snmpmon, tenancy
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
 from ..models import (Agent, DiscoveredDevice, RmmAlert, SnmpCredential, SnmpDevice, SnmpMetric,
@@ -83,6 +83,11 @@ def _check_cred(data: CredentialIn) -> None:
 
 
 async def _poller_ok(db: AsyncSession, poller: str) -> None:
+    if poller == "server" and tenancy.forced():
+        # Mandanten fragen ueber einen eigenen Agent ab: der Server selbst
+        # steht im Netz des Betreibers, nicht in dem des Kunden.
+        raise HTTPException(status_code=400,
+                            detail="Als Mandant bitte einen eigenen Agent als Abfragepunkt wählen.")
     if poller == "server":
         return
     if (await db.execute(select(Agent.id).where(Agent.agent_uid == poller))).first() is None:

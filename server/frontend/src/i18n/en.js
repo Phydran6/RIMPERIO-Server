@@ -106,6 +106,7 @@ export default {
     webhooks: 'Webhooks',
     ai: 'AI providers',
     users: 'Users',
+    tenants: 'Tenants',
     sso: 'Microsoft 365 / Entra ID (SSO)',
     ldap: 'Active Directory / LDAP',
     password: 'Password',
@@ -152,6 +153,13 @@ export default {
     toDark: 'Switch to dark theme',
   },
 
+  tenants: {
+    ownTenant: 'Your tenant',
+    switchHint: 'Limit the view to one tenant',
+    allTenants: 'All tenants',
+    providerOnly: 'Provider only (no tenant)',
+    locked: 'locked',
+  },
   backup: {
     title: 'Backup & restore',
     intro: 'Backups are ZIP files kept on the server. You choose what goes in — ' +

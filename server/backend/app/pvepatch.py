@@ -428,7 +428,7 @@ async def _execute(host: PveHost, run: dict) -> None:
                               title=f"Proxmox {host.name}: Patch-Lauf {'abgeschlossen' if ok else 'angehalten'}",
                               body=(f"Aktualisiert: {', '.join(done_nodes)}" if done_nodes else "Alles aktuell.")
                               if ok else (run["error"] or ""),
-                              link=LINK, data={"pve_run": run["id"]},
+                              link=LINK, data={"pve_run": run["id"]}, tenant_id=host.tenant_id,
                               event="patch_done" if ok else "patch_failed")
     except Exception as exc:                                        # defensiv
         logger.debug("Meldung zum Patch-Lauf nicht angelegt: %s", exc)
@@ -494,5 +494,12 @@ async def overview(hosts: List[PveHost]) -> dict:
         out.append({"host_id": h.id, "host": h.name, "config": cfg,
                     "window_open": st["open"], "next_window": _iso(st["next"] or st["begin"]),
                     "running": public_run(active_run(h.id)) if active_run(h.id) else None})
-    return {"hosts": out, "runs": runs_for(), "history": await history(),
+    runs, past = runs_for(), await history()
+    from . import tenancy
+    if tenancy.current() is not None:
+        # Mandant: nur die Laeufe der eigenen Hosts.
+        mine = {h.id for h in hosts}
+        runs = [r for r in runs if r.get("host_id") in mine]
+        past = [r for r in past if r.get("host_id") in mine]
+    return {"hosts": out, "runs": runs, "history": past,
             "defaults": DEFAULT_HOST_CONFIG, "reboot_modes": list(REBOOT_MODES)}

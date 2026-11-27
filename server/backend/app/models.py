@@ -10,9 +10,37 @@ from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Foreign
 from sqlalchemy.orm import relationship
 from .database import Base
 
+
+class Tenant(Base):
+    """Ein Mandant (Kunde). Nur in Gebrauch, wenn die Mandantenfaehigkeit an ist.
+
+    Was einem Mandanten gehoert, traegt dessen ``tenant_id``: Benutzer, Geraete,
+    Zugangsschluessel, Proxmox-Hosts, SNMP-Geraete, Meldungen. Logs, Messwerte,
+    Befehle und Updates haengen am Geraet und gehoeren damit automatisch dazu.
+    ``tenant_id`` leer heisst: Betreiber (sieht alles) bzw. bei Skripten,
+    Checks, Richtlinien und Vorlagen "gilt fuer alle Mandanten".
+    """
+    __tablename__ = "tenants"
+    id = Column(Integer, primary_key=True)
+    slug = Column(String(64), unique=True, nullable=False)       # kurz, fuer Adressen/Skripte
+    name = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    contact_name = Column(String(200), default="")
+    contact_email = Column(String(200), default="")
+    note = Column(Text, default="")
+    # Meldungen dieses Mandanten zusaetzlich an diese Adressen (komma-getrennt)
+    alert_emails = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+TENANT_TABLES = [Tenant.__table__]
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     username = Column(String(50), unique=True, nullable=False)
     email = Column(String(100))
     password_hash = Column(String(255), nullable=False)
@@ -69,6 +97,8 @@ class MFABackupCode(Base):
 class Agent(Base):
     __tablename__ = "agents"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     hostname = Column(String(255), nullable=False)
     ip_address = Column(String(45))
     mac_address = Column(String(17))
@@ -165,6 +195,8 @@ class AgentToken(Base):
     """
     __tablename__ = "agent_tokens"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(100), nullable=False)
     # Altbestand: Klartext. Neue Schluessel lassen die Spalte leer.
     token = Column(String(64), unique=True, nullable=True)
@@ -324,6 +356,8 @@ class Script(Base):
     """Wiederverwendbares Skript. Ein Lauf erzeugt daraus einen Command."""
     __tablename__ = "scripts"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False, index=True)
     description = Column(String(512), default="")
     shell = Column(String(16), default="powershell")
@@ -341,6 +375,8 @@ class Check(Base):
     Gilt global, je Standort oder für ein einzelnes Gerät."""
     __tablename__ = "checks"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     type = Column(String(24), nullable=False)          # cpu | mem | disk | service | port | ping | script
     params = Column(JSON, default=dict)
@@ -394,6 +430,8 @@ class PatchPolicy(Base):
     """Wie, wann und mit welcher Freigabe auf einer Gruppe von Geräten gepatcht wird."""
     __tablename__ = "patch_policies"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     description = Column(String(512), default="")
     enabled = Column(Boolean, default=True)
@@ -482,6 +520,8 @@ class PveHost(Base):
     """Ein Proxmox-VE-Server oder -Cluster für Sicherungen vor dem Patchen."""
     __tablename__ = "pve_hosts"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     url = Column(String(255), nullable=False)           # https://pve.example:8006
     auth_type = Column(String(16), default="token")     # token | password
@@ -551,6 +591,8 @@ class Notification(Base):
     """Eingang in Oberfläche und App: Freigaben, Fehlschläge, Hinweise."""
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     category = Column(String(32), default="system")      # patch | snmp | rmm | system
     level = Column(String(16), default="info")           # info | warning | critical
@@ -576,6 +618,8 @@ class SnmpCredential(Base):
     """Zugangsdaten für SNMP — einmal anlegen, für viele Geräte nutzen."""
     __tablename__ = "snmp_credentials"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     version = Column(String(4), default="2c")           # 1 | 2c | 3
     community = Column(String(255), default="")         # v1/v2c (nie ausgeliefert)
@@ -593,6 +637,8 @@ class SnmpTemplate(Base):
     """Eigene Vorlage: welche Werte von einem Gerätetyp gelesen und wie bewertet werden."""
     __tablename__ = "snmp_templates"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     key = Column(String(64), unique=True, nullable=False)
     name = Column(String(128), nullable=False)
     vendor = Column(String(64), default="")
@@ -607,6 +653,8 @@ class SnmpDevice(Base):
     """Ein per SNMP überwachtes Gerät."""
     __tablename__ = "snmp_devices"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     host = Column(String(255), nullable=False)
     port = Column(Integer, nullable=True)               # leer = Port der Zugangsdaten
@@ -782,6 +830,8 @@ class NasDevice(Base):
     """Ein NAS, das RIMPERIO ueber seine Web-API anspricht (Synology DSM, TrueNAS …)."""
     __tablename__ = "nas_devices"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     vendor = Column(String(24), default="synology")          # synology | truenas | generic
     host = Column(String(255), nullable=False)               # IP oder Name
@@ -837,6 +887,8 @@ class BackupTarget(Base):
     """Wohin gesichert wird: Ordner am Server, SMB-Freigabe (z. B. das NAS), SFTP, FTP(S)."""
     __tablename__ = "backup_targets"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     kind = Column(String(16), default="local")               # local | smb | sftp | ftp | ftps
     host = Column(String(255), default="")
@@ -856,6 +908,8 @@ class BackupJob(Base):
     """Was gesichert wird, wann und wohin."""
     __tablename__ = "backup_jobs"
     id = Column(Integer, primary_key=True)
+    # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
     # rimperio   = RIMPERIO selbst (Datenbank-Bereiche wie unter Sicherung)
     # files      = Ordner auf einem Rechner mit Agent (Linux/Windows/Raspberry Pi)

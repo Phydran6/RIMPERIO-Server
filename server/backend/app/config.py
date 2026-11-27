@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
-    app_version: str = "0.0.1"
+    app_version: str = "0.1.0"
     caddy_admin_url: str = "http://caddy:2019"
     caddy_certs_dir: str = "/caddy-certs"
     # Notausstieg ohne Web-UI: CADDY_FORCE_HTTP=true startet mit reinem HTTP auf
@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     rimperio_acme_email: str = ""
     # install.sh --https-only: Port 80 nur als Weiterleitung auf HTTPS.
     rimperio_https_only: bool = False
+    # Name der Instanz (install.sh --instance kunde1 -> "rimperio-kunde1").
+    # Vorsilbe aller Containernamen; so laufen mehrere RIMPERIO-Instanzen
+    # nebeneinander auf einem Server. Standard: "rimperio".
+    rimperio_name: str = "rimperio"
+
+    def container(self, suffix: str) -> str:
+        """Containername dieser Instanz, z.B. container("ext-postgres")."""
+        return f"{(self.rimperio_name or 'rimperio').strip()}-{suffix}"
 
     @property
     def database_url(self) -> str:

@@ -3,6 +3,14 @@
 Datenbank-Image & Deploy-Konfiguration (`docker-compose.yml`, `db/`, `install.sh`).
 Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.1.0
+
+### Added
+- `install.sh --multi-tenant` (Rückfrage im manuellen Modus, `RIMPERIO_MULTITENANT` in der `.env`), `--single-tenant`.
+- `install.sh --instance <name>`: weitere Instanz unter `/opt/rimperio-<name>` mit `RIMPERIO_NAME`, `COMPOSE_PROJECT_NAME`, `RIMPERIO_INSTALL_DIR` und freien Ports (`--http-port`, `--https-port`, `--syslog-port`, `--db-port`). Auch für `update` und `uninstall`.
+- `docker-compose.yml` und `deploy/optional.yml`: Containernamen `${RIMPERIO_NAME:-rimperio}-…`, Ports `HTTP_PORT`, `HTTPS_PORT`, `SYSLOG_PORT`, `DB_HOST_PORT` (Standard unverändert 80/443/514/5432); Backend bekommt `RIMPERIO_MULTITENANT` und `RIMPERIO_NAME`.
+- `server/setup.sh`: fragt Instanzname und Mandanten ab und nimmt beides in den Einzeiler.
+
 ## 2026.10.11.20.00.00
 
 ### Added

@@ -427,19 +427,25 @@ _SCOPE_RANK = {"agent": 0, "site": 1, "global": 2}
 
 
 def pick_policy(agent: Agent, policies: List[PatchPolicy]) -> Optional[PatchPolicy]:
-    best: Optional[Tuple[int, int, PatchPolicy]] = None
+    best: Optional[Tuple[tuple, PatchPolicy]] = None
     for p in policies:
         if not p.enabled:
+            continue
+        # Mandanten: eine Richtlinie eines Mandanten gilt nur fuer dessen
+        # Geraete; ohne Mandant gilt sie fuer alle (die des Betreibers).
+        if p.tenant_id is not None and p.tenant_id != agent.tenant_id:
             continue
         ok = (p.scope_type == "global"
               or (p.scope_type == "site" and p.scope_value == (agent.site or "Standard"))
               or (p.scope_type == "agent" and p.scope_value == agent.agent_uid))
         if not ok:
             continue
-        rank = (_SCOPE_RANK.get(p.scope_type, 9), p.priority or 100)
-        if best is None or rank < best[:2]:
-            best = (rank[0], rank[1], p)
-    return best[2] if best else None
+        # Bei gleichem Geltungsbereich schlaegt die eigene Richtlinie des
+        # Mandanten die gemeinsame des Betreibers.
+        rank = (_SCOPE_RANK.get(p.scope_type, 9), 0 if p.tenant_id is not None else 1, p.priority or 100)
+        if best is None or rank < best[0]:
+            best = (rank, p)
+    return best[1] if best else None
 
 
 async def policies(db: AsyncSession) -> List[PatchPolicy]:

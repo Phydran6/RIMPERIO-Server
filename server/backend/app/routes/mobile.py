@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import logparse, public_url
+from .. import logparse, public_url, tenancy
 from ..auth import get_current_admin, get_current_user
 from ..branding import load_config as load_branding
 from ..config import settings
@@ -52,6 +52,7 @@ router = APIRouter(prefix="/api/app", tags=["Mobile App"])
 # ablesen, was dieser Server kann, statt es auszuprobieren.
 API_LEVEL = 4
 CAPABILITIES = [
+    "tenants",           # Mandanten: X-Rimperio-Tenant, bootstrap.tenancy
     "notifications",     # /api/app/notifications - Eingang (Freigaben, Fehlschlaege)
     "patch-approvals",   # Updates freigeben/ablehnen inkl. KI-Einschaetzung
     "patch-runs",        # Laeufe ansehen, zurueckrollen
@@ -161,7 +162,23 @@ async def bootstrap(db: AsyncSession = Depends(get_db), user=Depends(get_current
         .distinct().order_by(Agent.device_type)
     )).scalars().all()
 
+    # Mandanten (app/tenancy.py): wer bin ich, wohin kann ich umschalten?
+    from ..models import Tenant
+    own = await db.get(Tenant, user.tenant_id) if user.tenant_id else None
+    tenant_list = []
+    if user.tenant_id is None and tenancy.enabled():
+        tenant_list = [{"id": t.id, "name": t.name, "slug": t.slug}
+                       for t in (await db.execute(select(Tenant).where(Tenant.is_active.is_(True))
+                                                  .order_by(Tenant.name))).scalars()]
     return {
+        "tenancy": {
+            "enabled": tenancy.enabled(),
+            "is_provider": user.tenant_id is None,
+            "tenant": {"id": own.id, "name": own.name, "slug": own.slug} if own else None,
+            "scope": tenancy.current(),
+            "tenants": tenant_list,
+            "header": tenancy.HEADER,
+        },
         "server": {
             "name": branding.company_name or "RIMPERIO",
             "version": settings.app_version,
@@ -343,9 +360,7 @@ async def summary(db: AsyncSession = Depends(get_db), _=Depends(get_current_user
     # Gesamtzahl aus der Schaetzung der Datenbank: ein echtes COUNT(*) ueber
     # Millionen Zeilen laesst den Startbildschirm sekundenlang haengen.
     from sqlalchemy import text
-    total = (await db.execute(text(
-        "SELECT GREATEST(reltuples::bigint, 0) FROM pg_class WHERE relname = 'logs'"
-    ))).scalar() or 0
+    total = await tenancy.log_total(db)
 
     today_count = (await db.execute(
         select(func.count(Log.id)).where(Log.timestamp >= today)
@@ -693,6 +708,13 @@ async def push_poll(request: Request, since_id: Optional[int] = Query(None),
     owner = await db.get(User, dev.user_id)
     if owner is None or not owner.is_active:
         raise HTTPException(status_code=401, detail="Das Konto zu diesem Gerät ist gesperrt.")
+    if owner.tenant_id is not None:
+        # Die Hintergrundabfrage eines Mandanten-Kontos: nur seine Meldungen.
+        from ..models import Tenant
+        tenant = await db.get(Tenant, owner.tenant_id)
+        if tenant is None or not tenant.is_active:
+            raise HTTPException(status_code=401, detail="Der Mandant dieses Kontos ist gesperrt.")
+        tenancy.set_scope(int(owner.tenant_id), force=True)
     now = datetime.utcnow()
     if not dev.last_seen_at or (now - dev.last_seen_at).total_seconds() > 60:
         dev.last_seen_at, dev.last_ip = now, _client_ip(request)

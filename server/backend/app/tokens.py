@@ -276,7 +276,7 @@ async def create(db: AsyncSession, *, name: str, kind: str = "agent",
                  device_type: Optional[str] = None, agent_id: Optional[int] = None,
                  allowed_cidrs: str = "", expires_in_hours: Optional[int] = None,
                  max_uses: Optional[int] = None, created_by: str = "",
-                 note: str = "") -> Tuple[AgentToken, str]:
+                 note: str = "", tenant_id: Optional[int] = None) -> Tuple[AgentToken, str]:
     """Legt einen Schluessel an. Gibt (Zeile, Klartext) - der Klartext einmalig."""
     if kind not in KINDS:
         raise ValueError(f"Unbekannte Schluesselart '{kind}'. Erlaubt: {', '.join(KINDS)}.")
@@ -301,6 +301,8 @@ async def create(db: AsyncSession, *, name: str, kind: str = "agent",
         created_by=(created_by or "")[:50] or None,
         note=(note or "").strip() or None,
         is_active=True,
+        # Leer = Mandant der Anfrage (app/tenancy.py setzt ihn beim Speichern).
+        tenant_id=tenant_id,
     )
     db.add(row)
     await db.flush()
@@ -314,8 +316,8 @@ async def ensure_global(db: AsyncSession, created_by: str = "system") -> Tuple[A
     vorher da war - er laesst sich dann nicht mehr auslesen, nur erneuern.
     """
     row = (await db.execute(
-        select(AgentToken).where(AgentToken.kind == "global")
-    )).scalar_one_or_none()
+        select(AgentToken).where(AgentToken.kind == "global", AgentToken.tenant_id.is_(None))
+    )).scalars().first()
     if row is None:
         # Altbestand: der Schluessel hiess frueher 'global-agent' und hatte noch
         # keine Art. Den uebernehmen statt einen zweiten anzulegen.
@@ -386,6 +388,7 @@ def public(row: AgentToken, agent_hostname: str = "") -> dict:
         "created_at": row.created_at,
         "created_by": row.created_by,
         "note": row.note or "",
+        "tenant_id": row.tenant_id,
         # Der wichtigste Hinweis in dieser Liste: liegt der Schluessel noch im
         # Klartext in der Datenbank?
         "legacy_plaintext": legacy,

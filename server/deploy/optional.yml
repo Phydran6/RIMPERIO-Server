@@ -75,7 +75,7 @@ services:
   # ----------------------------------------------------------------------------
   portainer:
     image: portainer/portainer-ce:${PORTAINER_VERSION:-2.21.4-alpine}
-    container_name: rimperio-ext-portainer
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-portainer
     hostname: portainer
     restart: unless-stopped
     logging: *optional-logging
@@ -119,7 +119,7 @@ services:
   #   finden; zustaendig ist das Patchmanagement unter System -> Updates.
   tugtainer:
     image: ghcr.io/quenary/tugtainer:${TUGTAINER_VERSION:-1}
-    container_name: rimperio-ext-tugtainer
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-tugtainer
     hostname: tugtainer
     restart: unless-stopped
     logging: *optional-logging
@@ -155,7 +155,7 @@ services:
   # ----------------------------------------------------------------------------
   n8n:
     image: n8nio/n8n:${N8N_VERSION:-1.68.0}
-    container_name: rimperio-ext-n8n
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-n8n
     hostname: n8n
     restart: unless-stopped
     logging: *optional-logging
@@ -210,7 +210,7 @@ services:
   #   vorhandene Installation.
   openwebui:
     image: ghcr.io/open-webui/open-webui:${OPENWEBUI_VERSION:-main}
-    container_name: rimperio-ext-openwebui
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-openwebui
     hostname: openwebui
     restart: unless-stopped
     logging: *optional-logging
@@ -253,7 +253,7 @@ services:
   #   Deshalb: nach jeder Aenderung startet das Backend den Container neu.
   postfix:
     image: boky/postfix:${POSTFIX_VERSION:-v4.3.1}
-    container_name: rimperio-ext-postfix
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-postfix
     hostname: postfix
     restart: unless-stopped
     logging: *optional-logging

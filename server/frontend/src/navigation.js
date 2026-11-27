@@ -151,6 +151,9 @@ export const NAV_SECTIONS = [
     admin: true,
     items: [
       { key: 'users', to: '/users', name: 'Users', icon: 'users', label: 'users', admin: true },
+      // Nur Betreiber und nur, wenn die Mandantenfaehigkeit da ist (oder um
+      // sie einzuschalten): Benutzer → Mandanten.
+      { key: 'tenants', to: '/tenants', name: 'Tenants', icon: 'stacks', label: 'tenants', admin: true, provider: true },
     ],
   },
   {
@@ -201,11 +204,48 @@ export const NAV_SECTIONS = [
   },
 ]
 
-/** Menue fuer diesen Benutzer: ohne Admin-Punkte, leere Bereiche fallen weg. */
-export function sectionsFor(isAdmin) {
+// Was ein Mandanten-Konto (Kunde) im Menue sieht. Alles andere betrifft den
+// Server oder die ganze Instanz und bleibt beim Betreiber - der Server sperrt
+// es ohnehin (app/tenancy.py, TENANT_PATHS).
+export const TENANT_KEYS = new Set([
+  'dashboard', 'computers', 'snmp', 'agent-tokens', 'proxmox', 'pve-patching',
+  'logs', 'log-sources', 'alarms', 'checks', 'patch-center', 'db-updates', 'policies',
+  'sources', 'scripts', 'users', 'password', 'security', 'app', 'about',
+  'nas', 'special', 'backup-jobs', 'backup-targets', 'backup-runs',
+])
+
+// Routen, die ein Mandanten-Konto aufrufen darf (fuer den Router-Waechter):
+// die Menuepunkte oben samt ihren Detailseiten.
+export const TENANT_ROUTES = new Set(['Login', 'ChangePassword', 'NotFound'])
+export const TENANT_SETTINGS_TABS = new Set(['password', 'security'])
+for (const section of NAV_SECTIONS) {
+  for (const item of section.items) {
+    if (!TENANT_KEYS.has(item.key) || item.name === 'Settings') continue
+    TENANT_ROUTES.add(item.name)
+    for (const extra of item.match || []) TENANT_ROUTES.add(extra)
+  }
+}
+
+/** Darf ein Mandanten-Konto diese Route sehen? */
+export function tenantMayOpen(route) {
+  if (route.name === 'Settings') return TENANT_SETTINGS_TABS.has(String(route.params?.tab || 'general'))
+  return TENANT_ROUTES.has(route.name)
+}
+
+/**
+ * Menue fuer diesen Benutzer: ohne Admin-Punkte, leere Bereiche fallen weg.
+ * opts.provider  = Konto ohne Mandant (Betreiber); false = Mandanten-Konto
+ */
+export function sectionsFor(isAdmin, opts = {}) {
+  const provider = opts.provider !== false
   return NAV_SECTIONS
     .filter(section => isAdmin || !section.admin)
-    .map(section => ({ ...section, items: section.items.filter(item => isAdmin || !item.admin) }))
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => (isAdmin || !item.admin)
+        && (provider || TENANT_KEYS.has(item.key))
+        && (!item.provider || provider)),
+    }))
     .filter(section => section.items.length)
 }
 

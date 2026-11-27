@@ -17,7 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from .config import settings
 from .database import get_db
-from .models import User
+from . import tenancy
+from .models import Tenant, User
 from .schemas import TokenData
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -186,7 +187,30 @@ async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Bitte zuerst das Startpasswort ändern.",
                             headers={"X-Password-Change-Required": "1"})
+    await apply_tenant_scope(db, user, request.url.path, request.method,
+                             request.headers.get(tenancy.HEADER))
     return user
+
+
+async def apply_tenant_scope(db: AsyncSession, user: User, path: str, method: str = "GET",
+                             header_value: Optional[str] = None) -> None:
+    """Setzt den Mandanten fuer den Rest der Anfrage (siehe app/tenancy.py).
+
+    Mandanten-Benutzer: immer ihr Mandant, und nur die freigegebenen Wege.
+    Betreiber: auf Wunsch ein Mandant (Kopf X-Rimperio-Tenant), sonst alles.
+    """
+    tid = getattr(user, "tenant_id", None)
+    if tid is None:
+        tenancy.set_scope(tenancy.scope_for_user(user, header_value))
+        return
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
+    if tenant is None or not tenant.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Der Mandant dieses Kontos ist gesperrt.")
+    if not tenancy.tenant_path_allowed(path, method):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Diese Funktion steht nur dem Betreiber zur Verfügung.")
+    tenancy.set_scope(int(tid), force=True)
 
 async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "admin":
@@ -236,4 +260,15 @@ async def admin_from_token(token: str, purpose: Optional[str] = None) -> Optiona
         return None
     if not _fingerprint_ok(payload, user):
         return None
+    if user.tenant_id is not None:
+        # Mandanten-Admins: nur die Wege, die ihren Mandanten betreffen (die
+        # Proxmox-Konsole ihrer eigenen Hosts) - nie Server-Konsole, Updates,
+        # Sicherungen oder das Systemtagebuch.
+        if purpose not in tenancy.TENANT_TICKETS:
+            return None
+        async with async_session() as session:
+            tenant = await session.get(Tenant, user.tenant_id)
+        if tenant is None or not tenant.is_active:
+            return None
+        tenancy.set_scope(int(user.tenant_id), force=True)
     return user

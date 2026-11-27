@@ -12,7 +12,7 @@
 #
 # Autor:        Phydran6
 # Kontakt:      Phydran6
-# Version:      2026.09.12.12.00.00
+# Version:      2026.11.27.22.00.00
 # Erstellt:     Januar 2026
 #
 # Beschreibung:
@@ -32,6 +32,8 @@
 #   sudo bash install.sh update|uninstall|uninstall-purge
 #   curl -sSL <RAW-URL>/install.sh | sudo bash -s -- update -y
 #   curl -sSL <RAW-URL>/install.sh | sudo bash -s -- update -y --ref v2026.09.10
+#   curl -sSL <RAW-URL>/install.sh | sudo bash -s -- --multi-tenant -y      # mit Mandanten
+#   curl -sSL <RAW-URL>/install.sh | sudo bash -s -- --instance kunde1 -y   # 2. Instanz
 #
 # ==============================================================================
 
@@ -48,7 +50,7 @@ NC='\033[0m'
 # Konfiguration (Vorrang: Parameter > Umgebungsvariable > Default)
 # ==============================================================================
 
-RIMPERIO_VERSION="0.0.1"
+RIMPERIO_VERSION="0.1.0"
 
 INSTALL_DIR="${RIMPERIO_DIR:-/opt/rimperio}"
 REPO_URL="${RIMPERIO_REPO:-https://github.com/Phydran6/RIMPERIO-Server.git}"
@@ -74,6 +76,21 @@ DOMAIN="${RIMPERIO_DOMAIN:-}"
 TLS_MODE="${RIMPERIO_TLS:-}"          # letsencrypt | internal
 ACME_EMAIL="${RIMPERIO_ACME_EMAIL:-}"
 HTTPS_ONLY="${RIMPERIO_HTTPS_ONLY:-false}"   # true = Port 80 leitet nur noch auf HTTPS weiter
+
+# Mandantenfaehigkeit: eine Instanz, mehrere Kunden (Benutzer -> Mandanten).
+# Leer = im manuellen Modus fragen, sonst aus. true/false = so setzen.
+MULTITENANT="${RIMPERIO_MULTITENANT:-}"
+
+# Mehrere Instanzen auf einem Server ("ein RIMPERIO je Kunde"): Name der
+# Instanz. Leer = die Standard-Instanz unter /opt/rimperio. Mit Namen liegt sie
+# unter /opt/rimperio-NAME, ihre Container heissen rimperio-NAME-*, und sie
+# braucht eigene Ports (werden frei gewaehlt, wenn nicht angegeben).
+INSTANCE="${RIMPERIO_INSTANCE:-}"
+DIR_GIVEN="false"
+HTTP_PORT="${RIMPERIO_HTTP_PORT:-}"
+HTTPS_PORT="${RIMPERIO_HTTPS_PORT:-}"
+SYSLOG_PORT="${RIMPERIO_SYSLOG_PORT:-}"
+DB_HOST_PORT="${RIMPERIO_DB_PORT:-}"
 
 # Bekannte Zusatzdienste (muessen zu server/deploy/optional.yml passen).
 # Watchtower ist raus: es hat Container eigenmaechtig ausgetauscht. Tugtainer
@@ -174,6 +191,17 @@ Optionen (auch als Umgebungsvariable RIMPERIO_*):
                      Standard: letsencrypt, wenn --email angegeben, sonst internal
   --email <adresse>  E-Mail für Let's Encrypt (RIMPERIO_ACME_EMAIL)
   --https-only       Port 80 nur noch als Weiterleitung auf HTTPS (mit --domain)
+  --multi-tenant     Mandantenfähig: eine Instanz, mehrere Kunden, sauber getrennt
+                     (RIMPERIO_MULTITENANT). Später jederzeit unter
+                     Benutzer -> Mandanten ein- und ausschaltbar.
+  --single-tenant    Ausdrücklich ohne Mandanten (Standard)
+  --instance <name>  Weitere, eigenständige Instanz auf diesem Server, z.B. je
+                     Kunde (RIMPERIO_INSTANCE). Liegt unter /opt/rimperio-<name>,
+                     Container rimperio-<name>-*, eigene Datenbank und Ports.
+  --http-port <n>    Port für HTTP   (Standard 80, bei --instance frei gewählt)
+  --https-port <n>   Port für HTTPS  (Standard 443, bei --instance frei gewählt)
+  --syslog-port <n>  Port für Syslog (Standard 514, bei --instance frei gewählt)
+  --db-port <n>      PostgreSQL auf 127.0.0.1 (Standard 5432)
   --skip-preflight   Systemprüfung überspringen (nicht empfohlen)
   --no-build         Images nicht neu bauen (nur starten)
   --yes, -y          Keine Rückfragen (unattended)
@@ -205,8 +233,8 @@ parse_args() {
             update|upgrade)         ACTION="update" ;;
             uninstall|remove)       ACTION="uninstall" ;;
             uninstall-purge|purge)  ACTION="uninstall-purge" ;;
-            --dir)                  INSTALL_DIR="${2:-}"; shift ;;
-            --dir=*)                INSTALL_DIR="${1#*=}" ;;
+            --dir)                  INSTALL_DIR="${2:-}"; DIR_GIVEN="true"; shift ;;
+            --dir=*)                INSTALL_DIR="${1#*=}"; DIR_GIVEN="true" ;;
             --repo)                 REPO_URL="${2:-}"; shift ;;
             --repo=*)               REPO_URL="${1#*=}" ;;
             --branch)               REPO_BRANCH="${2:-}"; shift ;;
@@ -225,6 +253,18 @@ parse_args() {
             --email)                ACME_EMAIL="${2:-}"; shift ;;
             --email=*)              ACME_EMAIL="${1#*=}" ;;
             --https-only)           HTTPS_ONLY="true" ;;
+            --multi-tenant|--mandanten|--multitenant) MULTITENANT="true" ;;
+            --single-tenant|--ohne-mandanten)         MULTITENANT="false" ;;
+            --instance)             INSTANCE="${2:-}"; shift ;;
+            --instance=*)           INSTANCE="${1#*=}" ;;
+            --http-port)            HTTP_PORT="${2:-}"; shift ;;
+            --http-port=*)          HTTP_PORT="${1#*=}" ;;
+            --https-port)           HTTPS_PORT="${2:-}"; shift ;;
+            --https-port=*)         HTTPS_PORT="${1#*=}" ;;
+            --syslog-port)          SYSLOG_PORT="${2:-}"; shift ;;
+            --syslog-port=*)        SYSLOG_PORT="${1#*=}" ;;
+            --db-port)              DB_HOST_PORT="${2:-}"; shift ;;
+            --db-port=*)            DB_HOST_PORT="${1#*=}" ;;
             --skip-preflight)       SKIP_PREFLIGHT="true" ;;
             --no-build)             NO_BUILD="true" ;;
             --yes|-y|--unattended)  ASSUME_YES="true" ;;
@@ -320,6 +360,126 @@ choose_addons() {
     else
         log_info "Ausgewählt: nur RIMPERIO"
     fi
+    return 0
+}
+
+# ==============================================================================
+# Mandanten und Instanzen
+# ==============================================================================
+
+# Ist dieser TCP/UDP-Port auf dem Host noch frei? (ss, sonst netstat)
+port_free() {
+    local port="$1"
+    if command -v ss &>/dev/null; then
+        ! ss -Hltun 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${port}\$"
+    elif command -v netstat &>/dev/null; then
+        ! netstat -ltun 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"
+    else
+        return 0
+    fi
+}
+
+# Erster freier Port ab $1. Ports, die eine andere Instanz in ihrer .env schon
+# belegt (auch wenn sie gerade nicht laeuft), gelten als vergeben.
+pick_port() {
+    local port="$1" taken
+    taken="$(cat /opt/rimperio*/.env 2>/dev/null | grep -E '^(HTTP_PORT|HTTPS_PORT|SYSLOG_PORT|DB_HOST_PORT)=' | cut -d= -f2 | tr '\n' ' ')"
+    while ! port_free "$port" || [[ " $taken " == *" $port "* ]]; do
+        port=$((port + 1))
+    done
+    echo "$port"
+}
+
+valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
+
+# Name, Verzeichnis und Ports einer weiteren Instanz festlegen.
+prepare_instance() {
+    [[ -z "$INSTANCE" ]] && return 0
+    INSTANCE="${INSTANCE,,}"
+    INSTANCE="${INSTANCE#rimperio-}"
+    [[ "$INSTANCE" =~ ^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$ ]] \
+        || fail "Ungültiger Instanzname '$INSTANCE' (erlaubt: a-z, 0-9, Bindestrich, max. 32 Zeichen)."
+    [[ "$DIR_GIVEN" == "true" ]] || INSTALL_DIR="/opt/rimperio-${INSTANCE}"
+    log_info "Instanz: rimperio-${INSTANCE} in ${INSTALL_DIR}"
+}
+
+# Ports fuer eine weitere Instanz: was angegeben wurde, sonst das, was schon in
+# ihrer .env steht, sonst der naechste freie Port.
+choose_instance_ports() {
+    [[ -z "$INSTANCE" ]] && return 0
+    local env_file="$INSTALL_DIR/.env" existing
+    for var in HTTP_PORT HTTPS_PORT SYSLOG_PORT DB_HOST_PORT; do
+        [[ -n "${!var}" ]] && continue
+        existing="$(grep -E "^${var}=" "$env_file" 2>/dev/null | head -n1 | cut -d= -f2)"
+        [[ -n "$existing" ]] && printf -v "$var" '%s' "$existing"
+    done
+    [[ -z "$HTTP_PORT" ]]    && HTTP_PORT="$(pick_port 8080)"
+    [[ -z "$HTTPS_PORT" ]]   && HTTPS_PORT="$(pick_port 8443)"
+    [[ -z "$SYSLOG_PORT" ]]  && SYSLOG_PORT="$(pick_port 1514)"
+    [[ -z "$DB_HOST_PORT" ]] && DB_HOST_PORT="$(pick_port 5433)"
+    if [[ "$MANUAL" == "true" ]]; then
+        echo ""
+        echo "  Ports der Instanz rimperio-${INSTANCE} (Enter = Vorschlag):"
+        local answer=""
+        read -r -p "    HTTP   [$HTTP_PORT]: " answer </dev/tty || true;   [[ -n "$answer" ]] && HTTP_PORT="$answer"
+        read -r -p "    HTTPS  [$HTTPS_PORT]: " answer </dev/tty || true;  [[ -n "$answer" ]] && HTTPS_PORT="$answer"
+        read -r -p "    Syslog [$SYSLOG_PORT]: " answer </dev/tty || true; [[ -n "$answer" ]] && SYSLOG_PORT="$answer"
+    fi
+    for var in HTTP_PORT HTTPS_PORT SYSLOG_PORT DB_HOST_PORT; do
+        valid_port "${!var}" || fail "Ungültiger Port für $var: ${!var}"
+    done
+    log_info "Ports: HTTP ${HTTP_PORT}, HTTPS ${HTTPS_PORT}, Syslog ${SYSLOG_PORT}, PostgreSQL 127.0.0.1:${DB_HOST_PORT}"
+    if [[ "$TLS_MODE" == "letsencrypt" && "$HTTP_PORT" != "80" ]]; then
+        log_warn "Let's Encrypt braucht Port 80 und 443 von außen. Für eine weitere Instanz besser"
+        log_warn "das eigene Zertifikat (--tls internal) oder einen vorgeschalteten Reverse Proxy nehmen."
+    fi
+}
+
+# Fragt im manuellen Modus, ob die Instanz mandantenfaehig sein soll.
+ask_multitenant() {
+    [[ -n "$MULTITENANT" ]] && return 0
+    if [[ "$MANUAL" != "true" ]]; then
+        MULTITENANT="false"
+        return 0
+    fi
+    echo ""
+    echo "=============================================="
+    echo "  Mandanten"
+    echo "=============================================="
+    echo ""
+    echo "  Soll diese Instanz mehrere Kunden getrennt verwalten? Jeder Kunde"
+    echo "  (Mandant) bekommt eigene Konten und sieht nur seine Geräte, Logs und"
+    echo "  Updates. Lässt sich später jederzeit unter Benutzer -> Mandanten ein- und"
+    echo "  ausschalten. Lieber eine eigene Instanz je Kunde: --instance <name>."
+    echo ""
+    if confirm "Mandantenfähig einrichten?" "n"; then
+        MULTITENANT="true"
+    else
+        MULTITENANT="false"
+    fi
+}
+
+# Schreibt Instanz und Mandanten-Schalter in die .env.
+apply_instance_config() {
+    local env_file="$INSTALL_DIR/.env"
+    [[ -f "$env_file" ]] || return 0
+    # Ausdruecklich gesetzt (auch beim Update): uebernehmen. Sonst bleibt,
+    # was schon drinsteht.
+    if [[ -n "$MULTITENANT" ]]; then
+        set_env_value "$env_file" "RIMPERIO_MULTITENANT" "$MULTITENANT"
+    fi
+    if [[ -n "$INSTANCE" ]]; then
+        set_env_value "$env_file" "RIMPERIO_NAME" "rimperio-${INSTANCE}"
+        set_env_value "$env_file" "COMPOSE_PROJECT_NAME" "rimperio-${INSTANCE}"
+        set_env_value "$env_file" "RIMPERIO_INSTALL_DIR" "$INSTALL_DIR"
+    elif [[ "$INSTALL_DIR" != "/opt/rimperio" ]]; then
+        # Eigenes Verzeichnis: das Update im Web-UI muss es kennen.
+        set_env_value "$env_file" "RIMPERIO_INSTALL_DIR" "$INSTALL_DIR"
+    fi
+    local var
+    for var in HTTP_PORT HTTPS_PORT SYSLOG_PORT DB_HOST_PORT; do
+        [[ -n "${!var}" ]] && set_env_value "$env_file" "$var" "${!var}"
+    done
     return 0
 }
 
@@ -604,6 +764,7 @@ ensure_env() {
         log_info "Bestehende .env bleibt unverändert (Datenbank-Passwort bleibt gültig)"
         apply_addon_config
         apply_https_config
+        apply_instance_config
         return 0
     fi
 
@@ -663,6 +824,7 @@ EOF
 
     apply_addon_config
     apply_https_config
+    apply_instance_config
 }
 
 # ==============================================================================
@@ -838,6 +1000,17 @@ print_summary() {
     local local_ip
     local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
     [[ -z "$local_ip" ]] && local_ip="<server-ip>"
+    # Ports dieser Instanz (aus der .env; Standard 80/443/514/5432)
+    local env_file="$INSTALL_DIR/.env" hp sp syp dbp name mt
+    hp="$(grep -E '^HTTP_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)"; hp="${hp:-80}"
+    sp="$(grep -E '^HTTPS_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)"; sp="${sp:-443}"
+    syp="$(grep -E '^SYSLOG_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)"; syp="${syp:-514}"
+    dbp="$(grep -E '^DB_HOST_PORT=' "$env_file" 2>/dev/null | cut -d= -f2)"; dbp="${dbp:-5432}"
+    name="$(grep -E '^RIMPERIO_NAME=' "$env_file" 2>/dev/null | cut -d= -f2)"; name="${name:-rimperio}"
+    mt="$(grep -E '^RIMPERIO_MULTITENANT=' "$env_file" 2>/dev/null | cut -d= -f2)"
+    local http_url="http://${local_ip}" https_suffix=""
+    [[ "$hp" != "80" ]] && http_url="${http_url}:${hp}"
+    [[ "$sp" != "443" ]] && https_suffix=":${sp}"
 
     echo ""
     echo "=============================================="
@@ -846,11 +1019,11 @@ print_summary() {
     echo ""
     echo "Web-Interface:"
     if [[ -n "$DOMAIN" ]]; then
-        echo "  https://${DOMAIN}   (dazu weiterhin http://${local_ip})"
+        echo "  https://${DOMAIN}${https_suffix}   (dazu weiterhin ${http_url})"
         [[ "$TLS_MODE" == "letsencrypt" ]] && echo "  Let's Encrypt klappt nur, wenn ${DOMAIN} auf diesen Server zeigt und Port 80/443 offen sind."
         [[ "$TLS_MODE" == "internal" ]] && echo "  Eigenes Zertifikat: der Browser fragt beim ersten Aufruf einmal nach."
     else
-        echo "  http://${local_ip}"
+        echo "  ${http_url}"
         echo "  HTTPS: im Browser unter Einstellungen -> Netzwerk -> Reverse Proxy,"
         echo "  oder gleich beim Einzeiler: ... | sudo bash -s -- --domain rmm.example.de --email du@example.de"
     fi
@@ -863,14 +1036,22 @@ print_summary() {
         echo "  Passwort: ${initial_admin_password}"
         echo "            (steht auch in $INSTALL_DIR/.env - nur root kann sie lesen)"
     else
-        echo "  Passwort: wurde vom Server erzeugt: sudo docker logs rimperio-app-backend 2>&1 | grep Startpasswort"
+        echo "  Passwort: wurde vom Server erzeugt: sudo docker logs ${name}-app-backend 2>&1 | grep Startpasswort"
     fi
     echo ""
     echo -e "${YELLOW}Das Startpasswort gilt nur für die erste Anmeldung - danach verlangt RIMPERIO ein eigenes.${NC}"
     echo ""
-    echo "Syslog-Empfang:  Port 514 (UDP/TCP)"
+    if [[ "$name" != "rimperio" ]]; then
+        echo "Instanz:         ${name} (Container ${name}-*, Verzeichnis ${INSTALL_DIR})"
+    fi
+    if [[ "$mt" == "true" ]]; then
+        echo "Mandanten:       eingeschaltet - Kunden anlegen unter Benutzer -> Mandanten"
+    else
+        echo "Mandanten:       aus - jederzeit einschaltbar unter Benutzer -> Mandanten"
+    fi
+    echo "Syslog-Empfang:  Port ${syp} (UDP/TCP)"
     echo "API-Doku:        in der Oberfläche unter Über RIMPERIO (nur Administratoren)"
-    echo "PostgreSQL:      127.0.0.1:5432, nur vom Server selbst (Zugangsdaten in $INSTALL_DIR/.env)"
+    echo "PostgreSQL:      127.0.0.1:${dbp}, nur vom Server selbst (Zugangsdaten in $INSTALL_DIR/.env)"
     echo ""
 
     if [[ ${#SELECTED_ADDONS[@]} -gt 0 ]]; then
@@ -897,7 +1078,7 @@ print_summary() {
     echo "Updates:"
     echo "  In der Oberfläche unter System -> Updates (mit Rückfall-Option)"
     echo "  oder als Einzeiler:"
-    echo "  curl -sSL ${REPO_URL%.git}/raw/${REPO_BRANCH}/install.sh | sudo bash -s -- update -y"
+    echo "  curl -sSL ${REPO_URL%.git}/raw/${REPO_BRANCH}/install.sh | sudo bash -s -- update -y${INSTANCE:+ --instance $INSTANCE}"
     echo "  Mit Sicherung und selbsttätigem Rückfall:"
     echo "  sudo bash $INSTALL_DIR/server/backend/scripts/rimperio-update.sh apply"
     echo "  Alles dazu: docs/updates/README.md"
@@ -927,16 +1108,20 @@ main() {
     case "$ACTION" in
         uninstall)
             interactive_gate
+            prepare_instance
             [[ $EUID -eq 0 ]] || fail "Bitte als root ausführen (sudo)."
             uninstall_rimperio "false"
             ;;
         uninstall-purge)
             interactive_gate
+            prepare_instance
             [[ $EUID -eq 0 ]] || fail "Bitte als root ausführen (sudo)."
             uninstall_rimperio "true"
             ;;
         update)
             interactive_gate
+            prepare_instance
+            choose_instance_ports
             check_requirements
             # Quellen nur holen, wenn kein Git-Repo im Zielverzeichnis liegt.
             [[ -d "$INSTALL_DIR/.git" ]] || resolve_source
@@ -951,8 +1136,11 @@ main() {
             interactive_gate
             # Erst die Auswahl, dann dagegen pruefen: die Anforderungen haengen
             # davon ab, was mitinstalliert werden soll.
+            prepare_instance
             choose_addons
             ask_https
+            ask_multitenant
+            choose_instance_ports
             resolve_source
             run_preflight
             check_requirements

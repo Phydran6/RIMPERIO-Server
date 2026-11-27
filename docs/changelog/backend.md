@@ -2,6 +2,26 @@
 
 FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.1.0
+
+### Added
+- **Mandanten** (`app/tenancy.py`, `app/routes/tenants.py`): Tabelle `tenants`, Spalte `tenant_id` an `users`, `agents`, `agent_tokens`, `pve_hosts`, `notifications`, `snmp_devices`, `snmp_credentials` (genau ein Mandant) und `scripts`, `checks`, `patch_policies`, `snmp_templates` (leer = für alle). Angelegt als erster Start-Schritt (`ensure_tenant_schema`).
+- **Trennung in der Datenbankschicht:** `do_orm_execute` hängt an jede ORM-Abfrage je Tabelle die Bedingung (`with_loader_criteria`); Logs, Telemetrie, Befehle, Alarme, Check-Ergebnisse, Patch-Items/-Läufe, Proxmox-Zuordnungen und DB-Updates über `agent_id`, SNMP-Werte über `device_id`, App-Geräte/Passkeys/MFA über `user_id`. Massen-UPDATE/DELETE nie auf gemeinsame Zeilen. `before_flush` setzt den Mandanten an neuen Zeilen und verweigert Änderungen an fremden oder gemeinsamen Zeilen (`TenantViolation` → 403).
+- **Wer gilt:** `auth.get_current_user` setzt den Mandanten des Kontos bzw. für Betreiber den Kopf `X-Rimperio-Tenant` (`0` = nur ohne Mandant). Agents: Mandant des Schlüssels (Ingest, Anmeldung RMM und Log-Agent, Abmelden) bzw. des Geräts (RMM-Check-in). App-Hintergrundabfrage: Mandant des Kontos.
+- **Positivliste für Mandanten-Konten** (`tenancy.TENANT_PATHS`, Ausnahmen `TENANT_DENY`, nur lesen: Update-Quellen, Proxmox-Verbindungen). Tickets nur für `console`. Gesperrter Mandant: 403.
+- **API:** `GET /api/tenants/context`, `GET|POST /api/tenants`, `PUT|DELETE /api/tenants/{id}`, `POST /api/tenants/enable`, `GET /api/tenants/assignable`, `POST /api/tenants/assign`. `tenant_id` an Benutzern (anlegen, ändern – nur Betreiber) und Zugangsschlüsseln; je Mandant ein eigener Generalschlüssel möglich. App: `bootstrap.tenancy`, Fähigkeit `tenants`.
+- **Meldungen je Mandant:** `notify.push` leitet den Mandanten aus Gerät, Lauf, DB-Update oder SNMP-Gerät ab; optional zusätzliche Empfänger je Mandant (`tenants.alert_emails`).
+- **Patch-Richtlinien:** eine Richtlinie eines Mandanten gilt nur für dessen Geräte; bei gleichem Geltungsbereich schlägt sie die gemeinsame.
+- **Schalter:** Einstellung `tenancy` (`enabled`, `env_seen`); `RIMPERIO_MULTITENANT=true` schaltet beim ersten Start oder beim ersten Start nach dem Setzen ein.
+- **Instanzname** `RIMPERIO_NAME` (Vorsilbe der Container; `settings.container()`), genutzt für Zusatzdienste, Datenbank-Umzug und Hinweise.
+- **NAS und Sicherungen:** `tenant_id` an `nas_devices`, `backup_targets`, `backup_jobs`; `nas_jobs` und `backup_runs` über ihr Eltern-Objekt. Mandanten sehen, aktualisieren und sichern; Anlegen, Verbindungen, Herunterladen und Zurückspielen bleiben beim Betreiber. Die Sicherung von RIMPERIO selbst lässt sich keinem Mandanten zuordnen.
+- **Tests:** `tests/test_tenancy.py`.
+
+### Changed
+- Eindeutigkeit von Geräten je Mandant: Index `idx_agents_hostname_ip_tenant` (Hostname, IP, Mandant) ersetzt `idx_agents_hostname_ip`.
+- Log-Zahlen (`/api/logs`, `/api/logs/stats`, App-Übersicht): mit Mandant exakt gezählt statt der Instanz-Schätzung; Zwischenspeicher je Ansicht, `Cache-Control: private`, `Vary: Authorization, X-Rimperio-Tenant`.
+- Proxmox-Vorgänge und -Läufe (im Speicher) nur für sichtbare Hosts. SNMP über den Server ist Mandanten verwehrt (eigener Agent als Abfragepunkt).
+
 ## 2026.11.27.14.00.00
 
 ### Added

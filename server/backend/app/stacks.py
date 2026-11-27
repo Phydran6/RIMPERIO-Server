@@ -35,6 +35,7 @@ import secrets
 from typing import Dict, List, Optional
 
 from . import hostexec
+from .config import settings
 
 logger = logging.getLogger("rimperio.stacks")
 
@@ -46,7 +47,7 @@ STACKS: Dict[str, dict] = {
     "portainer": {
         "label": "Portainer",
         "hint": "Container-Oberfläche im Browser: Zustände, Protokolle, Konsole.",
-        "container": "rimperio-ext-portainer",
+        "container": settings.container("ext-portainer"),
         "legacy_container": "rimperio-portainer",
         "default_port": 9000,
         "url_template": "http://{host}:{port}",
@@ -63,7 +64,7 @@ STACKS: Dict[str, dict] = {
         "hint": ("Sieht nach, ob für die fremden Images Updates bereitliegen, und "
                  "meldet sie. Eingespielt wird auf Ansage — hier oder unter "
                  "RIMPERIO-Server → Container."),
-        "container": "rimperio-ext-tugtainer",
+        "container": settings.container("ext-tugtainer"),
         "default_port": 9412,
         "url_template": "http://{host}:{port}",
         "credentials": None,
@@ -81,7 +82,7 @@ STACKS: Dict[str, dict] = {
     "n8n": {
         "label": "n8n",
         "hint": "Automatisierung: Workflows, Benachrichtigungen, KI-Auswertung.",
-        "container": "rimperio-ext-n8n",
+        "container": settings.container("ext-n8n"),
         "legacy_container": "rimperio-n8n",
         "default_port": 5678,
         "url_template": "http://{host}:{port}",
@@ -98,7 +99,7 @@ STACKS: Dict[str, dict] = {
         "hint": ("Spricht dieselbe Sprache wie OpenAI, hat dahinter aber das Modell, "
                  "das man selbst wählt — auch ein lokales über Ollama. Als Anbieter "
                  "unter Automatisierung → KI-Auswertung auswählbar."),
-        "container": "rimperio-ext-openwebui",
+        "container": settings.container("ext-openwebui"),
         "default_port": 3000,
         "url_template": "http://{host}:{port}",
         "credentials": None,
@@ -112,7 +113,7 @@ STACKS: Dict[str, dict] = {
     "postfix": {
         "label": "Postfix (Mailversand)",
         "hint": "Damit der Server Mails verschicken kann. Eingestellt unter Einstellungen → E-Mail.",
-        "container": "rimperio-ext-postfix",
+        "container": settings.container("ext-postfix"),
         "legacy_container": "rimperio-postfix",
         "default_port": 1587,
         "credentials": None,

@@ -26,7 +26,7 @@ from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import alerts
+from . import alerts, tenancy
 from .events import bus
 from .models import Notification
 
@@ -48,13 +48,67 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat(timespec="seconds") + "Z" if dt else None
 
 
+async def tenant_for(db: AsyncSession, data: Optional[dict]) -> Optional[int]:
+    """Zu welchem Mandanten gehoert eine Meldung? Aus dem, worum es geht.
+
+    Meldungen entstehen meist in Hintergrundaufgaben ohne Mandanten-Kontext
+    (Patch-Lauf, SNMP-Abfrage). Damit sie trotzdem beim richtigen Kunden
+    landen, wird der Mandant aus Geraet, Lauf oder DB-Update abgeleitet.
+    """
+    from .models import Agent, DbMigration, PatchRun, SnmpDevice
+    data = data or {}
+    opts = tenancy.ALL_TENANTS
+    try:
+        if data.get("agent_uid"):
+            return (await db.execute(select(Agent.tenant_id).where(Agent.agent_uid == data["agent_uid"])
+                                     .execution_options(**opts))).scalar_one_or_none()
+        if data.get("run_id"):
+            return (await db.execute(select(Agent.tenant_id).join(PatchRun, PatchRun.agent_id == Agent.id)
+                                     .where(PatchRun.id == int(data["run_id"]))
+                                     .execution_options(**opts))).scalar_one_or_none()
+        if data.get("migration_id"):
+            return (await db.execute(select(Agent.tenant_id).join(DbMigration, DbMigration.agent_id == Agent.id)
+                                     .where(DbMigration.id == int(data["migration_id"]))
+                                     .execution_options(**opts))).scalar_one_or_none()
+        if data.get("device_id"):
+            return (await db.execute(select(SnmpDevice.tenant_id).where(SnmpDevice.id == int(data["device_id"]))
+                                     .execution_options(**opts))).scalar_one_or_none()
+    except Exception as exc:                                        # defensiv
+        logger.debug("Mandant der Meldung nicht ermittelt: %s", exc)
+    return None
+
+
+async def _mail_tenant(db: AsyncSession, tenant_id: Optional[int], subject: str, text: str) -> None:
+    """Meldung zusaetzlich an die Adressen des Mandanten (Benutzer → Mandanten)."""
+    if not tenant_id:
+        return
+    from .models import Tenant
+    try:
+        tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id)
+                                   .execution_options(**tenancy.ALL_TENANTS))).scalar_one_or_none()
+        recipients = tenancy.alert_recipients(tenant)
+        if not recipients:
+            return
+        mail_config = alerts._current_mail()
+        if not mail_config or mail_config.get("mode") == "off":
+            return
+        from . import mail
+        await mail.send(mail_config, recipients, f"[{tenant.name}] {subject}", text)
+    except Exception as exc:                                        # defensiv
+        logger.warning("Meldung an den Mandanten nicht verschickt: %s", exc)
+
+
 async def push(db: AsyncSession, *, category: str, title: str, body: str = "",
                level: str = "info", link: str = "", action: str = "",
                data: Optional[dict] = None, event: str = "", key: Optional[str] = None,
-               commit: bool = True) -> Notification:
+               commit: bool = True, tenant_id: Optional[int] = None) -> Notification:
     """Legt eine Meldung an und schickt sie - wenn gewuenscht - nach aussen."""
+    if tenant_id is None:
+        tenant_id = tenancy.current() or None
+    if tenant_id is None:
+        tenant_id = await tenant_for(db, data)
     n = Notification(category=category, title=title[:255], body=body, level=level,
-                     link=link, action=action, data=data or {})
+                     link=link, action=action, data=data or {}, tenant_id=tenant_id)
     db.add(n)
     if commit:
         await db.commit()
@@ -68,6 +122,7 @@ async def push(db: AsyncSession, *, category: str, title: str, body: str = "",
         pass
     if event:
         text = body if not link else f"{body}\n\nIn RIMPERIO: {link}"
+        await _mail_tenant(db, tenant_id, title, text)
         await alerts.dispatch(event, f"RIMPERIO: {title}", text,
                               level="critical" if level == "critical" else
                               ("warning" if level == "warning" else "info"),
