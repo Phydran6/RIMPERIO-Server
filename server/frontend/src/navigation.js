@@ -27,6 +27,7 @@
 //   Automatisierung    Was laeuft von selbst?       Skripte, Webhooks
 //   Benutzer           Wer darf rein?               Benutzer
 //   Mein Konto         Meine eigene Anmeldung
+//   Lizenz & Abrechnung  Lizenz der Instanz, gezaehlte Geraete, Preise je Geraet
 //   RIMPERIO-Server    Die Maschine, auf der das laeuft
 //   Einstellungen      Wie ist RIMPERIO eingestellt?
 //
@@ -161,6 +162,19 @@ export const NAV_SECTIONS = [
       { key: 'password', to: '/settings/password', name: 'Settings', tab: 'password', icon: 'key', label: 'password' },
       { key: 'security', to: '/settings/security', name: 'Settings', tab: 'security', icon: 'shield', label: 'security' },
       { key: 'app', to: '/app', name: 'AppQR', icon: 'mobile', label: 'app' },
+    ],
+  },
+  {
+    // Der Server bleibt lizenzfrei. Hier: Lizenz fuer den gewerblichen Einsatz
+    // (je Geraet / Instanz / Mandant) und die Abrechnung je Geraet fuer
+    // Systemhaeuser (app/licensing.py, app/billing.py).
+    key: 'licensing',
+    title: 'secLicensing',
+    icon: 'key',
+    admin: true,
+    items: [
+      { key: 'license', to: '/license', name: 'License', icon: 'shield', label: 'license', admin: true },
+      { key: 'billing', to: '/billing', name: 'Billing', icon: 'archive', label: 'billing', admin: true },
     ],
   },
   {

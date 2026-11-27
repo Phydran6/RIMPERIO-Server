@@ -11,6 +11,21 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.1.0 (2026-11-27) – Lizenz je Gerät, Instanz oder Mandant; Abrechnung für Systemhäuser
+
+- **Der Server bleibt lizenzfrei.** Ohne Lizenz läuft RIMPERIO als Community-Ausgabe – vollständig, ohne
+  Gerätegrenze. Eine Lizenz braucht nur der gewerbliche Einsatz; sie schaltet Abrechnung, Abrechnungs-API und
+  (künftig) Mandanten frei.
+- **Lizenzmodelle:** je Gerät (mit Kontingent oder nach Nutzung), je Instanz, je Mandant.
+- **Gesteuert über GitHub:** Jede Instanz holt ihre signierte Lizenz aus einem eigenen Lizenz-Repository
+  (`licenses/<instanz-id>.json`). Ausstellen, verlängern, Kontingent ändern, aussetzen, widerrufen – alles per
+  Commit; eine Action signiert. Alternativ ein eigener Lizenz-API-Endpunkt oder die Datei von Hand.
+- **Geräte lizenzieren sich selbst:** Rechner, Log-Quellen, SNMP-Geräte, Proxmox-Hosts bekommen automatisch einen
+  Platz. Über dem Kontingent wird weiter überwacht und gemeldet.
+- **Abrechnung je Gerät:** Preise frei wählbar – Standard, je Geräteklasse, je Mandant, je Gerät; Grundgebühr,
+  Mindestbetrag, Rabatt, Inklusiv-Geräte, Steuer. Zählweise je angefangenem Monat, anteilig oder Höchststand.
+  Monatsabrechnung mit Festschreiben, CSV-Export und Gerätenachweis, **Abrechnungs-API** für ERP/Rechnungsprogramm.
+
 ## v0.0.1 (2026-11-27) – Semantic Versioning
 
 Das erste Release nach dem allgemeinen Standard **[Semantic Versioning 2.0.0](https://semver.org/lang/de/)**. Ab jetzt

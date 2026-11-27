@@ -59,7 +59,8 @@ from .routes.dbmigrate import router as dbmigrate_router
 from .routes.nas import router as nas_router
 from .routes.backupjobs import router as backupjobs_router, upload_router as backup_upload_router
 from .routes.vault import router as vault_router
-from . import advisories, backupjobs, dbmigrate, loghandling, nas, patchmgmt, pvepatch, snmpmon
+from .routes.licensing import router as licensing_router
+from . import advisories, backupjobs, dbmigrate, licensing, loghandling, nas, patchmgmt, pvepatch, snmpmon
 
 # =============================================================================
 # Security-Headers Middleware
@@ -180,6 +181,7 @@ app.include_router(nas_router)
 app.include_router(backupjobs_router)
 app.include_router(backup_upload_router)
 app.include_router(vault_router)
+app.include_router(licensing_router)
 app.include_router(caddy_router.router)
 app.include_router(network_router.router)
 
@@ -1199,6 +1201,10 @@ async def start_background_tasks():
     await backupjobs.ensure_schema()
     _spawn(nas.loop())
     _spawn(backupjobs.loop())
+    # Lizenz: Geraete zaehlen und lizenzieren, Lizenz pruefen, Monatsabrechnung
+    # festschreiben (app/licensing.py, app/billing.py). Ohne Lizenz: Community.
+    await licensing.ensure_schema()
+    _spawn(licensing.loop())
     # Raeumt auf, BEVOR die Platte voll ist (app/diskguard.py).
     _spawn(diskguard.watch_task())
     # Merkt, wenn RIMPERIO selbst nicht mehr sammelt, und meldet es nach aussen
