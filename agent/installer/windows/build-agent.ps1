@@ -2,7 +2,7 @@
   Datei:        build-agent.ps1
   Projekt:      RIMPERIO — Agent-Installer
   Autor:        Phydran6
-  Version:      2026.10.31.15.40.00
+  Version:      2026.11.27.14.00.00
 
   Beschreibung: Baut die Agent-.exe für Windows — mit Versions-Ressource
                 (goversioninfo) und schlankem, getrimmtem Binary. Optional wird
@@ -21,6 +21,9 @@ $ErrorActionPreference = "Stop"
 $agentRoot = (Resolve-Path "$PSScriptRoot\..\..").Path   # agent/installer/windows -> agent
 $out = "bin\rimperio-agent.exe"
 
+# Produktversion aus der Datei VERSION (Semantic Versioning, z. B. 0.0.1).
+$agentVersion = (Get-Content "$agentRoot\..\VERSION" -Raw).Trim()
+
 Push-Location $agentRoot
 try {
     # Versions-Ressource erzeugen (optional, aber empfohlen).
@@ -28,11 +31,17 @@ try {
         $icoPath = Join-Path $PSScriptRoot "rimperio.ico"
         Push-Location "cmd\rimperio-agent"
         try {
-            # Version aus der VERSION-Datei (YYYY.MM.DD.HH.MM.SS) in die Ressource
-            # schreiben — so tragen exe und Release immer dieselbe Version.
-            $ver = (Get-Content "$agentRoot\..\VERSION" -Raw).Trim()
-            $p = $ver.Split('.') | ForEach-Object { [int]$_ }
-            $fixed = [ordered]@{ Major = $p[0]; Minor = $p[1]; Patch = $p[2]; Build = $p[3] * 100 + $p[4] }
+            # Version aus der VERSION-Datei in die Ressource schreiben — so tragen
+            # exe und Release immer dieselbe Version.
+            #   SemVer 1.2.3[-rc.1]   -> 1.2.3.0 (Vorab-Kennung passt nicht in die Ressource)
+            #   alt JJJJ.MM.TT.HH.MM… -> JJJJ.MM.TT.HHMM
+            $ver = $agentVersion
+            $p = ($ver -replace '[-+].*$', '').Split('.') | ForEach-Object { [int]$_ }
+            if ($p.Count -ge 6) {
+                $fixed = [ordered]@{ Major = $p[0]; Minor = $p[1]; Patch = $p[2]; Build = $p[3] * 100 + $p[4] }
+            } else {
+                $fixed = [ordered]@{ Major = $p[0]; Minor = $p[1]; Patch = $p[2]; Build = 0 }
+            }
             $vi = Get-Content versioninfo.json -Raw | ConvertFrom-Json
             $vi.FixedFileInfo.FileVersion = $fixed
             $vi.FixedFileInfo.ProductVersion = $fixed
@@ -65,7 +74,8 @@ try {
     $env:GOOS = "windows"; $env:GOARCH = $Arch; $env:CGO_ENABLED = "0"
     New-Item -ItemType Directory -Force -Path "bin" | Out-Null
     Write-Host "Baue $out ($Arch) …"
-    go build -trimpath -ldflags "-s -w" -o $out ./cmd/rimperio-agent
+    # Dieselbe Nummer auch im Programm selbst (rimperio-agent version, Check-in).
+    go build -trimpath -ldflags "-s -w -X github.com/Phydran6/RIMPERIO-Server/agent/internal/core.Version=$agentVersion" -o $out ./cmd/rimperio-agent
     if ($LASTEXITCODE -ne 0) { throw "go build schlug fehl." }
 }
 finally { Pop-Location }

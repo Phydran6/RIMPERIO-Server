@@ -2,7 +2,7 @@
 # Datei:        .github/workflows/auto-release.yml
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
-# Version:      2026.11.23.22.00.00
+# Version:      2026.11.27.14.00.00
 # Beschreibung: Legt automatisch Tag und Release an, sobald auf main eine neue
 #               VERSION liegt - und stoesst danach den Agent-Build an.
 #
@@ -10,8 +10,14 @@
 # Releases. Wurde nach einem Merge das Tag vergessen, kam die Aenderung nie
 # an. Jetzt reicht es, VERSION hochzuzaehlen.
 #
-# Tag-Name: v<JAHR>.<MONAT>.<TAG>, weitere am selben Tag .2, .3, …
-# (wie bisher von Hand: v2026.11.21, v2026.11.21.2, …).
+# Versionsschema: Semantic Versioning 2.0.0 (https://semver.org/lang/de/)
+#   VERSION = MAJOR.MINOR.PATCH, z. B. 0.0.1  ->  Tag v0.0.1
+#   Vorab-Stand: 0.1.0-rc.1                   ->  Tag v0.1.0-rc.1, als Prerelease
+#   PATCH = Fehlerbehebung, MINOR = neue Funktion (abwaertskompatibel),
+#   MAJOR = inkompatible Aenderung. Build-Angaben (+…) sind nicht erlaubt.
+#
+# Altes Schema (JJJJ.MM.TT.HH.MM.SS -> v<JJJJ.MM.TT>, .2, .3, …) wird nur noch
+# angenommen, solange es kein SemVer-Release gibt - danach bricht der Lauf ab.
 # Hat schon ein Tag genau diese VERSION, passiert nichts.
 #
 # Ein Tag, das mit dem GITHUB_TOKEN angelegt wird, startet keine weiteren
@@ -50,22 +56,54 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
           version="$(tr -d '[:space:]' < VERSION)"
-          if ! [[ "$version" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]{2}){3}$ ]]; then
-            echo "::error::VERSION '$version' hat nicht das Format JJJJ.MM.TT.HH.MM.SS"; exit 1
-          fi
-          for t in $(git tag -l 'v*'); do
-            if [ "$(git show "$t:VERSION" 2>/dev/null | tr -d '[:space:]')" = "$version" ]; then
-              echo "Version $version ist schon als $t veröffentlicht - nichts zu tun."
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+          legacy='^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]{2}){3}$'
+          # Vierstellige Jahreszahl vorne = altes Schema, nie SemVer (wie in
+          # server/backend/app/versioning.py).
+          is_legacy_tag() { [[ "$1" =~ ^v(19|20|21)[0-9]{2}\. ]]; }
+          semver_tags="$(git tag -l 'v*' | while read -r t; do
+            if ! is_legacy_tag "$t" && [[ "${t#v}" =~ $semver ]]; then echo "$t"; fi; done)"
+
+          if [[ "$version" =~ $legacy ]]; then
+            if [ -n "$semver_tags" ]; then
+              echo "::error::VERSION '$version' ist im alten Zeitstempel-Schema. Seit dem ersten SemVer-Release gilt nur noch MAJOR.MINOR.PATCH (z. B. 0.0.2)."
+              exit 1
+            fi
+            for t in $(git tag -l 'v*'); do
+              if [ "$(git show "$t:VERSION" 2>/dev/null | tr -d '[:space:]')" = "$version" ]; then
+                echo "Version $version ist schon als $t veröffentlicht - nichts zu tun."
+                echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+            done
+            day="v${version:0:10}"
+            tag="$day"; n=2
+            while git rev-parse -q --verify "refs/tags/$tag" >/dev/null; do tag="$day.$n"; n=$((n+1)); done
+            prerelease=false
+          elif [[ "$version" =~ $semver ]] && ! [[ "$version" =~ ^(19|20|21)[0-9]{2}\. ]]; then
+            tag="v$version"
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "Version $version ist schon als $tag veröffentlicht - nichts zu tun."
               echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
             fi
-          done
-          day="v${version:0:10}"
-          tag="$day"; n=2
-          while git rev-parse -q --verify "refs/tags/$tag" >/dev/null; do tag="$day.$n"; n=$((n+1)); done
-          echo "Neues Release: $tag (VERSION $version)"
+            highest="$(printf '%s\n' $semver_tags | grep -v -- - | sort -V | tail -n1 || true)"
+            if [ -n "$highest" ] && [ "$(printf '%s\n%s\n' "$highest" "$tag" | sort -V | tail -n1)" != "$tag" ]; then
+              echo "::warning::$tag ist kleiner als das höchste Release $highest - wird als Wartungs-Release veröffentlicht."
+            fi
+            prerelease=false
+            if [[ "$version" == *-* ]]; then prerelease=true; fi
+          else
+            echo "::error::VERSION '$version' ist keine gültige SemVer-Version (MAJOR.MINOR.PATCH, z. B. 0.0.1 oder 0.1.0-rc.1)."
+            exit 1
+          fi
+          echo "Neues Release: $tag (VERSION $version, Prerelease: $prerelease)"
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Version überall gleich
+        if: steps.tag.outputs.skip == 'false'
+        run: bash scripts/version.sh check
 
       - name: Tag und Release anlegen
         if: steps.tag.outputs.skip == 'false'
@@ -73,6 +111,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
           VERSION: ${{ steps.tag.outputs.version }}
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -80,11 +119,14 @@ jobs:
           git tag -a "$TAG" -m "RIMPERIO $VERSION" "$GITHUB_SHA"
           git push origin "refs/tags/$TAG"
           # Abschnitt dieser Version aus dem Release-Verlauf als Notiz.
-          awk -v v="## v$VERSION" 'index($0, v) == 1 {on=1; print; next} on && /^## v/ {exit} on {print}' \
+          # Genau "## v0.0.1" oder "## v0.0.1 …" - nicht "## v0.0.10".
+          awk -v v="## v$VERSION" '!on && ($0 == v || index($0, v " ") == 1) {on=1; print; next} on && /^## v/ {exit} on {print}' \
             docs/changelog/releases.md > notes.md || true
           [ -s notes.md ] || echo "RIMPERIO $VERSION" > notes.md
           title="$(head -n1 notes.md | sed 's/^## //')"
-          gh release create "$TAG" --title "$title" --notes-file notes.md --verify-tag
+          extra=()
+          [ "$PRERELEASE" = "true" ] && extra+=(--prerelease)
+          gh release create "$TAG" --title "$title" --notes-file notes.md --verify-tag "${extra[@]}"
 
       - name: Agent-Build auf dem Tag starten
         if: steps.tag.outputs.skip == 'false'

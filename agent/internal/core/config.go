@@ -3,7 +3,7 @@
 // Projekt:      RIMPERIO — Agent
 // Paket:        core
 // Autor:        Phydran6
-// Version:      2026.11.20.22.00.00
+// Version:      2026.11.27.14.00.00
 //
 // Beschreibung: Konfiguration des Agents: wo der Server steht, das persönliche
 //               Token, der Check-in-Takt. Liegt als JSON an einem festen,
@@ -25,7 +25,15 @@ import (
 )
 
 // Version des Agents — wandert in jeden Check-in und in die Inventur.
-const Version = "2026.11.21.01.00.00"
+//
+// Kommt beim Bauen aus der Datei VERSION im Wurzelverzeichnis (Semantic
+// Versioning, z. B. 0.0.1):
+//
+//	go build -ldflags "-X github.com/Phydran6/RIMPERIO-Server/agent/internal/core.Version=$(cat ../VERSION)"
+//
+// So tragen Agent, Release und Server immer dieselbe Nummer. Ein Bau ohne
+// diese Angabe (go run, lokale Tests) meldet sich als 0.0.0-dev.
+var Version = "0.0.0-dev"
 
 // LinuxHome ist das Installationsverzeichnis unter Linux. Darunter liegt alles:
 // bin/ (Programm), lib/ (Hilfsskript für Aufgaben, die root brauchen), etc/

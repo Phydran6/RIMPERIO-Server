@@ -3,7 +3,7 @@
 # Datei:        install-agent.sh
 # Projekt:      RIMPERIO — Agent
 # Autor:        Phydran6
-# Version:      2026.11.26.22.00.00
+# Version:      2026.11.27.14.00.00
 #
 # Beschreibung: Richtet den RIMPERIO-Agent (Fernwartung) auf Linux ein — nicht
 #               als root, sondern unter einem eigenen Dienstkonto:
@@ -288,10 +288,23 @@ write_as_account() {
 # Programm und Hilfsskript
 # ===========================================================================
 
-version_ge() { # $1 >= $2 im Format JJJJ.MM.TT.hh.mm.ss
-    local a="${1//./}" b="${2//./}"
-    [[ "$a" =~ ^[0-9]{14}$ && "$b" =~ ^[0-9]{14}$ ]] || return 1
-    [ "$a" -ge "$b" ]
+# Versionen: ab 0.0.1 Semantic Versioning (MAJOR.MINOR.PATCH[-vorab]), davor
+# Zeitstempel JJJJ.MM.TT.hh.mm.ss. Jede SemVer-Version ist neuer als jeder
+# Zeitstempel (wie server/backend/app/versioning.py).
+is_semver() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ && ! "$1" =~ ^(19|20|21)[0-9]{2}\. ]]; }
+is_stamp()  { [[ "${1//./}" =~ ^[0-9]{14}$ ]]; }
+
+version_ge() { # $1 >= $2
+    if is_semver "$1" && is_semver "$2"; then
+        local a="${1%%[-+]*}" b="${2%%[-+]*}"
+        [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" = "$a" ]
+    elif is_semver "$1" && is_stamp "$2"; then
+        return 0
+    elif is_stamp "$1" && is_stamp "$2"; then
+        [ "${1//./}" -ge "${2//./}" ]
+    else
+        return 1
+    fi
 }
 
 install_binary() {
