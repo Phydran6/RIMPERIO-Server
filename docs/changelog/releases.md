@@ -11,6 +11,18 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.0.1 (2026-11-27) – Semantic Versioning
+
+Das erste Release nach dem allgemeinen Standard **[Semantic Versioning 2.0.0](https://semver.org/lang/de/)**. Ab jetzt
+heißt jede Version `MAJOR.MINOR.PATCH`: Fehlerbehebungen zählen `PATCH` hoch, neue Funktionen `MINOR`, Inkompatibles
+`MAJOR`. Das Release-Tag ist `v` + Version, also `v0.0.1`. Einzelheiten: [Versionsschema](README.md#versionsschema).
+
+- Inhaltlich gleich mit `v2026.11.27.14.00.00`: nur die Nummer wechselt.
+- **Server, die noch vor `v2026.11.27.14.00.00` stehen**, sehen `0.0.1` als Rückschritt. Einmalig auf der
+  Kommandozeile aktualisieren:
+  `sudo bash /opt/rimperio/server/backend/scripts/rimperio-update.sh apply --ref v0.0.1`
+  Danach läuft alles wieder über *RIMPERIO-Server → Updates*.
+
 ## v2026.11.27.14.00.00 (2026-11-27) – Vorbereitung auf Semantic Versioning
 
 Der letzte Stand mit Zeitstempel-Version. Das **nächste Release heißt `v0.0.1`** — ab dann gilt der allgemeine
