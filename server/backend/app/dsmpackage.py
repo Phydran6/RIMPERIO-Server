@@ -58,11 +58,11 @@ ASSETS = Path(__file__).parent / "assets"
 
 
 def _spk_version() -> str:
-    """DSM will Ziffern und Punkte, dazu -<build>. 0.3.0 -> 0.3.0-0003."""
+    """DSM will Ziffern und Punkte, dazu -<build>: 0.4.0 -> 0.4.0-0001.
+    DSM vergleicht zuerst die Version selbst, die Build-Nummer bleibt fest."""
     v = (settings.app_version or "0.0.0").split("-")[0].split("+")[0]
-    parts = [p for p in v.split(".") if p.isdigit()][:3] or ["0"]
-    build = int(parts[0]) * 10000 + (int(parts[1]) if len(parts) > 1 else 0) * 100 + (int(parts[2]) if len(parts) > 2 else 0)
-    return ".".join(parts) + f"-{build:04d}"
+    parts = ([p for p in v.split(".") if p.isdigit()] + ["0", "0", "0"])[:3]
+    return ".".join(parts) + "-0001"
 
 
 async def _binary(arch: str) -> Optional[bytes]:
