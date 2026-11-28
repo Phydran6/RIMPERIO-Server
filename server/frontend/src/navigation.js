@@ -61,7 +61,7 @@ export const NAV_SECTIONS = [
     title: 'secDevices',
     icon: 'devices',
     items: [
-      { key: 'computers', to: '/rmm', name: 'RmmAgents', match: ['RmmAgentDetail'], icon: 'devices', label: 'computers' },
+      { key: 'computers', to: '/rmm', name: 'RmmAgents', match: ['RmmAgentDetail', 'RemoteSession'], icon: 'devices', label: 'computers' },
       { key: 'snmp', to: '/rmm/snmp', name: 'RmmSnmp', match: ['RmmSnmpDevice'], icon: 'router', label: 'snmp' },
       { key: 'proxmox', group: 'grpProxmox', to: '/devices/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
       { key: 'pve-patching', group: 'grpProxmox', to: '/devices/proxmox/patching', name: 'PveUpdates', icon: 'download', label: 'pveUpdates' },

@@ -3,6 +3,8 @@ module github.com/Phydran6/RIMPERIO-Server/agent
 go 1.26.0
 
 require (
+	github.com/creack/pty v1.1.24
+	github.com/gorilla/websocket v1.5.3
 	github.com/gosnmp/gosnmp v1.47.0
 	github.com/kardianos/service v1.3.0
 	github.com/shirou/gopsutil/v4 v4.26.9

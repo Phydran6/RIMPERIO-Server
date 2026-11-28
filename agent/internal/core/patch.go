@@ -194,6 +194,13 @@ func HandleCommand(pc PendingCommand, client *Client) CommandResult {
 		}
 		return out
 
+	case "tunnel":
+		// Fernzugriff: Tunnel zum Server im Hintergrund, Auftrag ist sofort erledigt.
+		if err := StartTunnel(pc.Command, client); err != nil {
+			return errResult(pc.ID, err)
+		}
+		return okJSON(pc.ID, map[string]any{"tunnel": "started"})
+
 	case "health_snapshot":
 		return okJSON(pc.ID, collectHealth())
 

@@ -88,6 +88,7 @@ const routes = [
       { path: 'tenants', name: 'Tenants', component: () => import('../views/Tenants.vue'), meta: { admin: true, provider: true } },
       { path: 'rmm', name: 'RmmAgents', component: () => import('../views/RmmAgents.vue') },
       { path: 'rmm/agents/:uid', name: 'RmmAgentDetail', component: () => import('../views/RmmAgentDetail.vue') },
+      { path: 'rmm/agents/:uid/remote/:kind(shell|rdp|vnc)', name: 'RemoteSession', component: () => import('../views/RemoteSession.vue'), meta: { admin: true } },
       { path: 'rmm/scripts', name: 'RmmScripts', component: () => import('../views/RmmScripts.vue') },
       { path: 'rmm/checks', name: 'RmmChecks', component: () => import('../views/RmmChecks.vue') },
       { path: 'rmm/patches', name: 'RmmPatches', component: () => import('../views/RmmPatches.vue') },
