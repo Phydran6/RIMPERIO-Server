@@ -61,6 +61,27 @@
     </div>
 
     <template v-if="enabled">
+      <!-- Lizenz und Abrechnung: Mandanten sind frei nutzbar, lassen sich aber
+           je Mandant lizenzieren und abrechnen (app/licensing.py, app/billing.py). -->
+      <div v-if="license" class="card mb-4">
+        <div class="card-body text-sm flex flex-wrap items-center gap-3" style="color: var(--color-text-secondary)">
+          <AppIcon name="shield" :size="16" />
+          <span v-if="license.model === 'per_tenant'">
+            Lizenz je Mandant: <strong>{{ license.tenants_used }}</strong>
+            <template v-if="license.tenants_limit"> von {{ license.tenants_limit }}</template> Mandanten
+            <span v-if="license.tenants_limit && license.tenants_used > license.tenants_limit"
+                  style="color: var(--color-warning)"> – über dem Kontingent (läuft trotzdem weiter)</span>
+          </span>
+          <span v-else>
+            {{ license.edition_label }}<template v-if="license.model_label"> · {{ license.model_label }}</template> –
+            Mandanten sind frei nutzbar.
+          </span>
+          <span class="flex-1" />
+          <router-link to="/license" class="btn btn-ghost btn-sm">Lizenz</router-link>
+          <router-link to="/billing" class="btn btn-ghost btn-sm">Abrechnung je Mandant</router-link>
+        </div>
+      </div>
+
       <!-- Neu anlegen -->
       <div class="card mb-4">
         <div class="card-header"><p class="card-title">Neuen Mandanten anlegen</p></div>
@@ -255,6 +276,7 @@ const COUNT_LABELS = {
 }
 
 const enabled = ref(false)
+const license = ref(null)
 const items = ref([])
 const unassigned = ref({})
 const assignable = ref({})
@@ -316,6 +338,7 @@ async function load() {
     items.value = data.items || []
     unassigned.value = data.unassigned || {}
     if (enabled.value) assignable.value = await auth.api('/api/tenants/assignable')
+    license.value = await auth.api('/api/license/summary').catch(() => null)
   } catch (e) {
     say(e.message, true)
   } finally {

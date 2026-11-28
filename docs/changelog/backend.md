@@ -2,6 +2,13 @@
 
 FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.3.0
+
+### Added
+- **Mandanten lizenzierbar und abrechenbar** (Nutzung bleibt frei): `licensing.real_tenants()` liefert die aktiven Mandanten; Lizenzmodell `per_tenant` zählt mit eingeschalteter Mandantenfähigkeit diese (auch ohne Geräte), `max_tenants` vergibt die Plätze in Anlage-Reihenfolge, Betreiber-Geräte belegen keinen.
+- **Abrechnung:** `billing_config.tenant_fee` – Grundgebühr je Mandant und Monat für jeden angelegten Mandanten, auch ohne Geräte; je Mandant überschreibbar (`flat_fee` leer = Standard). Mandanten ohne Geräte stehen mit Grundgebühr/Mindestbetrag auf der Abrechnung.
+- **Tests:** Lizenz- und Abrechnungsfälle in `tests/test_tenancy.py`.
+
 ## 0.2.1
 
 ### Added

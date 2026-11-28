@@ -2,6 +2,12 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.3.0
+
+### Added
+- **Abrechnung:** Feld „Grundgebühr je Mandant/Monat“; je Mandant „Standard“ als Vorgabe.
+- **Benutzer → Mandanten:** Stand der Lizenz (je Mandant: belegt/Kontingent) mit Links zu Lizenz und Abrechnung.
+
 ## 0.2.0
 
 ### Added

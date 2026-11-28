@@ -15,7 +15,8 @@ Eine **Lizenz** braucht, wer RIMPERIO gewerblich als Dienst einsetzt
 | Geräte zählen, Preise einstellen, Vorschau der Monatsabrechnung | ✔ | ✔ |
 | Abrechnung exportieren (CSV), Monate festschreiben | – | ✔ |
 | Abrechnungs-API für ERP/Rechnungsprogramm | – | ✔ |
-| Mandanten (sobald die Mandantenfähigkeit da ist) | – | ✔ |
+| Mandanten nutzen ([Mandantenfähigkeit](../tenants/README.md)) | ✔ | ✔ |
+| Mandanten lizenzieren und abrechnen (je Mandant, Grundgebühr je Mandant) | – | ✔ |
 
 In der Oberfläche: **Lizenz & Abrechnung → Lizenz & Geräte** und **→ Abrechnung**.
 
@@ -25,7 +26,7 @@ In der Oberfläche: **Lizenz & Abrechnung → Lizenz & Geräte** und **→ Abrec
 |---|---|
 | **je Gerät** (`per_device`) | Jedes angeschlossene Gerät belegt einen Platz. Mit `max_devices` begrenzt – oder ohne Grenze, dann wird nach tatsächlicher Nutzung abgerechnet (siehe *Nutzung melden*). |
 | **je Instanz** (`per_instance`) | Pauschal für diese RIMPERIO-Installation, beliebig viele Geräte. |
-| **je Mandant** (`per_tenant`) | Je Mandant, mit `max_tenants` begrenzbar. Gezählt wird je [Mandant](../tenants/README.md); Geräte ohne Mandant (Betreiber, oder Mandanten ausgeschaltet) zählen wie bisher nach ihrem **Standort**. |
+| **je Mandant** (`per_tenant`) | Je Mandant, mit `max_tenants` begrenzbar. Mit eingeschalteter [Mandantenfähigkeit](../tenants/README.md) zählen die **angelegten, aktiven Mandanten** – auch ohne Geräte; die zuerst angelegten bekommen die Plätze, Geräte des Betreibers belegen keinen. Ohne Mandantenfähigkeit gilt wie bisher der **Standort** eines Geräts als Mandant. |
 
 ## Geräte lizenzieren sich selbst
 
@@ -118,6 +119,11 @@ monatlich gerechnet – **Zählweise**:
 Je Mandant dazu: Name und Kundennummer für die Rechnung, Inklusiv-Geräte
 (werden bei den günstigsten zuerst abgezogen), Rabatt in %, Grundgebühr,
 Mindestbetrag, „nicht abrechnen“ (z. B. die eigene Firma). Steuersatz global.
+
+**Grundgebühr je Mandant:** ein Betrag je Monat für jeden angelegten Mandanten
+(*Benutzer → Mandanten*) – auch für Mandanten ohne Geräte, die dann mit Grundgebühr
+bzw. Mindestbetrag auf der Abrechnung stehen. Je Mandant überschreibbar (leer =
+Standard, `0` = keine). Standorte ohne Mandant bekommen sie nicht.
 
 Am **Monatsersten** schreibt RIMPERIO den Vormonat fest – spätere
 Preisänderungen ändern eine gestellte Rechnung nicht mehr. Neu festschreiben

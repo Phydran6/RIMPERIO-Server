@@ -11,6 +11,16 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.3.0 (2026-11-27) – Mandanten lizenzieren und abrechnen
+
+- **Mandanten bleiben frei nutzbar** – wer sie seinen Kunden berechnen will, kann sie jetzt lizenzieren und abrechnen.
+- **Lizenz „je Mandant“** zählt die angelegten Mandanten (auch ohne Geräte), nicht mehr die Standorte. Bei einer
+  Höchstzahl bekommen die zuerst angelegten die Plätze; Geräte des Betreibers zählen nicht mit.
+- **Grundgebühr je Mandant** in der Abrechnung – für jeden Mandanten, auch ohne Geräte, je Mandant änderbar.
+- *Benutzer → Mandanten* zeigt den Lizenzstand.
+- **Release-Seite:** der Hinweis zu den Agent-Dateien steht nur noch einmal da, Links aus dem Release-Verlauf
+  führen auf GitHub statt ins Leere.
+
 ## v0.2.1 (2026-11-27) – Lizenzen werden geprüft
 
 - Der öffentliche Schlüssel des Herausgebers ist jetzt eingetragen: Lizenzen aus dem GitHub-Lizenz-Repository, von einem
