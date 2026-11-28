@@ -1250,6 +1250,10 @@ async def start_background_tasks():
     # Haelt Ausschau nach einem neuen Stand auf GitHub und meldet ihn sofort an
     # alle offenen Oberflaechen (siehe app/updater.py -> watch_task).
     _spawn(updater.watch_task())
+    # Autopilot: Releases, fremde Images und Host-Sicherheitsupdates von selbst
+    # (app/selfupdate.py); kritische Updates warten auf Freigabe (auch per App).
+    from . import selfupdate
+    _spawn(selfupdate.loop())
     # Sucht das Netz nach Systemen ab: kurz nach dem ersten Start, danach im
     # eingestellten Takt (app/discovery.py, abschaltbar in der Oberflaeche).
     _spawn(discovery.watch_task())
