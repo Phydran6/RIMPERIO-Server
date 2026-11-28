@@ -11,6 +11,33 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.4.0 (2026-11-28) – Fernzugriff, Autopilot, Docker-Stacks, S3, DSM-Paket
+
+- **Fernzugriff wie bei NinjaOne:** *Live-Shell* für Linux und Windows (echtes Terminal im Browser),
+  **Remotedesktop (RDP)** und **Live-Sitzung** (Bildschirm der angemeldeten Person) für Windows – alles durch
+  einen verschlüsselten Tunnel, den der Agent selbst per HTTPS aufbaut. Auf dem Rechner ist dafür kein Port
+  offen. RDP einschalten und die Live-Sitzung (VNC nur für localhost) vorbereiten geht mit einem Klick.
+  Neuer Container `guacd` (Apache Guacamole) zeichnet RDP/VNC im Browser. **Agent aktualisieren**, damit der
+  Fernzugriff geht.
+- **Autopilot – RIMPERIO hält sich selbst aktuell:** Fehlerbehebungen und neue Funktionen im Wartungsfenster,
+  Sicherheits-Releases sofort, fremde Images und auf Wunsch Sicherheitsupdates des Host-Betriebssystems.
+  Hauptversionen und Releases mit „[Freigabe]“ warten auf eine Freigabe – per App mit einem Tipp.
+- **Docker-Stacks:** Compose-Dateien und `.env` auf den Rechnern im Browser bearbeiten, Image-Tags umstellen,
+  prüfen (`docker compose config`), ausrollen – mit Sicherung und automatischem Zurückholen bei Fehlern.
+- **Backup:** neuer Ort **Cloud-Speicher (S3)** (AWS, Hetzner, Wasabi, Backblaze B2, IONOS, Cloudflare R2, MinIO).
+  Fehler beim Anlegen eines Orts werden angezeigt statt still zu scheitern. RIMPERIO speichert selbst keine
+  Sicherungen mehr: Aufträge brauchen einen Ort außerhalb des Servers.
+- **NAS:** Paket-Updates scheiterten, wenn die regelmäßige Zustandsabfrage die Sitzung beendete – behoben.
+  Neues **Paket „RIMPERIO Agent“ für Synology DSM 7**: im Paketzentrum sichtbar, herunterladen oder direkt
+  installieren.
+- **KI:** Open WebUI über seine HTTPS-Adresse, **Ollama direkt**, OpenAI-kompatible Dienste; Modelle als
+  Auswahlliste; Vorlagen für die Anweisungen je Bereich (Logs, Logzeile, Updates, DB-Updates).
+- **Raspberry Pi:** Aktionen je Pi (Konsole, Updates, Checks, Sichern, Zustand prüfen, Neustart), Hinweise
+  zu Temperatur, Unterspannung und Speicherkarte, Pis mit nur Log-Agent werden erkannt.
+- **Behoben:** Proxmox-VMs per QEMU-Gastagent einbinden lieferte HTTP 500. DB-Update-Probeläufe schlugen oft
+  fehl (Init-Server der Datenbank, wachsende Tabellen, Passwort per Datei). Die erneute Anmeldung eines Agents
+  mit bekanntem Namen lieferte HTTP 500 statt eines Hinweises. Untermenüs ließen sich nicht schließen.
+
 ## v0.3.0 (2026-11-27) – Mandanten lizenzieren und abrechnen
 
 - **Mandanten bleiben frei nutzbar** – wer sie seinen Kunden berechnen will, kann sie jetzt lizenzieren und abrechnen.
