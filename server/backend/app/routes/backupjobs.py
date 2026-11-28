@@ -55,7 +55,7 @@ class JobIn(BaseModel):
     encrypt: bool = True
     own_key: bool = Field(default=False, description="Eigenen Schlüssel statt des Standard-Backup-Schlüssels")
     schedule: Dict[str, Any] = Field(default_factory=lambda: {"type": "daily", "time": "02:30", "tz": "Europe/Berlin"})
-    keep_last: int = Field(default=14, ge=1, le=1000)
+    keep_last: int = Field(default=14, ge=0, le=1000, description="0 = nur nach keep_days")
     keep_days: int = Field(default=0, ge=0, le=3650)
     max_age_hours: int = Field(default=0, ge=0, le=24 * 90)
     enabled: bool = True
@@ -213,6 +213,8 @@ async def _validate_job(db: AsyncSession, data: JobIn) -> None:
     if data.kind == "pve":
         if not src.get("host_id") or await db.get(PveHost, src["host_id"]) is None or not src.get("vmid") or not src.get("node"):
             raise HTTPException(status_code=422, detail="Bitte Proxmox-Host und VM/Container wählen.")
+    if data.kind not in ("nas_task", "pve") and not data.keep_last and not data.keep_days:
+        raise HTTPException(status_code=422, detail="Bitte angeben, wie viele Sicherungen (oder wie viele Tage) behalten werden.")
     st = data.schedule or {}
     if st.get("type", "daily") not in ("daily", "weekly", "hourly", "manual"):
         raise HTTPException(status_code=422, detail="Zeitplan: daily, weekly, hourly oder manual.")

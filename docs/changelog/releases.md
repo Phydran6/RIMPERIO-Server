@@ -11,6 +11,12 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.3.1 (2026-11-28) – Backup-Auftrag speichern
+
+- **Behoben:** Beim Anlegen eines Backup-Auftrags mit „Behalten (letzte n)“ = 0 erschien nur „[object Object]“, und
+  der Auftrag wurde nicht gespeichert. 0 bedeutet jetzt „nur nach Tagen aufbewahren“ (die neueste Sicherung bleibt
+  immer); Prüffehler des Servers werden überall lesbar angezeigt.
+
 ## v0.3.0 (2026-11-27) – Mandanten lizenzieren und abrechnen
 
 - **Mandanten bleiben frei nutzbar** – wer sie seinen Kunden berechnen will, kann sie jetzt lizenzieren und abrechnen.

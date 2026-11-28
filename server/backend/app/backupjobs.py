@@ -1005,7 +1005,7 @@ async def prune(db: AsyncSession, job: BackupJob) -> int:
         return 0                                    # Aufbewahrung regelt das Zielsystem
     runs = (await db.execute(select(BackupRun).where(BackupRun.job_id == job.id, BackupRun.status == "done")
                              .order_by(desc(BackupRun.started_at)))).scalars().all()
-    keep = max(1, job.keep_last or 1)
+    keep = max(1, job.keep_last or 1)              # die neueste bleibt immer, auch bei keep_last = 0
     cutoff = datetime.utcnow() - timedelta(days=job.keep_days) if job.keep_days else None
     removed = 0
     for i, r in enumerate(runs):
