@@ -64,6 +64,10 @@ func main() {
 		// Vom Dienstmanager aufgerufen; blockiert bis zum Stopp.
 		core.DropRoot()
 		must(core.RunService(), "Dienst läuft nicht")
+	case "foreground":
+		// Ohne Dienstmanager (Paket, Container): läuft, bis SIGTERM kommt.
+		core.DropRoot()
+		must(core.RunForeground(), "Agent läuft nicht")
 	case "once":
 		// Befehle vom Server laufen nie als root — auch nicht beim Testlauf mit sudo.
 		core.DropRoot()
@@ -192,6 +196,7 @@ Verwendung:
                         Agent vom Rechner entfernen und am Server abmelden
                         (-keep-record: Eintrag auf dem Server behalten).
   rimperio-agent start | stop | restart
+  rimperio-agent foreground Im Vordergrund laufen (Synology-Paket, Container).
   rimperio-agent once       Ein Testdurchlauf.
   rimperio-agent status
   rimperio-agent version

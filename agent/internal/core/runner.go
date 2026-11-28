@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/kardianos/service"
@@ -60,7 +62,7 @@ func (p *program) liveLoop(client *Client) {
 			return
 		default:
 		}
-		cmds, err := client.Wait()
+		resp, err := client.Wait(Capabilities(p.cfg))
 		if err != nil {
 			wait := pause
 			if errors.Is(err, ErrNoWait) {
@@ -76,7 +78,10 @@ func (p *program) liveLoop(client *Client) {
 			continue
 		}
 		pause = 5 * time.Second
-		for _, c := range cmds {
+		for _, r := range resp.Relay {
+			p.handleRelay(client, r)
+		}
+		for _, c := range resp.Commands {
 			p.dispatchLive(client, c)
 		}
 	}
@@ -445,6 +450,30 @@ func RunService() error {
 		return err
 	}
 	return s.Run()
+}
+
+// RunForeground läuft ohne Dienstmanager im Vordergrund, bis SIGTERM/SIGINT
+// kommt — für Paketformen, deren Startskript den Prozess selbst verwaltet
+// (Paket, Container).
+func RunForeground() error {
+	p := &program{}
+	if err := p.Start(nil); err != nil {
+		return err
+	}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	select {
+	case <-sig:
+	case <-p.done():
+	}
+	return p.Stop(nil)
+}
+
+// done ist zu, sobald die Hauptschleife endet (etwa nach einer Deinstallation).
+func (p *program) done() <-chan struct{} {
+	ch := make(chan struct{})
+	go func() { p.wg.Wait(); close(ch) }()
+	return ch
 }
 
 // RunOnce führt genau einen Takt aus — zum Prüfen der Einrichtung.

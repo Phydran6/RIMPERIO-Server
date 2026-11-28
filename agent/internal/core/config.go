@@ -67,6 +67,10 @@ type Config struct {
 	Description string `json:"description"`
 	Insecure    bool   `json:"insecure"` // TLS-Prüfung aus (nur für Selbstzertifikate im Labor)
 
+	// Weiterleitung für Geräte am Standort (NAS): "lan" (Standard, nur lokale
+	// Adressen), "any" oder "off". Siehe relay.go.
+	Relay string `json:"relay,omitempty"`
+
 	// Nur bis zur ersten erfolgreichen Anmeldung gesetzt: Mit diesem Geheimnis
 	// meldet sich der Agent beim ersten Dienststart selbst an (so braucht der
 	// MSI-Installer kein Netz zur Installationszeit). Danach wird es gelöscht.

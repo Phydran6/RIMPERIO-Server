@@ -73,6 +73,7 @@ type Inventory struct {
 	AgentVer    string         `json:"agent_version"`
 	AgentUser   string         `json:"agent_user,omitempty"` // Konto, unter dem der Agent läuft (Linux: Dienstkonto)
 	Hardware    *HardwareInfo  `json:"hardware,omitempty"`   // Einplatinenrechner (Raspberry Pi …): Modell, Temperatur, Drosselung
+	Appliance   *ApplianceInfo `json:"appliance,omitempty"`  // läuft auf einem NAS (Synology DSM)
 	CollectedAt time.Time      `json:"collected_at"`
 }
 
@@ -174,7 +175,12 @@ func CollectInventory() Inventory {
 		inv.MemTotalMB = round1(float64(vm.Total) / mib)
 	}
 	inv.Software = collectSoftware()
-	inv.Hardware = collectHardware()
+	inv.Appliance = detectAppliance()
+	if inv.Appliance != nil {
+		inv.OS = inv.Appliance.OSName()
+	} else {
+		inv.Hardware = collectHardware() // ein ARM-NAS ist kein Einplatinenrechner
+	}
 	return inv
 }
 

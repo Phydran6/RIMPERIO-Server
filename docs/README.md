@@ -31,6 +31,7 @@ sortiert, nicht nach Bauteilen.
 | Rechner, Raspberry Pis, NAS und Proxmox-VMs nach Zeitplan verschlüsselt sichern (NAS per SMB, SFTP) | [Backup-Bereich](backup/jobs.md) |
 | eine Sicherung ohne RIMPERIO entschlüsseln | [Backup-Bereich → Ohne RIMPERIO entschlüsseln](backup/jobs.md#ohne-rimperio-entschlüsseln) |
 | ein Synology-NAS anbinden, überwachen und aktualisieren | [NAS und Spezialsysteme](rmm/nas.md) |
+| ein NAS an einem anderen Standort anbinden – nur ausgehendes HTTPS, ohne VPN | [NAS an einem anderen Standort](rmm/nas.md#nas-an-einem-anderen-standort) |
 | Raspberry Pis verwalten | [NAS und Spezialsysteme → Raspberry Pi](rmm/nas.md#raspberry-pi-und-andere-einplatinenrechner) |
 | Zugangsdaten in Vaultwarden ablegen | [Integrationen → Vaultwarden](integrations/README.md#vaultwarden-zugangsdaten) |
 | Logs von einer KI auswerten lassen | [Integrationen → KI](integrations/README.md#ki-auswertung) |

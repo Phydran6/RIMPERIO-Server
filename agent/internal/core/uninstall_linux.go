@@ -38,6 +38,15 @@ import (
 const legacyBinary = "/usr/local/bin/rimperio-agent"
 
 func platformUninstall(fromService bool) []string {
+	if Packaged() == "synology" {
+		// Als Paket des NAS: Das Paket selbst entfernt DSM (Paket-Zentrum).
+		// Hier nur die Anmeldung löschen - ohne sie bleibt der Agent stehen.
+		var notes []string
+		if err := RemoveConfig(); err != nil {
+			notes = append(notes, err.Error())
+		}
+		return append(notes, "Abgemeldet. Das Paket „RIMPERIO Agent“ in DSM unter Paket-Zentrum deinstallieren.")
+	}
 	if fileExists(HelperPath()) {
 		return helperUninstall()
 	}

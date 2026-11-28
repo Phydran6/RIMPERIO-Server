@@ -6,7 +6,9 @@
                    Einrichten ueber die Netzwerksuche (Synology DSM, TrueNAS).
 
      Einrichten in drei Schritten:
-       1. Was hat die Netzwerksuche als NAS erkannt? (oder IP von Hand)
+       1. Weg waehlen: direkt vom Server - oder ueber einen Agent am Standort
+          (NAS an einem anderen Ort, nur ausgehendes HTTPS, kein offener Port).
+          Dann: Was hat die Netzwerksuche als NAS erkannt? (oder IP von Hand)
        2. Anmelden - Benutzer der Gruppe administrators; mit TOTP fragt der
           Server einmal nach dem Code und merkt sich das Geraet.
        3. Pruefliste: Zertifikat, Zwei-Faktor, Rechte, Speicher, Updates, SNMP …
@@ -17,7 +19,8 @@
       <div>
         <h1 class="page-title">NAS</h1>
         <p class="page-subtitle">
-          NAS-Systeme ohne Agent, nur über ihre HTTPS-Schnittstelle: Zustand (Speicher, Platten, Temperatur),
+          NAS-Systeme über ihre HTTPS-Schnittstelle – direkt vom Server oder, an einem anderen Standort, über einen Agent dort
+          (nur ausgehendes HTTPS, kein offener Port): Zustand (Speicher, Platten, Temperatur),
           DSM- und Paket-Updates von Hand oder im Wartungsfenster, SNMP und Sicherungen.
           Schwerpunkt Synology DSM; TrueNAS mit API-Schlüssel.
           Zugangsdaten liegen in <router-link to="/integrations/vault">Vaultwarden</router-link> (oder lokal verschlüsselt).
@@ -49,7 +52,10 @@
         </header>
         <dl class="nas-facts">
           <div><dt>System</dt><dd>{{ n.model || n.vendor_label }}<div class="rmm-muted">{{ n.firmware || '–' }}</div></dd></div>
-          <div><dt>Adresse</dt><dd class="rmm-code">{{ n.host }}:{{ n.port }}</dd></div>
+          <div><dt>Adresse</dt><dd><span class="rmm-code">{{ n.host }}:{{ n.port }}</span>
+            <div v-if="n.via_agent" class="rmm-muted" :title="n.via_agent.ready ? 'Weg offen' : 'Agent gerade nicht verbunden'">
+              <span class="rmm-dot" :class="n.via_agent.ready ? 'is-online' : 'is-offline'" />
+              über {{ n.via_agent.on_nas ? 'Agent auf dem NAS' : n.via_agent.hostname }} · {{ n.via_agent.site }}</div></dd></div>
           <div><dt>Updates</dt><dd>
             <span v-if="n.updates_summary.dsm" class="badge badge-warning">DSM {{ n.updates_summary.dsm }}</span>
             <span v-if="n.updates_summary.packages" class="badge badge-primary">{{ n.updates_summary.packages }} Pakete</span>
@@ -78,6 +84,46 @@
         <div class="card-body space-y-3 text-sm overflow-y-auto">
           <!-- 1: Auswahl -->
           <template v-if="wizard.step === 1">
+            <div class="nas-route">
+              <label class="nas-route-opt" :class="{ 'is-on': wizard.route === 'direct' }">
+                <input v-model="wizard.route" type="radio" value="direct" />
+                <div><strong>Direkt vom RIMPERIO-Server</strong>
+                  <div class="rmm-muted">Das NAS ist im selben Netz, per VPN oder über eine Portfreigabe erreichbar.</div></div>
+              </label>
+              <label class="nas-route-opt" :class="{ 'is-on': wizard.route === 'agent' }">
+                <input v-model="wizard.route" type="radio" value="agent" @change="loadRelayAgents" />
+                <div><strong>Über einen Agent am Standort</strong>
+                  <div class="rmm-muted">Das NAS steht woanders. Ein Agent dort fragt es ab, nur ausgehend per HTTPS, ohne offenen Port.
+                    Steht dort nur das NAS: Agent als Synology-Paket auf dem NAS selbst installieren.</div></div>
+              </label>
+            </div>
+
+            <template v-if="wizard.route === 'agent'">
+              <div class="rmm-form">
+                <label class="is-wide">Agent am Standort
+                  <select v-model="wizard.via_agent_id" class="select" @change="pickAgent">
+                    <option :value="null" disabled>– Agent wählen –</option>
+                    <option v-for="a in relayAgents" :key="a.id" :value="a.id" :disabled="!a.ready">
+                      {{ a.hostname }} · {{ a.site }}{{ a.on_nas ? ' · läuft auf dem NAS' : '' }}{{ a.ready ? '' : (a.live ? ' · zu alt (ab 0.5.0)' : ' · nicht verbunden') }}
+                    </option>
+                  </select>
+                  <span v-if="!relayAgents.some(a => a.ready)" class="rmm-muted">Noch kein passender Agent verbunden.</span>
+                </label>
+              </div>
+              <div class="rmm-note is-info">
+                <strong>Nur das NAS am Standort?</strong> Das Paket „RIMPERIO Agent“ herunterladen – Server-Adresse
+                (<span class="rmm-code">{{ origin }}</span>) und eine Einladung sind schon eingetragen – und in DSM 7 unter
+                <em>Paket-Zentrum → Manuelle Installation</em> einspielen (Vertrauensebene „Alle Herausgeber“).
+                Danach erscheint das NAS hier als Agent „läuft auf dem NAS“, mit Adresse 127.0.0.1.
+                <div class="rmm-actions mt-2">
+                  <button class="btn btn-secondary btn-sm" :disabled="busy" @click="downloadPkg">Paket (.spk) herunterladen</button>
+                  <button class="btn btn-ghost btn-sm" :disabled="busy" @click="loadRelayAgents">Agents neu laden</button>
+                </div>
+              </div>
+              <p v-if="notice" class="rmm-note is-ok">{{ notice }}</p>
+            </template>
+
+            <template v-if="wizard.route === 'direct'">
             <p class="rmm-muted">Aus der <router-link to="/discovery">Netzwerksuche</router-link> – Systeme mit Synology-Schnittstelle
               (Port 5000/5001) oder als NAS erkannt. „Neu prüfen“ fragt jedes sofort.</p>
             <div class="rmm-actions">
@@ -102,11 +148,12 @@
                 </tbody>
               </table>
             </div>
+            </template>
             <div class="rmm-form">
-              <label>IP oder Name von Hand<input v-model="wizard.host" class="input" placeholder="192.168.1.20" @keydown.enter="probeHost" /></label>
+              <label>{{ wizard.route === 'agent' ? 'IP oder Name im Netz des Agents' : 'IP oder Name von Hand' }}<input v-model="wizard.host" class="input" placeholder="192.168.1.20" @keydown.enter="probeHost" /></label>
               <label>Port (optional)<input v-model.number="wizard.port" type="number" class="input" placeholder="5001" /></label>
               <div class="is-wide rmm-actions">
-                <button class="btn btn-primary btn-sm" :disabled="busy || !wizard.host" @click="probeHost">Prüfen und weiter</button>
+                <button class="btn btn-primary btn-sm" :disabled="busy || !wizard.host || (wizard.route === 'agent' && !wizard.via_agent_id)" @click="probeHost">{{ busy ? 'Prüfe …' : 'Prüfen und weiter' }}</button>
               </div>
             </div>
             <p v-if="wizard.error" class="rmm-note is-error">{{ wizard.error }}</p>
@@ -118,6 +165,8 @@
               <AppIcon name="archive" :size="20" />
               <div>
                 <strong>{{ wizard.info?.label || 'NAS' }}</strong> unter <span class="rmm-code">{{ wizard.info?.url }}</span>
+                <div v-if="wizard.info?.via_agent" class="rmm-muted">gefragt vom Agent {{ wizard.info.via_agent.hostname }} ({{ wizard.info.via_agent.site }})
+                  – RIMPERIO spricht mit diesem NAS nur über ihn</div>
                 <div v-if="wizard.info?.certificate" class="rmm-muted">Zertifikat: {{ wizard.info.certificate.self_signed ? 'selbst signiert' : wizard.info.certificate.issuer }},
                   gültig bis {{ fmtTime(wizard.info.certificate.not_after) }}</div>
                 <div v-if="wizard.info?.scheme === 'http'" class="rmm-muted" style="color:var(--color-warning)">Nur HTTP – in DSM HTTPS (Port 5001) einschalten und hier neu prüfen.</div>
@@ -191,6 +240,8 @@ const notice = ref('')
 const busy = ref(false)
 const wizard = ref(null)
 const otpInput = ref(null)
+const relayAgents = ref([])
+const origin = window.location.origin
 
 const STATUS = {
   ok: ['badge-success', 'in Ordnung'], warning: ['badge-warning', 'Warnung'], critical: ['badge-danger', 'kritisch'],
@@ -214,8 +265,43 @@ async function loadDiscovered(live) {
 }
 
 function blank() {
-  return { step: 1, host: '', port: null, info: null, name: '', site: 'Standard', username: '', password: '', otp: '',
-    totp_secret: '', verify_tls: false, enable_snmp: true, needOtp: false, error: '', result: null }
+  return { step: 1, route: 'direct', via_agent_id: null, host: '', port: null, info: null, name: '', site: 'Standard',
+    username: '', password: '', otp: '', totp_secret: '', verify_tls: false, enable_snmp: true, needOtp: false, error: '', result: null }
+}
+async function loadRelayAgents() {
+  try { relayAgents.value = await auth.api('/api/nas/relay-agents') } catch (e) { wizard.value.error = e.message }
+  const w = wizard.value
+  if (w && !w.via_agent_id) {
+    const first = relayAgents.value.find(a => a.ready)
+    if (first) { w.via_agent_id = first.id; pickAgent() }
+  }
+}
+// Paket "RIMPERIO Agent" fuer DSM 7 - baut der Server, mit Adresse und Einladung (POST /api/nas/dsm-package).
+async function downloadPkg() {
+  const w = wizard.value
+  w.error = ''
+  busy.value = true
+  try {
+    const a = relayAgents.value.find(x => x.id === w.via_agent_id)
+    const res = await fetch('/api/nas/dsm-package', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify({ server: '', site: (w.site && w.site !== 'Standard') ? w.site : (a?.site || 'Standard') }) })
+    if (!res.ok) { let m = `HTTP ${res.status}`; try { m = (await res.json()).detail || m } catch { /* Text */ } throw new Error(m) }
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'RIMPERIO-Agent.spk'
+    const url = URL.createObjectURL(await res.blob())
+    const link = document.createElement('a'); link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    notice.value = `${name} heruntergeladen – im DSM-Paketzentrum über „Manuelle Installation“ einspielen.`
+  } catch (e) { w.error = e.message } finally { busy.value = false }
+}
+// Agent laeuft auf dem NAS selbst: dann ist DSM unter 127.0.0.1:5001, Standort wie der Agent.
+function pickAgent() {
+  const w = wizard.value
+  const a = relayAgents.value.find(x => x.id === w.via_agent_id)
+  if (!a) return
+  if (a.on_nas) { w.host = '127.0.0.1'; w.port = 5001 } else if (w.host === '127.0.0.1') { w.host = ''; w.port = null }
+  if (!w.site || w.site === 'Standard') w.site = a.site || 'Standard'
+  if (!w.name && a.on_nas) w.name = a.hostname
 }
 function openWizard(host) {
   wizard.value = blank()
@@ -231,7 +317,8 @@ async function probeHost() {
   w.error = ''
   busy.value = true
   try {
-    const r = await auth.api('/api/nas/probe', { method: 'POST', body: { host: w.host.trim(), port: w.port || null } })
+    const r = await auth.api('/api/nas/probe', { method: 'POST', body: { host: w.host.trim(), port: w.port || null,
+      via_agent_id: w.route === 'agent' ? w.via_agent_id : null } })
     if (!r.found) { w.error = r.message; return }
     w.info = r
     w.port = r.port
@@ -247,7 +334,8 @@ async function connect() {
       host: w.host.trim(), port: w.info?.port || w.port || null, scheme: w.info?.scheme || null, name: w.name,
       username: w.info?.vendor === 'truenas' ? 'api' : w.username, password: w.password, otp: w.otp.trim(),
       totp_secret: w.totp_secret.trim(), verify_tls: w.verify_tls, enable_snmp: w.enable_snmp, site: w.site,
-      vendor: w.info?.vendor === 'synology' || w.info?.vendor === 'truenas' ? w.info.vendor : 'generic' } })
+      vendor: w.info?.vendor === 'synology' || w.info?.vendor === 'truenas' ? w.info.vendor : 'generic',
+      via_agent_id: w.route === 'agent' ? w.via_agent_id : null } })
     w.result = r
     w.step = 3
     w.password = ''
@@ -295,6 +383,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .nas-problems .is-warn { color: var(--color-warning); }
 .nas-found { display: flex; gap: .75rem; align-items: flex-start; padding: .75rem; border: 1px solid var(--color-border); border-radius: var(--radius); }
 .nas-otp input { border-color: var(--color-primary); }
+.nas-route { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.nas-route-opt { display: flex; gap: .6rem; align-items: flex-start; padding: .75rem; border: 1px solid var(--color-border); border-radius: var(--radius); cursor: pointer; }
+.nas-route-opt.is-on { border-color: var(--color-primary); background: var(--primary-soft); }
+.nas-route-opt input { margin-top: .2rem; }
 .nas-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
 .nas-checks li { display: flex; gap: .6rem; align-items: flex-start; padding: .5rem .6rem; border: 1px solid var(--color-border); border-radius: var(--radius); }
 .nas-check-ico { width: 1.4rem; height: 1.4rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex: none; background: var(--color-border); }

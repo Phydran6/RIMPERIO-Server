@@ -2,6 +2,15 @@
 
 FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.5.0
+
+### Added
+- **HTTPS-Weiterleitung über einen Agent** (`app/relay.py`): Warteschlange je Agent im Speicher, `forward()` stellt eine HTTP-Anfrage über den Agent und wartet auf die Antwort (Zeitgrenze + `REPLY_SLACK`), `AgentTransport` als httpx-Transport – der NAS-Code bleibt unverändert. Fehlerarten des Agents (`connect`, `timeout`, `tls`, `denied`) werden zu httpx-Fehlern mit Klartext. `peer_certificate()` holt das Zertifikat vom Agent aus gesehen.
+- **Agent-Schnittstelle:** `POST /api/rmm/agent/wait` nimmt `{"caps": [...]}` an und liefert neben `commands` auch `relay` (Anfragen für Agents mit der Fähigkeit `relay`); neu `POST /api/rmm/agent/relay-results`. Ältere Agents merken nichts.
+- **NAS an einem anderen Standort:** Spalte `nas_devices.via_agent_id` (FK `agents`, `ON DELETE SET NULL`, beim Start nachgezogen). `probe`, `certificate`, `Synology`, `TrueNas`, `connect`, `refresh`, Updates und `_await_back` laufen damit über den Agent. Prüfliste mit Eintrag „Weg“. SNMP: Das SNMP-Gerät bekommt den Agent als Abfragepunkt (`poller = agent_uid`), keine Prüfung vom Server aus. Gleiche Adresse (`127.0.0.1`) an mehreren Standorten zählt je Weg als eigenes NAS bzw. SNMP-Gerät.
+- **API:** `GET /api/nas/relay-agents` (Agents mit `ready`, `live`, `capable`, `on_nas`, `appliance`, letzter Antwortzeit); `via_agent_id` bei `POST /api/nas/probe`, `POST /api/nas/connect` und `PUT /api/nas/{id}` (nur wenn angegeben; `null` = direkt). Liste und Detail tragen `via_agent_id`, `relay` und `via_agent`. Nur Agents, die der Benutzer sieht (Mandant).
+- **Tests:** `tests/test_nas_relay.py` (Hin- und Rückweg, DSM über den Agent, Fehlerarten, Zeitüberschreitung, fremde und unbekannte Antworten, verfallene Anfragen, Zertifikat).
+
 ## 0.4.0
 
 ### Added

@@ -18,7 +18,8 @@ ausführt.
 | **Weg zum Server** | nur ausgehend: HTTPS + `Authorization: Bearer <AGENT-TOKEN>` |
 | **Konfiguration** | `C:\ProgramData\RIMPERIO\agent.json` bzw. `/opt/RMM/rimperio/etc/agent.json` (0600, gehört dem Dienstkonto) |
 | **Läuft als** | Windows: `SYSTEM` · Linux: eigenes Dienstkonto (Standard `rimperio`), **nicht root** — siehe [Linux: Dienstkonto statt root](#linux-dienstkonto-statt-root) |
-| **Plattformen** | Windows (amd64), Linux (amd64/arm64/armv7/armv6 – auch Raspberry Pi mit 32-Bit-System bis Pi Zero); baubar auch für macOS |
+| **Plattformen** | Windows (amd64), Linux (amd64/arm64/armv7/armv6 – auch Raspberry Pi mit 32-Bit-System bis Pi Zero), Synology DSM 7 als Paket (baut der Server, siehe [NAS](../docs/rmm/nas.md#nas-an-einem-anderen-standort)); baubar auch für macOS |
+| **Weiterleitung** | stellt für den Server HTTP-Anfragen an Geräte im eigenen Netz, z. B. ein [NAS an einem anderen Standort](../docs/rmm/nas.md#nas-an-einem-anderen-standort) – siehe [unten](#weiterleitung-für-geräte-am-standort) |
 
 ---
 
@@ -40,6 +41,30 @@ sequenceDiagram
 Der Agent **holt** ab — der Server verbindet sich nie zum Agent. Darum braucht
 der Rechner keine offene Tür nach außen.
 
+Ab 0.5.0 kündigt der Agent bei der Warte-Verbindung an, dass er weiterleiten kann
+(`{"caps": ["relay"]}`). Dann liefert sie neben Befehlen auch HTTP-Anfragen für Geräte
+in seinem Netz, siehe [Weiterleitung](#weiterleitung-für-geräte-am-standort).
+
+---
+
+## Weiterleitung für Geräte am Standort
+
+Ein NAS an einem anderen Standort erreicht der Server nicht, der Agent dort schon. Über
+die ohnehin offene Warte-Verbindung (`/api/rmm/agent/wait`) bekommt der Agent
+HTTP-Anfragen, stellt sie im eigenen Netz und schickt die Antwort an
+`/api/rmm/agent/relay-results` zurück. Es bleibt bei *nur ausgehend, nur HTTPS*.
+
+| | |
+|---|---|
+| **Ziele** | nur lokale Adressen: private Netze, Loopback, Link-Local, CGNAT/VPN (`100.64.0.0/10`). Geprüft wird die angewählte IP nach der Namensauflösung. |
+| **Einstellung** | `agent.json`: `"relay": "lan"` (Standard), `"any"`, `"off"`; `RIMPERIO_RELAY` hat Vorrang |
+| **Grenzen** | 8 Anfragen gleichzeitig, Antwort bis 32 MB, Zeitgrenze vom Server (höchstens 10 min) |
+| **Zertifikate** | Prüfung nach Vorgabe des Servers (Selbstzertifikat eines NAS: aus); auf Wunsch geht das Zertifikat der Gegenstelle mit zurück |
+| **Proxy** | nie – Ziele liegen im eigenen Netz |
+| **Weiterleitungen (3xx)** | werden nicht selbst verfolgt, sondern wie empfangen zurückgegeben |
+
+Code: [`internal/core/relay.go`](internal/core/relay.go), Server: `server/backend/app/relay.py`.
+
 ---
 
 ## Befehle
@@ -56,6 +81,7 @@ rimperio-agent uninstall  [-keep-record]
 rimperio-agent cleanup    [-keep-record]
                       Nur abmelden + Konfiguration löschen (ruft das MSI).
 rimperio-agent start | stop | restart
+rimperio-agent foreground Ohne Dienstmanager im Vordergrund laufen (Paket, Container).
 rimperio-agent once       Ein Testdurchlauf (ohne Dienst) — gut zum Prüfen.
 rimperio-agent status
 rimperio-agent version

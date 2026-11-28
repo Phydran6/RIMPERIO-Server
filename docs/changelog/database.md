@@ -1,7 +1,7 @@
 # Changelog — Datenbank / Deployment
 
 Datenbank-Image & Deploy-Konfiguration (`docker-compose.yml`, `db/`, `install.sh`).
-Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
+Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
 ## 0.2.0
 

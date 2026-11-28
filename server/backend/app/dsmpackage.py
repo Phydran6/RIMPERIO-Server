@@ -102,6 +102,8 @@ PID="$PKGVAR/agent.pid"
 LOG="$PKGVAR/agent.log"
 BASE_URL="__BASE_URL__"
 export RIMPERIO_HOME="$PKGVAR"
+# Paketform: Inventur kennzeichnet das NAS, Deinstallation aus RIMPERIO loescht nur die Anmeldung.
+export RIMPERIO_PACKAGE=synology
 
 arch() {
   case "$(uname -m)" in
