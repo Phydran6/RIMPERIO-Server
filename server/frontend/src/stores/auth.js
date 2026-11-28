@@ -33,10 +33,28 @@ export const useAuthStore = defineStore('auth', () => {
   const isProvider = computed(() => !!user.value && (user.value.tenant_id ?? null) === null)
   const isSystemAdmin = computed(() => isAdmin.value && isProvider.value)
 
+  /**
+   * `detail` kann Text sein (eigene Meldungen des Servers) oder - bei
+   * Prüffehlern von FastAPI (422) - eine Liste von Objekten
+   * `{loc, msg, type}`. Ohne Aufbereitung stünde dann „[object Object]“ da.
+   */
+  function formatDetail(detail) {
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      return detail.map(d => {
+        if (typeof d === 'string') return d
+        const field = (d?.loc || []).filter(x => x !== 'body').join('.')
+        return field ? `${field}: ${d?.msg || ''}` : (d?.msg || JSON.stringify(d))
+      }).join('; ')
+    }
+    if (detail && typeof detail === 'object') return detail.message || detail.msg || JSON.stringify(detail)
+    return String(detail)
+  }
+
   async function parseError(res) {
     try {
       const data = await res.json()
-      if (data?.detail) return data.detail
+      if (data?.detail) return formatDetail(data.detail)
       return JSON.stringify(data)
     } catch {
       try {

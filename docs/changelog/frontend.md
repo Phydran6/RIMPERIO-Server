@@ -2,6 +2,12 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.2.1
+
+### Fixed
+- **Fehlermeldungen „[object Object]“:** Prüffehler von FastAPI (422) kommen als Liste von Objekten; `stores/auth.js` gab sie ungeprüft aus. Sie werden jetzt als „Feld: Meldung“ angezeigt – in allen Ansichten.
+- **Backup-Auftrag:** „Behalten (letzte n)“ erlaubt 0 (= nur nach Tagen); sind beide Werte 0, meldet das Formular das vor dem Speichern.
+
 ## 0.2.0
 
 ### Added

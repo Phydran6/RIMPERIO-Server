@@ -49,7 +49,7 @@
               <td class="bj-src">{{ j.source_label }}</td>
               <td>{{ j.target ? j.target.name : (j.kind === 'nas_task' ? 'Ziel der Hyper-Backup-Aufgabe' : j.kind === 'pve' ? 'Proxmox-Speicher' : '–') }}</td>
               <td>{{ fmtSchedule(j.schedule) }}<div class="rmm-muted">nächster: {{ j.next_run_at ? fmtTime(j.next_run_at) : '–' }}</div>
-                <div v-if="!['nas_task', 'pve'].includes(j.kind)" class="rmm-muted">behalten: {{ j.keep_last }}{{ j.keep_days ? `, mind. ${j.keep_days} Tage` : '' }}</div></td>
+                <div v-if="!['nas_task', 'pve'].includes(j.kind)" class="rmm-muted">behalten: {{ j.keep_last ? j.keep_last : '' }}{{ j.keep_days ? `${j.keep_last ? ', mind. ' : ''}${j.keep_days} Tage` : '' }}</div></td>
               <td>
                 <template v-if="j.last_run">
                   <span class="badge" :class="RUN[j.last_run.status]?.[0]">{{ RUN[j.last_run.status]?.[1] || j.last_run.status }}</span>
@@ -157,7 +157,7 @@
           <div v-if="form.schedule.type === 'weekly'" class="is-wide bj-days">
             <label v-for="(dn, i) in DAYS" :key="i" class="pol-check"><input v-model="form.schedule.days" type="checkbox" :value="i" /> {{ dn }}</label>
           </div>
-          <label v-if="!['nas_task', 'pve'].includes(form.kind)">Behalten (letzte n)<input v-model.number="form.keep_last" type="number" min="1" class="input" /></label>
+          <label v-if="!['nas_task', 'pve'].includes(form.kind)">Behalten (letzte n, 0 = nur nach Tagen)<input v-model.number="form.keep_last" type="number" min="0" class="input" /></label>
           <label v-if="!['nas_task', 'pve'].includes(form.kind)">… aber mindestens (Tage)<input v-model.number="form.keep_days" type="number" min="0" class="input" /></label>
           <label>Melden, wenn älter als (Stunden, 0 = aus Zeitplan)<input v-model.number="form.max_age_hours" type="number" min="0" class="input" /></label>
           <label class="pol-check"><input v-model="form.enabled" type="checkbox" /> aktiv</label>
@@ -300,6 +300,11 @@ async function save() {
     body.source.excludes = excludesText.value.split('\n').map(s => s.trim()).filter(Boolean)
   }
   if (['nas_task', 'pve'].includes(f.kind)) { body.target_id = null; body.encrypt = false }
+  else {
+    body.keep_last = Math.max(0, Number(body.keep_last) || 0)
+    body.keep_days = Math.max(0, Number(body.keep_days) || 0)
+    if (!body.keep_last && !body.keep_days) { formError.value = 'Bitte angeben, wie viele Sicherungen (oder wie viele Tage) behalten werden.'; return }
+  }
   busy.value = true
   try {
     await auth.api(f.id ? `/api/backups/jobs/${f.id}` : '/api/backups/jobs', { method: f.id ? 'PUT' : 'POST', body })
