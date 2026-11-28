@@ -275,7 +275,7 @@ async def explain_with_ai(log_id: int, db: AsyncSession = Depends(get_db), _=Dep
     prompt = (f"Gerät: {log.hostname} · Programm: {log.source} · Stufe: {log.level}\n"
               f"Zeile: {(log.raw_message or log.message or '')[:3000]}")
     try:
-        result = await ai.ask_text(cfg, EXPLAIN_SYSTEM, prompt)
+        result = await ai.ask_text(cfg, ai.prompt_for(cfg, "log_explain", EXPLAIN_SYSTEM), prompt)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"KI nicht erreichbar: {exc}") from exc
     answer = ai.parse_json_answer(result.get("answer", "")) or {"was": result.get("answer", "")[:800]}

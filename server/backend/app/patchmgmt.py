@@ -1028,7 +1028,7 @@ async def assess_batch(db: AsyncSession, agent: Agent, items: List[PatchItem], s
         prompt += ("\n\nSuche bei Bedarf im Web nach bekannten Problemen zu diesen Updates "
                    "(höchstens ein paar Suchen) und nenne die Quellen.")
     try:
-        result = await ai.ask_text(ai_cfg, ASSESS_SYSTEM, prompt, web_search=use_native)
+        result = await ai.ask_text(ai_cfg, ai.prompt_for(ai_cfg, "patch_assess", ASSESS_SYSTEM), prompt, web_search=use_native)
         parsed = ai.parse_json_answer(result.get("answer", "")) or {}
         by_ref = {str(x.get("ref")): x for x in (parsed.get("items") or []) if isinstance(x, dict)}
         for n, it in enumerate(todo, start=1):

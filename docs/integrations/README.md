@@ -276,11 +276,30 @@ vorhandenen Installation:
 OLLAMA_BASE_URL=http://192.168.1.50:11434
 ```
 
-Einzurichten unter *Auswertung → KI-Auswertung*, Anbieter **Open WebUI**. Es
-braucht die Adresse (intern: `http://rimperio-openwebui:8080`) und einen
-API-Schlüssel aus Open WebUI (dort unter *Profil → Einstellungen → Konto*).
-Der Knopf „Modelle holen“ liest die verfügbaren Modelle aus, damit der Name
-nicht geraten werden muss.
+### In RIMPERIO einrichten
+
+*Integrationen → KI-Anbieter*. Drei Wege zu einer eigenen KI – alle mit
+Modellauswahl („Modelle laden“ zeigt die Modelle der Gegenstelle als Liste; der
+Name lässt sich auch von Hand eintragen):
+
+| Weg | Adresse | Schlüssel |
+|---|---|---|
+| **Open WebUI** | die Adresse, unter der Open WebUI im Browser aufgeht, z. B. `https://ki.firma.de` – ohne `/api`. Läuft der Zusatzdienst auf dem RIMPERIO-Server: `http://openwebui:8080` | Pflicht: in Open WebUI *Profil → Einstellungen → Konto → API-Schlüssel* (`sk-…`). Fehlt der Punkt: *Admin-Bereich → Einstellungen → Allgemein → API-Schlüssel aktivieren* |
+| **Ollama direkt** | `http://IP-DES-KI-RECHNERS:11434` oder die HTTPS-Adresse eines Reverse Proxys. Ollama muss von außen erreichbar sein: `OLLAMA_HOST=0.0.0.0` | nur, wenn ein Proxy einen Token verlangt |
+| **OpenAI-kompatibel** | LM Studio, vLLM, LiteLLM, LocalAI … – mit oder ohne `/v1` | je nach Dienst |
+
+- `localhost`/`127.0.0.1` geht nicht: aus Sicht von RIMPERIO ist das der eigene Container.
+- Selbst signiertes Zertifikat: „Zertifikat prüfen“ ausschalten.
+- Ältere Fassungen schlugen `http://rimperio-openwebui:8080` vor – das antwortet nur, wenn
+  Open WebUI als Zusatzdienst auf demselben Server läuft.
+
+### Anweisungen je Bereich
+
+Für jeden Bereich, in dem RIMPERIO die KI fragt (Logs auswerten, Logzeile erklären,
+Updates einschätzen, DB-Update prüfen), gibt es Vorlagen – z. B. „Sicherheit /
+Angriffe“ oder „Ausführlich für Einsteiger“ – und eine frei änderbare Anweisung.
+Bei Bereichen mit fester Antwortform wird die eigene Anweisung angehängt, das
+Antwortformat bleibt.
 
 ---
 

@@ -47,15 +47,14 @@
           {{ t('ai.dataWarning') }}
         </p>
         <p v-else-if="current?.local" class="alert alert-info">
-          Läuft die Gegenstelle auf diesem Server (Open WebUI mit lokalem Modell über
-          Ollama), verlässt keine Logzeile das Haus. Zeigt die Adresse dagegen nach
-          außen, gilt dieselbe Warnung wie bei jedem anderen Anbieter: die ausgewählten
-          Zeilen gehen dorthin.
+          Läuft die Gegenstelle in deinem Netz (Open WebUI oder Ollama mit lokalem Modell),
+          verlässt keine Logzeile das Haus. Zeigt die Adresse nach außen, gehen die
+          ausgewählten Zeilen dorthin.
         </p>
 
         <!-- Nur zeigen, was der gewählte Weg braucht. -->
-        <div v-if="current?.needs_key" class="space-y-1">
-          <label class="label">{{ t('ai.apiKey') }}</label>
+        <div v-if="current?.needs_key || current?.key_optional" class="space-y-1">
+          <label class="label">{{ t('ai.apiKey') }} <span v-if="current?.key_optional" class="hint">({{ t('common.optional') }})</span></label>
           <input
             v-model="apiKey"
             type="password"
@@ -73,32 +72,42 @@
         </div>
 
         <div v-if="current?.needs_url" class="space-y-1">
-          <label class="label">{{ t('ai.webhookUrl') }}</label>
+          <label class="label">{{ isN8n ? t('ai.webhookUrl') : 'Adresse' }}</label>
           <input v-model="config.webhook_url" type="url" class="input"
-                 :placeholder="current.default_url || 'https://n8n.example.com/webhook/rimperio'">
-          <label class="label mt-2">Kopfzeile <span class="hint">({{ t('common.optional') }}, „Name: Wert“)</span></label>
-          <input v-model="config.webhook_header" type="text" class="input" placeholder="X-Auth: geheim">
+                 :placeholder="current.url_placeholder || current.default_url || 'https://n8n.example.com/webhook/rimperio'">
+          <p v-if="!isN8n" class="hint">Wie im Browser – ohne /api oder /v1, das ergänzt RIMPERIO. „localhost“ geht nicht:
+            aus Sicht von RIMPERIO ist das der eigene Container – IP oder Namen des KI-Rechners nehmen.</p>
+          <label v-if="!isN8n" class="toggle mt-2">
+            <input v-model="config.verify_tls" type="checkbox">
+            <span>Zertifikat prüfen (aus nur bei selbst signiertem Zertifikat)</span>
+          </label>
+          <template v-if="isN8n">
+            <label class="label mt-2">Kopfzeile <span class="hint">({{ t('common.optional') }}, „Name: Wert“)</span></label>
+            <input v-model="config.webhook_header" type="text" class="input" placeholder="X-Auth: geheim">
+          </template>
         </div>
 
         <div v-if="config.provider !== 'off'" class="grid gap-3 sm:grid-cols-2">
-          <div v-if="current?.needs_key">
+          <div v-if="!isN8n">
             <label class="label">{{ t('ai.model') }}</label>
             <!-- Bei Open WebUI hängt hinter der Adresse das, was der Betreiber
                  selbst installiert hat - den Namen kann niemand erraten. Also
                  abfragen statt abtippen lassen. -->
             <div class="flex gap-2">
-              <input v-model="config.model" type="text" class="input" :placeholder="current.default_model"
+              <select v-if="models.length && !manualModel" v-model="config.model" class="select">
+                <option value="">— Modell wählen —</option>
+                <option v-for="entry in models" :key="entry.id" :value="entry.id">{{ entry.label }}</option>
+                <option v-if="config.model && !models.some(m => m.id === config.model)" :value="config.model">{{ config.model }} (eingetragen)</option>
+              </select>
+              <input v-else v-model="config.model" type="text" class="input" :placeholder="current?.default_model || 'Modellname'"
                      list="ai-model-options">
-              <button
-                v-if="config.provider === 'openwebui'"
-                type="button"
-                class="btn btn-secondary btn-sm shrink-0"
-                :disabled="loadingModels"
-                @click="loadModels"
-              >
-                {{ loadingModels ? '…' : 'Modelle holen' }}
+              <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="loadingModels" @click="loadModels">
+                {{ loadingModels ? '…' : 'Modelle laden' }}
               </button>
             </div>
+            <label v-if="models.length" class="toggle mt-1">
+              <input v-model="manualModel" type="checkbox"><span>Modellnamen selbst eintragen</span>
+            </label>
             <datalist id="ai-model-options">
               <option v-for="entry in models" :key="entry.id" :value="entry.id">{{ entry.label }}</option>
             </datalist>
@@ -110,10 +119,23 @@
           </div>
         </div>
 
-        <div v-if="config.provider !== 'off'">
-          <label class="label">{{ t('ai.systemPrompt') }}</label>
-          <textarea v-model="config.system_prompt" class="textarea" rows="4"
-                    :placeholder="defaultPrompt"></textarea>
+        <div v-if="config.provider !== 'off'" class="space-y-3">
+          <h3 class="label">Anweisungen (Prompts) je Bereich</h3>
+          <p class="hint">Je Bereich eine Vorlage wählen und nach Bedarf anpassen. Leer = RIMPERIO-Vorgabe.
+            Bei Bereichen mit fester Antwortform (Updates, DB-Updates, Logzeile erklären) wird dein Text als
+            zusätzlicher Hinweis angehängt – das Antwortformat bleibt, damit RIMPERIO die Antwort lesen kann.</p>
+          <div v-for="area in areas" :key="area.id" class="area-box">
+            <div class="flex flex-wrap items-center gap-2">
+              <strong>{{ area.label }}</strong><span class="hint">{{ area.hint }}</span>
+              <span class="grow" />
+              <select class="select area-select" :value="(config.prompt_templates || {})[area.id] || ''" @change="pickTemplate(area.id, $event.target.value)">
+                <option value="">Vorlage …</option>
+                <option v-for="tpl in templates[area.id] || []" :key="tpl.id" :value="tpl.id">{{ tpl.label }}</option>
+              </select>
+            </div>
+            <textarea v-model="prompts[area.id]" class="textarea" rows="3"
+                      :placeholder="area.id === 'log_analysis' ? defaultPrompt : 'Vorgabe von RIMPERIO – hier optional eigene Hinweise ergänzen'"></textarea>
+          </div>
         </div>
 
         <div v-if="config.provider !== 'off'" class="space-y-2">
@@ -207,7 +229,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from '../i18n'
 
@@ -222,6 +244,18 @@ const loadingModels = ref(false)
 const limits = ref({ max_logs: 500 })
 const defaultPrompt = ref('')
 const apiKey = ref('')
+const areas = ref([])
+const templates = ref({})
+const prompts = ref({})
+const manualModel = ref(false)
+watch(() => config.value.provider, (now, before) => { if (before && now !== before) { models.value = []; modelNote.value = ''; manualModel.value = false } })
+const isN8n = computed(() => ['n8n_external', 'n8n_local'].includes(config.value.provider))
+
+function pickTemplate(area, id) {
+  const tpl = (templates.value[area] || []).find(x => x.id === id)
+  config.value.prompt_templates = { ...(config.value.prompt_templates || {}), [area]: id }
+  if (tpl) prompts.value = { ...prompts.value, [area]: tpl.text }
+}
 
 const saving = ref(false)
 const testing = ref(false)
@@ -244,6 +278,12 @@ async function load() {
     providers.value = data.providers
     limits.value = data.limits
     defaultPrompt.value = data.default_system_prompt
+    areas.value = data.areas || []
+    templates.value = data.templates || {}
+    prompts.value = { ...(data.config.prompts || {}) }
+    if (!prompts.value.log_analysis && data.config.system_prompt) prompts.value.log_analysis = data.config.system_prompt
+    if (config.value.verify_tls === undefined) config.value.verify_tls = true
+    if (config.value.provider !== 'off' && !isN8n.value && (config.value.webhook_url || config.value.api_key_set)) loadModels()
   } catch (err) {
     error.value = err.message
   }
@@ -260,6 +300,8 @@ async function save() {
     if (apiKey.value) body.api_key = apiKey.value
     delete body.api_key_set
     delete body.provider_label
+    body.prompts = { ...prompts.value }
+    body.system_prompt = prompts.value.log_analysis || ''
     const data = await auth.api('/api/ai/config', { method: 'PUT', body })
     config.value = data.config
     apiKey.value = ''
@@ -282,10 +324,14 @@ async function loadModels() {
   loadingModels.value = true
   modelNote.value = ''
   try {
-    const data = await auth.api('/api/ai/models')
+    // Mit den Angaben aus dem Formular - auch bevor gespeichert ist.
+    const data = await auth.api('/api/ai/models', { method: 'POST', body: {
+      provider: config.value.provider, webhook_url: config.value.webhook_url || '',
+      api_key: apiKey.value || '', verify_tls: config.value.verify_tls !== false } })
     models.value = data.models || []
-    modelNote.value = data.note
-      || (models.value.length ? `${models.value.length} Modell(e) gefunden.` : '')
+    modelNote.value = data.error
+      || (models.value.length ? `${models.value.length} Modell(e) gefunden – bitte eines auswählen.` : '')
+    if (models.value.length === 1 && !config.value.model) config.value.model = models.value[0].id
   } catch (err) {
     modelNote.value = err.message
   } finally {
@@ -465,4 +511,7 @@ onMounted(load)
   color: var(--color-warning);
   border-color: var(--color-warning);
 }
+.area-box { border: 1px solid var(--color-border); border-radius: .6rem; padding: .7rem; display: flex; flex-direction: column; gap: .5rem; }
+.area-select { max-width: 16rem; }
+.grow { flex: 1; }
 </style>

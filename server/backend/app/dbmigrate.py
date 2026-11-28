@@ -945,7 +945,7 @@ async def _ai_review(db: AsyncSession, m: DbMigration) -> Optional[dict]:
         "\"fixups\":[{\"database\":\"name oder leer\",\"code\":\"…\",\"note\":\"warum\"}]}"
     )
     try:
-        result = await ai.ask_text(cfg, system, prompt)
+        result = await ai.ask_text(cfg, ai.prompt_for(cfg, "db_review", system), prompt)
         parsed = ai.parse_json_answer(result.get("answer", "")) or {}
         return {"recommendation": str(parsed.get("recommendation", "")).lower()[:16],
                 "summary": str(parsed.get("summary", ""))[:1200],
