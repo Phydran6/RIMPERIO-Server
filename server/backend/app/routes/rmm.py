@@ -370,7 +370,7 @@ async def wait(payload: Optional[Dict[str, Any]] = Body(None), agent: Agent = De
     diesen Agent ansteht, spätestens nach WAIT_SECONDS mit leerer Liste. Die
     Datenbankverbindung wird während des Wartens freigegeben (commit).
 
-    Ab 0.3.0 kündigt der Agent im Körper an, was er kann (``{"caps":
+    Ab 0.4.0 kündigt der Agent im Körper an, was er kann (``{"caps":
     ["relay"]}``). Dann kommen hier auch HTTP-Anfragen für die Weiterleitung
     mit (``relay``, siehe app/relay.py) - etwa an ein NAS in seinem Netz."""
     agent_id = agent.id

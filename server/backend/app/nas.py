@@ -155,7 +155,7 @@ async def probe(host: str, port: Optional[int] = None, scheme: Optional[str] = N
     candidates = [(port, scheme or ("https" if port in (5001, 443, 8443) else "http"))] if port else list(PROBE_PORTS)
     if via_agent and not relay.ready(via_agent):
         raise NasError(f"{host}: Der Agent am Standort ist gerade nicht verbunden (oder zu alt für die "
-                       "Weiterleitung – ab Version 0.3.0).")
+                       "Weiterleitung – ab Version 0.4.0).")
     async with httpx.AsyncClient(verify=False, timeout=timeout, follow_redirects=False,
                                  transport=relay.transport(via_agent)) as c:
         for p, sch in candidates:
@@ -1539,7 +1539,7 @@ async def ensure_schema() -> None:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=VAULT_TABLES + NAS_TABLES))
-            # 0.3.0: NAS an einem anderen Standort, ueber einen Agent dort
+            # 0.4.0: NAS an einem anderen Standort, ueber einen Agent dort
             await conn.exec_driver_sql("ALTER TABLE nas_devices ADD COLUMN IF NOT EXISTS via_agent_id INTEGER "
                                        "REFERENCES agents(id) ON DELETE SET NULL")
         logger.info("NAS-Schema bereit")

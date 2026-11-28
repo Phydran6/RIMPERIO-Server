@@ -66,7 +66,7 @@
               <template v-if="n.via_agent">
                 <span class="rmm-dot" :class="n.via_agent.ready ? 'is-online' : 'is-offline'" />
                 über {{ n.via_agent.on_nas ? 'den Agent auf dem NAS' : 'den Agent ' + n.via_agent.hostname }}
-                <div class="rmm-muted">{{ n.via_agent.site }} · {{ n.via_agent.ready ? 'verbunden' : (n.via_agent.live ? 'Agent zu alt (ab 0.3.0)' : 'Agent nicht verbunden') }}<template
+                <div class="rmm-muted">{{ n.via_agent.site }} · {{ n.via_agent.ready ? 'verbunden' : (n.via_agent.live ? 'Agent zu alt (ab 0.4.0)' : 'Agent nicht verbunden') }}<template
                   v-if="n.via_agent.last_ms != null"> · zuletzt {{ n.via_agent.last_ms }} ms</template></div>
               </template>
               <span v-else-if="n.via_agent_id" class="rmm-muted">über einen Agent (entfernt?)</span>

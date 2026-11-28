@@ -104,7 +104,7 @@
                   <select v-model="wizard.via_agent_id" class="select" @change="pickAgent">
                     <option :value="null" disabled>– Agent wählen –</option>
                     <option v-for="a in relayAgents" :key="a.id" :value="a.id" :disabled="!a.ready">
-                      {{ a.hostname }} · {{ a.site }}{{ a.on_nas ? ' · läuft auf dem NAS' : '' }}{{ a.ready ? '' : (a.live ? ' · zu alt (ab 0.3.0)' : ' · nicht verbunden') }}
+                      {{ a.hostname }} · {{ a.site }}{{ a.on_nas ? ' · läuft auf dem NAS' : '' }}{{ a.ready ? '' : (a.live ? ' · zu alt (ab 0.4.0)' : ' · nicht verbunden') }}
                     </option>
                   </select>
                   <span v-if="!relayAgents.some(a => a.ready)" class="rmm-muted">Noch kein passender Agent verbunden.</span>

@@ -592,6 +592,23 @@ async def _after_change(db: AsyncSession, before: dict, actor: str) -> dict:
 # ==============================================================================
 # Geräte: erkennen, zählen, Plätze verteilen
 # ==============================================================================
+async def real_tenants(db: AsyncSession) -> List[str]:
+    """Namen der aktiven Mandanten (app/tenancy.py) in Anlage-Reihenfolge.
+
+    Leer, solange die Mandantenfaehigkeit aus ist - dann gelten wie bisher die
+    Standorte als Mandanten. Ist sie an, zaehlt die Lizenz "je Mandant" genau
+    diese Mandanten (auch ohne Geraete); Geraete des Betreibers belegen keinen
+    Mandanten-Platz.
+    """
+    from . import tenancy
+    from .models import Tenant
+    if not tenancy.enabled():
+        return []
+    rows = (await db.execute(select(Tenant.name).where(Tenant.is_active.is_(True)).order_by(Tenant.id)
+                             .execution_options(**tenancy.ALL_TENANTS))).scalars().all()
+    return [str(n)[:128] for n in rows]
+
+
 def tenant_of(row: Any, names: Optional[Dict[int, str]] = None) -> str:
     """Zu welchem Mandanten gehört ein Gerät?
 
@@ -704,17 +721,30 @@ def allocate(devices: List[Any], lic_state: dict, now: datetime,
             else:
                 d.state, d.licensed_at = "over_limit", None
     elif model == "per_tenant" and lic_state.get("max_tenants"):
-        order: List[str] = []
-        for d in candidates:
-            t = d.tenant_override or d.tenant or DEFAULT_TENANT
-            if t not in order:
-                order.append(t)
-        allowed = set(order[:int(lic_state["max_tenants"])])
-        for d in candidates:
-            if (d.tenant_override or d.tenant or DEFAULT_TENANT) in allowed:
-                d.state, d.licensed_at = "licensed", d.licensed_at or now
-            else:
-                d.state, d.licensed_at = "over_limit", None
+        real = list(lic_state.get("tenant_order") or [])
+        if real:
+            # Echte Mandanten: die zuerst angelegten bekommen die Plaetze.
+            # Geraete des Betreibers (kein Mandant) belegen keinen.
+            allowed = set(real[:int(lic_state["max_tenants"])])
+            known = set(real)
+            for d in candidates:
+                t = d.tenant_override or d.tenant or DEFAULT_TENANT
+                if t not in known or t in allowed:
+                    d.state, d.licensed_at = "licensed", d.licensed_at or now
+                else:
+                    d.state, d.licensed_at = "over_limit", None
+        else:
+            order: List[str] = []
+            for d in candidates:
+                t = d.tenant_override or d.tenant or DEFAULT_TENANT
+                if t not in order:
+                    order.append(t)
+            allowed = set(order[:int(lic_state["max_tenants"])])
+            for d in candidates:
+                if (d.tenant_override or d.tenant or DEFAULT_TENANT) in allowed:
+                    d.state, d.licensed_at = "licensed", d.licensed_at or now
+                else:
+                    d.state, d.licensed_at = "over_limit", None
     else:
         for d in candidates:
             d.state, d.licensed_at = "licensed", d.licensed_at or now
@@ -755,7 +785,7 @@ async def sync_devices(db: AsyncSession, lic_state: Optional[dict] = None) -> di
     await db.flush()
 
     before = {k: r.state for k, r in rows.items()}
-    counts = allocate(list(rows.values()), lic_state, now,
+    counts = allocate(list(rows.values()), {**lic_state, "tenant_order": await real_tenants(db)}, now,
                       int(cfg.get("release_after_days") or DEFAULT_RELEASE_AFTER_DAYS),
                       cfg.get("class_billable"))
 
@@ -812,9 +842,14 @@ async def counts(db: AsyncSession) -> dict:
     rows = (await db.execute(select(LicenseDevice.state, func.count())
                              .group_by(LicenseDevice.state))).all()
     by_state = {state: n for state, n in rows}
-    tenants = (await db.execute(
-        select(func.count(func.distinct(func.coalesce(LicenseDevice.tenant_override, LicenseDevice.tenant))))
-        .where(LicenseDevice.state.in_(("licensed", "free", "over_limit"))))).scalar() or 0
+    real = await real_tenants(db)
+    if real:
+        # Mandantenfaehigkeit an: gezaehlt werden die angelegten, aktiven Mandanten.
+        tenants = len(real)
+    else:
+        tenants = (await db.execute(
+            select(func.count(func.distinct(func.coalesce(LicenseDevice.tenant_override, LicenseDevice.tenant))))
+            .where(LicenseDevice.state.in_(("licensed", "free", "over_limit"))))).scalar() or 0
     by_class_rows = (await db.execute(
         select(func.coalesce(LicenseDevice.class_override, LicenseDevice.device_class), func.count())
         .where(LicenseDevice.state.in_(("licensed", "free", "over_limit")))

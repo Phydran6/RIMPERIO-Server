@@ -36,6 +36,7 @@
           </label>
           <label v-if="cfg.count_method === 'month'">zählt ab … aktiven Tagen<input v-model.number="cfg.min_days" type="number" min="1" max="31" class="input" /></label>
           <label>Steuersatz %<input v-model.number="cfg.tax_percent" type="number" min="0" max="100" step="0.1" class="input" /></label>
+          <label title="Für jeden angelegten Mandanten (Benutzer → Mandanten), auch ohne Geräte. Je Mandant änderbar.">Grundgebühr je Mandant/Monat<input v-model.number="cfg.tenant_fee" type="number" min="0" step="0.01" class="input" /></label>
           <label>Platz frei nach … Tagen ohne Lebenszeichen<input v-model.number="cfg.release_after_days" type="number" min="1" max="365" class="input" /></label>
         </div>
         <div class="rmm-table-wrap" style="margin-top:1rem">
@@ -75,7 +76,7 @@
             <label>Name auf der Rechnung<input v-model="cfg.tenants[name].display_name" class="input" :placeholder="name" /></label>
             <label>Kundennummer<input v-model="cfg.tenants[name].customer_no" class="input" /></label>
             <label>Standardpreis<input v-model="cfg.tenants[name].default_price" type="number" min="0" step="0.01" class="input" placeholder="wie oben" /></label>
-            <label>Grundgebühr/Monat<input v-model.number="cfg.tenants[name].flat_fee" type="number" min="0" step="0.01" class="input" /></label>
+            <label>Grundgebühr/Monat<input v-model="cfg.tenants[name].flat_fee" type="number" min="0" step="0.01" class="input" :placeholder="'Standard (' + money(cfg.tenant_fee || 0) + ')'" /></label>
             <label>Mindestbetrag/Monat<input v-model.number="cfg.tenants[name].minimum_fee" type="number" min="0" step="0.01" class="input" /></label>
             <label>Rabatt %<input v-model.number="cfg.tenants[name].discount_percent" type="number" min="0" max="100" step="0.1" class="input" /></label>
             <label>Inklusiv-Geräte<input v-model.number="cfg.tenants[name].free_devices" type="number" min="0" class="input" /></label>
@@ -216,7 +217,10 @@ async function guard(fn) {
   try { await fn(); error.value = '' } catch (e) { error.value = e.message; notice.value = '' } finally { busy.value = false }
 }
 function applyConfig(c) {
-  for (const t of Object.values(c.tenants || {})) t.class_prices = t.class_prices || {}
+  for (const t of Object.values(c.tenants || {})) {
+    t.class_prices = t.class_prices || {}
+    t.flat_fee = t.flat_fee ?? ''          // leer = Standard (Grundgebühr je Mandant)
+  }
   cfg.value = c
   classPrices.value = { ...c.class_prices }
 }
@@ -240,7 +244,7 @@ async function loadReport() {
   statements.value = (await auth.api('/api/license/billing/statements')).statements
 }
 function ensureTenant(name) {
-  cfg.value.tenants = { ...cfg.value.tenants, [name]: { display_name: '', customer_no: '', default_price: '', class_prices: {}, flat_fee: 0, minimum_fee: 0, discount_percent: 0, free_devices: 0, billable: true, note: '' } }
+  cfg.value.tenants = { ...cfg.value.tenants, [name]: { display_name: '', customer_no: '', default_price: '', class_prices: {}, flat_fee: '', minimum_fee: 0, discount_percent: 0, free_devices: 0, billable: true, note: '' } }
 }
 function removeTenant(name) {
   const copy = { ...cfg.value.tenants }
@@ -260,6 +264,7 @@ async function save() {
     for (const t of Object.values(body.tenants)) {
       t.class_prices = Object.fromEntries(Object.entries(t.class_prices || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined))
       if (t.default_price === '') t.default_price = null
+      if (t.flat_fee === '' || t.flat_fee === undefined) t.flat_fee = null
     }
     const data = await auth.api('/api/license/billing/config', { method: 'PUT', body })
     applyConfig(data.config)

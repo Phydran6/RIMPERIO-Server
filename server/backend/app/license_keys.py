@@ -28,4 +28,6 @@ Oberfläche tauschen könnte, könnte sich seine Lizenz selbst ausstellen.
 
 # key_id -> öffentlicher Ed25519-Schlüssel (32 Byte, Base64)
 TRUSTED_KEYS: dict[str, str] = {
+    # Herausgeber-Schlüssel ab 0.2.1 (Lizenz-Repository Phydran6/RIMPERIO-Licenses)
+    "rimperio-2026": "+Oasqj+kKqk3ScjjAiKa7zOc7oj9QwCqCl8k00YDc6E=",
 }

@@ -65,12 +65,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "class_prices": {},
     "class_billable": {key: True for key in DEVICE_CLASSES},
     "tax_percent": 0.0,
+    # Grundgebuehr je Mandant und Monat - fuer jeden angelegten Mandanten
+    # (app/tenancy.py), auch ohne Geraete. Je Mandant ueberschreibbar.
+    "tenant_fee": 0.0,
     "tenants": {},
 }
 
 TENANT_DEFAULTS: Dict[str, Any] = {
     "display_name": "", "customer_no": "", "default_price": None, "class_prices": {},
-    "flat_fee": 0.0, "minimum_fee": 0.0, "discount_percent": 0.0, "free_devices": 0,
+    # flat_fee None = Standard (tenant_fee bei echten Mandanten, sonst 0)
+    "flat_fee": None, "minimum_fee": 0.0, "discount_percent": 0.0, "free_devices": 0,
     "billable": True, "note": "",
 }
 
@@ -136,6 +140,7 @@ def clean_config(values: dict) -> dict:
     if tax > 100:
         raise ValueError("Steuersatz höchstens 100 %.")
     cfg["tax_percent"] = tax
+    cfg["tenant_fee"] = _money(values.get("tenant_fee"), "Grundgebühr je Mandant")
     tenants: Dict[str, dict] = {}
     for name, t in (values.get("tenants") or {}).items():
         name = str(name).strip()[:128]
@@ -150,7 +155,7 @@ def clean_config(values: dict) -> dict:
             "customer_no": str(t.get("customer_no") or "")[:64],
             "default_price": _money(t.get("default_price"), f"{name}: Standardpreis", allow_none=True),
             "class_prices": _prices(t.get("class_prices"), f"{name}: Preis"),
-            "flat_fee": _money(t.get("flat_fee"), f"{name}: Grundgebühr"),
+            "flat_fee": _money(t.get("flat_fee"), f"{name}: Grundgebühr", allow_none=True),
             "minimum_fee": _money(t.get("minimum_fee"), f"{name}: Mindestbetrag"),
             "discount_percent": discount,
             "free_devices": max(0, min(100000, int(t.get("free_devices") or 0))),
@@ -203,11 +208,15 @@ def previous_month(today: date) -> str:
 
 
 def build_report(month: str, day_rows: List[Tuple[date, str, str, str]], devices: Dict[str, dict],
-                 cfg: dict, today: Optional[date] = None) -> dict:
+                 cfg: dict, today: Optional[date] = None,
+                 tenant_names: Optional[List[str]] = None) -> dict:
     """Rechnet die Abrechnung eines Monats - rein rechnerisch, ohne Datenbank.
 
-    day_rows: (Tag, Geräteschlüssel, Mandant, Klasse) - nur abrechenbare Tage.
-    devices:  Geräteschlüssel -> {"name", "price_override"}
+    day_rows:     (Tag, Geräteschlüssel, Mandant, Klasse) - nur abrechenbare Tage.
+    devices:      Geräteschlüssel -> {"name", "price_override"}
+    tenant_names: angelegte Mandanten (app/tenancy.py). Sie stehen auch ohne
+                  Geräte auf der Abrechnung (Grundgebühr, Mindestbetrag), und
+                  für sie gilt die Grundgebühr je Mandant (`tenant_fee`).
     """
     first, last = month_bounds(month)
     today = today or datetime.utcnow().date()
@@ -238,6 +247,10 @@ def build_report(month: str, day_rows: List[Tuple[date, str, str, str]], devices
             "class_label": DEVICE_CLASSES.get(entry["cls"], entry["cls"]), "days": n_days,
             "active_days": sorted(d.isoformat() for d in entry["days"]),
             "unit_price": price, "quantity": qty})
+
+    real = set(tenant_names or [])
+    for name in real:
+        tenants.setdefault(name, [])
 
     out_tenants = []
     excluded = []
@@ -280,12 +293,17 @@ def build_report(month: str, day_rows: List[Tuple[date, str, str, str]], devices
                 d.pop("active_days", None)
         subtotal = round(sum(g["amount"] for g in lines), 2)
         discount = round(subtotal * float(tcfg.get("discount_percent") or 0) / 100, 2)
-        flat = round(float(tcfg.get("flat_fee") or 0), 2)
+        own_flat = tcfg.get("flat_fee")
+        if own_flat is None:
+            own_flat = cfg.get("tenant_fee") if tenant in real else 0
+        flat = round(float(own_flat or 0), 2)
         net = round(subtotal - discount + flat, 2)
         minimum = round(float(tcfg.get("minimum_fee") or 0), 2)
-        minimum_applied = bool(devs) and net < minimum
+        minimum_applied = (bool(devs) or tenant in real) and net < minimum
         if minimum_applied:
             net = minimum
+        if not devs and not net:
+            continue                                    # Mandant ohne Geräte und ohne Gebühr
         tax = round(net * float(cfg.get("tax_percent") or 0) / 100, 2)
         out_tenants.append({
             "tenant": tenant, "display_name": tcfg.get("display_name") or tenant,
@@ -327,7 +345,8 @@ async def compute(db: AsyncSession, month: str, cfg: Optional[dict] = None) -> d
     class_billable = cfg.get("class_billable") or {}
     rows = [tuple(r) for r in rows
             if devices.get(r[1], {}).get("billable", True) and class_billable.get(r[3], True)]
-    return build_report(month, rows, devices, cfg)
+    from .licensing import real_tenants
+    return build_report(month, rows, devices, cfg, tenant_names=await real_tenants(db))
 
 
 async def report(db: AsyncSession, month: str, live: bool = False) -> dict:

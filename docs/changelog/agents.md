@@ -2,7 +2,7 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
-## 0.3.0 — Weiterleitung für Geräte am Standort, Synology-Paket
+## 0.4.0 — Weiterleitung für Geräte am Standort, Synology-Paket
 
 ### Added
 - **Weiterleitung** (`internal/core/relay.go`): HTTP-Anfragen des Servers aus der Warte-Verbindung im eigenen Netz stellen und das Ergebnis an `/api/rmm/agent/relay-results` schicken – für ein NAS an einem anderen Standort. Nur lokale Ziele (privat, Loopback, Link-Local, CGNAT), geprüft an der angewählten IP; nie über einen Proxy; 3xx nicht selbst verfolgen; 8 gleichzeitig, Antwort bis 32 MB; Zertifikat der Gegenstelle auf Wunsch. Einstellung `relay` in `agent.json` (`lan`/`any`/`off`), `RIMPERIO_RELAY` hat Vorrang. Die Warte-Anfrage kündigt `{"caps": ["relay"]}` an.

@@ -3,8 +3,7 @@
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
 # Version:      2026.11.27.14.00.00
-# Beschreibung: Baut die Agent-Artefakte (Windows .exe + .msi, Linux amd64/arm64/armv7/armv6,
-#               Synology-Paket .spk),
+# Beschreibung: Baut die Agent-Artefakte (Windows .exe + .msi, Linux amd64/arm64),
 #               signiert sie und hängt sie bei einem v*-Tag an das GitHub-Release.
 #
 # Reihenfolge Windows:  exe bauen → exe signieren → MSI (mit signierter exe)
@@ -36,20 +35,6 @@ on:
 permissions:
   contents: write
   actions: read
-
-env:
-  RELEASE_BODY: |
-    RIMPERIO-Agent für Windows (`.exe`, `.msi`), Linux (amd64, arm64, armv7, armv6 –
-    Raspberry Pi mit 32- und 64-Bit-System) und Synology DSM 7 (`rimperio-agent-synology.spk`,
-    Paket-Zentrum → Manuelle Installation),
-    gebaut von GitHub Actions ausschließlich aus dem Quellcode dieses Repositorys.
-
-    Installation und Verteilung: [agent/installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/agent/installer/README.md)
-
-    **Code signing:** Free code signing provided by [SignPath.io](https://about.signpath.io/),
-    certificate by [SignPath Foundation](https://signpath.org/).
-    See the [code signing policy](https://github.com/Phydran6/RIMPERIO-Server#code-signing-policy)
-    and [privacy policy](https://github.com/Phydran6/RIMPERIO-Server#privacy-policy).
 
 jobs:
   windows:
@@ -215,9 +200,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          body: ${{ env.RELEASE_BODY }}
-          # Release von auto-release.yml: die Notizen dort behalten, Agent-Text anhaengen.
-          append_body: true
+          # Nur Dateien anhaengen. Den Text (Notizen + Agent-Hinweis) schreibt
+          # auto-release.yml einmal beim Anlegen - vorher haengten Windows- und
+          # Linux-Job ihn beide an, und er stand doppelt im Release.
           files: |
             agent/bin/rimperio-agent.exe
             agent/installer/windows/rimperio-agent.msi
@@ -251,9 +236,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          body: ${{ env.RELEASE_BODY }}
-          # Release von auto-release.yml: die Notizen dort behalten, Agent-Text anhaengen.
-          append_body: true
+          # Nur Dateien - der Text kommt aus auto-release.yml (siehe Windows-Job).
           files: |
             agent/bin/rimperio-agent-linux-amd64
             agent/bin/rimperio-agent-linux-arm64

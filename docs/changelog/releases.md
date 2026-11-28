@@ -11,7 +11,7 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
-## v0.3.0 (2026-11-27) – NAS an einem anderen Standort, nur über HTTPS
+## v0.4.0 (2026-11-28) – NAS an einem anderen Standort, nur über HTTPS
 
 - **Kein VPN, kein offener Port:** Ein NAS, das der RIMPERIO-Server nicht erreicht (anderes Netz, anderer Ort),
   wird über einen Agent an seinem Standort angebunden. Der Agent baut nur ausgehend HTTPS auf, auf derselben
@@ -28,6 +28,22 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
   kein offener Proxy. Abschaltbar mit `"relay": "off"`.
 - Anleitung: [NAS an einem anderen Standort](../rmm/nas.md#nas-an-einem-anderen-standort),
   [Synology-Paket](../../agent/installer/synology/README.md).
+
+## v0.3.0 (2026-11-27) – Mandanten lizenzieren und abrechnen
+
+- **Mandanten bleiben frei nutzbar** – wer sie seinen Kunden berechnen will, kann sie jetzt lizenzieren und abrechnen.
+- **Lizenz „je Mandant“** zählt die angelegten Mandanten (auch ohne Geräte), nicht mehr die Standorte. Bei einer
+  Höchstzahl bekommen die zuerst angelegten die Plätze; Geräte des Betreibers zählen nicht mit.
+- **Grundgebühr je Mandant** in der Abrechnung – für jeden Mandanten, auch ohne Geräte, je Mandant änderbar.
+- *Benutzer → Mandanten* zeigt den Lizenzstand.
+- **Release-Seite:** der Hinweis zu den Agent-Dateien steht nur noch einmal da, Links aus dem Release-Verlauf
+  führen auf GitHub statt ins Leere.
+
+## v0.2.1 (2026-11-27) – Lizenzen werden geprüft
+
+- Der öffentliche Schlüssel des Herausgebers ist jetzt eingetragen: Lizenzen aus dem GitHub-Lizenz-Repository, von einem
+  eigenen Lizenz-Endpunkt oder als hochgeladene Datei werden ab dieser Version erkannt. Ohne Lizenz bleibt alles wie
+  bisher (Community, lizenzfrei).
 
 ## v0.2.0 (2026-11-27) – Mandantenfähig, auf Wunsch
 

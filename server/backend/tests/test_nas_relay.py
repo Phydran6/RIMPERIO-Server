@@ -100,7 +100,7 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         agentwake.mark_waiting(AGENT)
         with self.assertRaises(relay.RelayUnavailable) as cm:
             await relay.forward(AGENT, method="GET", url="https://10.0.0.5:5001/")
-        self.assertIn("0.3.0", str(cm.exception))
+        self.assertIn("0.4.0", str(cm.exception))
         self.assertFalse(relay.ready(AGENT))
 
     async def test_transport_roundtrip(self):

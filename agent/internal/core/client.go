@@ -74,7 +74,7 @@ type CheckinRequest struct {
 
 type WaitResponse struct {
 	Commands []PendingCommand `json:"commands"`
-	Relay    []RelayRequest   `json:"relay"` // ab Server 0.3.0: weitergeleitete HTTP-Anfragen
+	Relay    []RelayRequest   `json:"relay"` // ab Server 0.4.0: weitergeleitete HTTP-Anfragen
 }
 
 // waitRequest kündigt an, was der Agent kann (z. B. "relay").

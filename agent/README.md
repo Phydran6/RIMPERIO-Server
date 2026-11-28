@@ -41,7 +41,7 @@ sequenceDiagram
 Der Agent **holt** ab — der Server verbindet sich nie zum Agent. Darum braucht
 der Rechner keine offene Tür nach außen.
 
-Ab 0.3.0 kündigt der Agent bei der Warte-Verbindung an, dass er weiterleiten kann
+Ab 0.4.0 kündigt der Agent bei der Warte-Verbindung an, dass er weiterleiten kann
 (`{"caps": ["relay"]}`). Dann liefert sie neben Befehlen auch HTTP-Anfragen für Geräte
 in seinem Netz, siehe [Weiterleitung](#weiterleitung-für-geräte-am-standort).
 
