@@ -11,6 +11,12 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.2.1 (2026-11-27) – Lizenzen werden geprüft
+
+- Der öffentliche Schlüssel des Herausgebers ist jetzt eingetragen: Lizenzen aus dem GitHub-Lizenz-Repository, von einem
+  eigenen Lizenz-Endpunkt oder als hochgeladene Datei werden ab dieser Version erkannt. Ohne Lizenz bleibt alles wie
+  bisher (Community, lizenzfrei).
+
 ## v0.2.0 (2026-11-27) – Mandantenfähig, auf Wunsch
 
 - **Eine Instanz, mehrere Kunden:** RIMPERIO lässt sich mandantenfähig betreiben. Jeder Kunde (Mandant) hat eigene

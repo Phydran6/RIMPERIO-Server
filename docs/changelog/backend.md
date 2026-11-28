@@ -2,6 +2,11 @@
 
 FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.2.1
+
+### Added
+- **Herausgeber-Schlüssel `rimperio-2026`** in `app/license_keys.py` (`TRUSTED_KEYS`). Ab dieser Version prüfen Instanzen Lizenzen aus dem Lizenz-Repository `Phydran6/RIMPERIO-Licenses`, einem eigenen Lizenz-Endpunkt oder hochgeladene Dateien; vorher blieb jede Instanz Community.
+
 ## 0.2.0
 
 ### Added
