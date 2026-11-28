@@ -20,7 +20,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -639,6 +639,40 @@ async def create_command(uid: str, data: CommandIn, db: AsyncSession = Depends(g
                          user: User = Depends(get_current_admin)) -> dict:
     agent = await _agent(db, uid)
     return await _queue(db, agent, user, shell=data.shell, command=data.command, timeout=data.timeout)
+
+
+PI_CHECK = r"""echo "== Modell"; tr -d '\0' < /proc/device-tree/model 2>/dev/null; echo
+echo "== System"; uname -srm; (. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME"); uptime
+echo "== Temperatur und Drosselung"
+if command -v vcgencmd >/dev/null 2>&1; then
+  vcgencmd measure_temp 2>&1; vcgencmd get_throttled 2>&1; vcgencmd measure_volts core 2>&1
+  vcgencmd get_throttled 2>&1 | grep -q 'failed\|denied' && echo "Hinweis: Dienstkonto braucht die Gruppe video (sudo usermod -aG video rimperio)"
+else
+  awk '{printf "SoC: %.1f C\n", $1/1000}' /sys/class/thermal/thermal_zone0/temp 2>/dev/null; echo "vcgencmd fehlt (nur Raspberry Pi OS hat es)"
+fi
+echo "== Speicher"; df -h / /boot /boot/firmware 2>/dev/null | awk '!seen[$0]++'; free -h
+echo "== Dateisystem schreibgeschuetzt?"; awk '$2=="/" {print ($4 ~ /(^|,)ro(,|$)/) ? "JA - Wurzel ist read-only (SD-Karte defekt?)" : "nein"}' /proc/mounts
+echo "== SD-Karten-Fehler im Kernel-Log"; (journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null) | grep -iE 'mmc[0-9].*(error|timeout)|EXT4-fs error|I/O error|under-voltage' | tail -n 15 || true
+echo "== Dienste mit Fehler"; systemctl --failed --no-legend 2>/dev/null | head -n 15
+"""
+
+
+@router.post("/agents/{uid}/reboot", status_code=201)
+async def reboot_agent(uid: str, delay: int = Query(1, ge=0, le=1440), db: AsyncSession = Depends(get_db),
+                       user: User = Depends(get_current_admin)) -> dict:
+    """Neustart planen (der Agent nutzt sein Hilfsskript bzw. shutdown)."""
+    agent = await _agent(db, uid)
+    return await _queue(db, agent, user, shell="sh", command=json.dumps({"delay": delay}), timeout=120,
+                        kind="reboot", source=f"Neustart in {delay} Min.")
+
+
+@router.post("/agents/{uid}/pi-check", status_code=201)
+async def pi_check(uid: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_admin)) -> dict:
+    """Zustand eines Einplatinenrechners: Temperatur, Drosselung, SD-Karte, Speicher, Fehler."""
+    agent = await _agent(db, uid)
+    if (agent.platform or "linux") != "linux":
+        raise HTTPException(status_code=422, detail="Nur für Linux-Rechner (Raspberry Pi & Co.).")
+    return await _queue(db, agent, user, shell="sh", command=PI_CHECK, timeout=60, source="Pi-Zustand prüfen")
 
 
 @router.get("/agents/{uid}/commands")

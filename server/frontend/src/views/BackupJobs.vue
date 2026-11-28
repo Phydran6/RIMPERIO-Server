@@ -292,6 +292,7 @@ async function openForm(j, preset) {
   } else {
     form.value = blank(preset?.kind)
     if (preset?.nas) form.value.source.nas_id = Number(preset.nas)
+    if (preset?.agent) form.value.source.agent_uid = String(preset.agent)
     if (preset?.task) { form.value.source.task_id = isNaN(Number(preset.task)) ? preset.task : Number(preset.task); form.value.source.task_name = preset.task_name || '' }
     if (preset?.kind === 'nas_config') form.value.schedule = { ...form.value.schedule, type: 'weekly', days: [6], time: '02:00' }
   }
@@ -338,7 +339,7 @@ function onKey(e) { if (e.key === 'Escape' && form.value) form.value = null }
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
   await load()
-  if (route.query.new && auth.isAdmin) openForm(null, { kind: String(route.query.new), nas: route.query.nas, task: route.query.task, task_name: route.query.task_name })
+  if (route.query.new && auth.isAdmin) openForm(null, { kind: String(route.query.new), nas: route.query.nas, task: route.query.task, task_name: route.query.task_name, agent: route.query.agent })
 })
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeout(timer) })
 </script>
