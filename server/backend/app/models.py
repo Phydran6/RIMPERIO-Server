@@ -946,13 +946,15 @@ class BackupTarget(Base):
     # Mandant (app/tenancy.py). NULL = Betreiber bzw. fuer alle Mandanten.
     tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(128), nullable=False)
-    kind = Column(String(16), default="local")               # local | smb | sftp | ftp | ftps
+    kind = Column(String(16), default="smb")                 # smb | sftp | ftp | ftps | s3 (local: nur Altbestand)
     host = Column(String(255), default="")
     port = Column(Integer, nullable=True)
     share = Column(String(255), default="")                  # SMB-Freigabe
     path = Column(String(512), default="")                   # Unterordner / Pfad
     secret_id = Column(Integer, ForeignKey("stored_secrets.id", ondelete="SET NULL"), nullable=True)
     nas_id = Column(Integer, ForeignKey("nas_devices.id", ondelete="SET NULL"), nullable=True)
+    # Art-spezifisches, z. B. S3: {"region": "eu-central-1", "path_style": true, "storage_class": "STANDARD"}
+    options = Column(JSON, default=dict)
     enabled = Column(Boolean, default=True)
     last_ok_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)

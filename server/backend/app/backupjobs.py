@@ -66,7 +66,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, AsyncIterator, BinaryIO, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import journal, vault
@@ -90,9 +90,32 @@ KINDS = {
     "nas_task": "Hyper Backup auf dem NAS",
     "pve": "Proxmox-VM/-Container (vzdump)",
 }
-TARGET_KINDS = {"local": "Ordner am RIMPERIO-Server", "smb": "SMB-Freigabe (NAS, Windows)",
-                "sftp": "SFTP", "ftp": "FTP", "ftps": "FTPS"}
+TARGET_KINDS = {"smb": "SMB-Freigabe (NAS, Windows)", "s3": "Cloud-Speicher (S3)",
+                "sftp": "SFTP", "ftp": "FTP", "ftps": "FTPS",
+                "local": "Ordner am RIMPERIO-Server (veraltet)"}
+# Neue Orte: RIMPERIO selbst speichert keine Sicherungen - sie gehoeren an einen
+# Ort ausserhalb des Servers (NAS, SFTP, Cloud). "local" bleibt nur lesbar fuer
+# Altbestand (Wiederherstellen, Herunterladen), neue Laeufe lehnt run_job ab.
+NEW_TARGET_KINDS = ("smb", "s3", "sftp", "ftps", "ftp")
 DEFAULT_PORTS = {"sftp": 22, "ftp": 21, "ftps": 21, "smb": 445}
+CONNECT_TIMEOUT = 20      # Sekunden - ein falscher Host darf den Test nicht minutenlang haengen lassen
+
+# Bekannte S3-Anbieter: Endpunkt-Vorlage ({region}); leer = AWS.
+S3_PRESETS = {
+    "aws": {"label": "Amazon S3", "endpoint": "", "region": "eu-central-1", "path_style": False},
+    "hetzner": {"label": "Hetzner Object Storage", "endpoint": "https://{region}.your-objectstorage.com",
+                "region": "fsn1", "path_style": False},
+    "wasabi": {"label": "Wasabi", "endpoint": "https://s3.{region}.wasabisys.com", "region": "eu-central-1",
+               "path_style": False},
+    "backblaze": {"label": "Backblaze B2", "endpoint": "https://s3.{region}.backblazeb2.com", "region": "eu-central-003",
+                  "path_style": False},
+    "ionos": {"label": "IONOS S3", "endpoint": "https://s3.{region}.ionoscloud.com", "region": "eu-central-1",
+              "path_style": False},
+    "cloudflare": {"label": "Cloudflare R2", "endpoint": "https://<konto-id>.r2.cloudflarestorage.com",
+                   "region": "auto", "path_style": True},
+    "minio": {"label": "MinIO / eigener S3", "endpoint": "https://minio.example.local:9000", "region": "us-east-1",
+              "path_style": True},
+}
 
 
 class BackupError(Exception):
@@ -231,6 +254,10 @@ class Store:
         k = self.t.kind
         if k == "local":
             return str(self._local_base() / sub / name).rstrip("/")
+        if k == "s3":
+            key = self._s3_key(sub, name)
+            host = (self.t.host or "").split("://")[-1].rstrip("/") or "aws"
+            return f"s3://{self.t.share}/{key}".rstrip("/") + f" ({host})"
         if k == "smb":
             bs = "\\"
             share = (self.t.share or "").strip("/" + bs)
@@ -240,7 +267,54 @@ class Store:
 
     # --- SMB -------------------------------------------------------------
     def _smb_kw(self) -> dict:
-        return {"username": self.user or None, "password": self.password or None, "port": int(self.port or 445)}
+        return {"username": self.user or None, "password": self.password or None, "port": int(self.port or 445),
+                "connection_timeout": CONNECT_TIMEOUT}
+
+    # --- S3 --------------------------------------------------------------
+    def _s3(self):
+        """boto3-Client. host = Endpunkt (leer = AWS), share = Bucket,
+        path = Praefix, Benutzer/Passwort = Access Key / Secret Key."""
+        try:
+            import boto3
+            from botocore.config import Config
+        except ImportError as exc:  # pragma: no cover - im Image enthalten
+            raise BackupError("Für S3 fehlt das Paket boto3 im Backend.") from exc
+        opts = self.t.options or {}
+        endpoint = (self.t.host or "").strip() or None
+        if endpoint and "://" not in endpoint:
+            endpoint = "https://" + endpoint
+        if endpoint and self.t.port:
+            from urllib.parse import urlsplit
+            parts = urlsplit(endpoint)
+            if not parts.port:
+                endpoint = f"{parts.scheme}://{parts.hostname}:{self.t.port}{parts.path}"
+        cfg = Config(connect_timeout=CONNECT_TIMEOUT, read_timeout=120, retries={"max_attempts": 3, "mode": "standard"},
+                     s3={"addressing_style": "path" if opts.get("path_style") else "auto"},
+                     signature_version="s3v4")
+        return boto3.client("s3", endpoint_url=endpoint, region_name=(opts.get("region") or None),
+                            aws_access_key_id=self.user or None, aws_secret_access_key=self.password or None,
+                            verify=not opts.get("insecure"), config=cfg)
+
+    def _s3_key(self, sub: str, name: str) -> str:
+        return "/".join(p.strip("/") for p in ((self.t.path or ""), sub, name) if p and p.strip("/"))
+
+    @staticmethod
+    def _s3_error(exc: Exception) -> BackupError:
+        code = ""
+        resp = getattr(exc, "response", None) or {}
+        if isinstance(resp, dict):
+            code = (resp.get("Error") or {}).get("Code", "")
+        hints = {"NoSuchBucket": "Bucket gibt es nicht – Name und Region prüfen.",
+                 "InvalidAccessKeyId": "Access Key unbekannt.",
+                 "SignatureDoesNotMatch": "Secret Key falsch (oder falsche Region).",
+                 "AccessDenied": "Zugriff verweigert – der Schlüssel braucht Lesen, Schreiben und Löschen im Bucket.",
+                 "AuthorizationHeaderMalformed": "Region passt nicht zum Bucket.",
+                 "PermanentRedirect": "Bucket liegt in einer anderen Region bzw. braucht einen anderen Endpunkt."}
+        if not code:   # upload_file verpackt den ClientError - Code steht dann nur im Text
+            code = next((c for c in hints if c in str(exc)), "")
+        if isinstance(exc, BackupError):
+            return exc
+        return BackupError(f"S3: {hints[code] + ' – ' if code in hints else ''}{exc}")
 
     def _smb_dir(self, sub: str) -> str:
         import smbclient
@@ -260,9 +334,24 @@ class Store:
 
     # --- SFTP / FTP ------------------------------------------------------
     def _sftp(self):
+        import socket
+
         import paramiko
-        tr = paramiko.Transport((self.t.host, int(self.port or 22)))
-        tr.connect(username=self.user, password=self.password)
+        try:
+            sock = socket.create_connection((self.t.host, int(self.port or 22)), timeout=CONNECT_TIMEOUT)
+        except OSError as exc:
+            raise BackupError(f"SFTP: keine Verbindung zu {self.t.host}:{self.port or 22} ({exc}).") from exc
+        tr = paramiko.Transport(sock)
+        tr.banner_timeout = tr.auth_timeout = CONNECT_TIMEOUT
+        try:
+            tr.connect(username=self.user, password=self.password)
+        except paramiko.AuthenticationException as exc:
+            tr.close()
+            raise BackupError("SFTP: Anmeldung abgelehnt – Benutzer oder Passwort falsch.") from exc
+        except Exception:
+            tr.close()
+            raise
+        sock.settimeout(300)
         return tr, paramiko.SFTPClient.from_transport(tr)
 
     def _ftp(self):
@@ -275,7 +364,7 @@ class Store:
             ftp = ftplib.FTP_TLS(context=ctx)
         else:
             ftp = ftplib.FTP()
-        ftp.connect(self.t.host, int(self.port or 21), timeout=30)
+        ftp.connect(self.t.host, int(self.port or 21), timeout=CONNECT_TIMEOUT)
         ftp.login(self.user or "anonymous", self.password)
         if self.t.kind == "ftps":
             ftp.prot_p()
@@ -298,6 +387,18 @@ class Store:
     # --- Schnittstelle ---------------------------------------------------
     def put(self, local: Path, sub: str, name: str) -> str:
         k = self.t.kind
+        if k == "s3":
+            from boto3.s3.transfer import TransferConfig
+            key = self._s3_key(sub, name)
+            extra = {}
+            if (self.t.options or {}).get("storage_class"):
+                extra["StorageClass"] = self.t.options["storage_class"]
+            try:
+                self._s3().upload_file(str(local), self.t.share, key, ExtraArgs=extra or None,
+                                       Config=TransferConfig(multipart_threshold=64 * 2**20, multipart_chunksize=64 * 2**20))
+            except Exception as exc:
+                raise self._s3_error(exc) from exc
+            return self.describe(sub, name)
         if k == "local":
             dest = self._local_dir(sub) / name
             shutil.copyfile(local, dest)
@@ -335,6 +436,12 @@ class Store:
 
     def get(self, sub: str, name: str, local: Path) -> None:
         k = self.t.kind
+        if k == "s3":
+            try:
+                self._s3().download_file(self.t.share, self._s3_key(sub, name), str(local))
+            except Exception as exc:
+                raise self._s3_error(exc) from exc
+            return
         if k == "local":
             shutil.copyfile(self._local_dir(sub) / name, local)
         elif k == "smb":
@@ -359,6 +466,12 @@ class Store:
 
     def delete(self, sub: str, name: str) -> None:
         k = self.t.kind
+        if k == "s3":
+            try:
+                self._s3().delete_object(Bucket=self.t.share, Key=self._s3_key(sub, name))
+            except Exception as exc:
+                raise self._s3_error(exc) from exc
+            return
         if k == "local":
             (self._local_dir(sub) / name).unlink(missing_ok=True)
         elif k == "smb":
@@ -399,7 +512,11 @@ class Store:
                 free = shutil.disk_usage(self._local_dir("")).free
             except OSError:
                 pass
-        return {"ok": ok, "where": where.rsplit(name, 1)[0], "free_bytes": free}
+        if self.t.kind == "s3":
+            where = self.describe("", "")
+        else:
+            where = where.rsplit(name, 1)[0]
+        return {"ok": ok, "where": where, "free_bytes": free}
 
 
 async def store_for(db: AsyncSession, target: BackupTarget) -> Store:
@@ -412,6 +529,7 @@ async def store_for(db: AsyncSession, target: BackupTarget) -> Store:
 def public_target(t: BackupTarget, secret: Optional[StoredSecret] = None) -> dict:
     return {"id": t.id, "name": t.name, "kind": t.kind, "kind_label": TARGET_KINDS.get(t.kind, t.kind),
             "host": t.host, "port": t.port, "share": t.share, "path": t.path, "nas_id": t.nas_id,
+            "options": t.options or {}, "deprecated": t.kind == "local",
             "secret_id": t.secret_id, "username": secret.username if secret else "",
             "secret_backend": secret.backend if secret else None, "enabled": t.enabled,
             "last_ok_at": _iso(t.last_ok_at), "last_error": t.last_error, "free_bytes": t.free_bytes,
@@ -660,6 +778,10 @@ async def _target(db: AsyncSession, job: BackupJob) -> BackupTarget:
         raise BackupError("Für diesen Auftrag ist kein Ort gewählt.")
     if not t.enabled:
         raise BackupError(f"Der Ort „{t.name}“ ist abgeschaltet.")
+    if t.kind == "local":
+        raise BackupError(f"Der Ort „{t.name}“ ist ein Ordner auf dem RIMPERIO-Server – dort werden keine Sicherungen "
+                          "mehr abgelegt. Bitte unter Backup → Orte einen Ort außerhalb (NAS, SFTP, S3) anlegen und "
+                          "den Auftrag darauf umstellen.")
     return t
 
 
@@ -1136,6 +1258,7 @@ async def ensure_schema() -> None:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=VAULT_TABLES + BACKUP_TABLES))
+            await conn.execute(text("ALTER TABLE backup_targets ADD COLUMN IF NOT EXISTS options JSON"))
         logger.info("Backup-Schema bereit")
     except Exception as exc:                                        # defensiv
         logger.error("Backup-Schema nicht angelegt: %s", exc)

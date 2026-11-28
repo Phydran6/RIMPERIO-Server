@@ -2,8 +2,9 @@
      Name:        Phydran6
      Kontakt:     Phydran6
      Changelog:   docs/changelog/frontend.md
-     Beschreibung: RIMPERIO - Backup -> Orte: WOHIN gesichert wird. Ordner am
-                   RIMPERIO-Server, SMB-Freigabe (z. B. auf dem Synology), SFTP, FTP(S).
+     Beschreibung: RIMPERIO - Backup -> Orte: WOHIN gesichert wird. SMB-Freigabe
+                   (z. B. auf dem Synology), SFTP, FTP(S), Cloud-Speicher (S3). RIMPERIO
+                   selbst speichert keine Sicherungen (Ordner am Server nur Altbestand).
                    Zugangsdaten liegen in Vaultwarden bzw. lokal verschluesselt.
      ============================================================================== -->
 <template>
@@ -11,9 +12,8 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">Backup – Orte</h1>
-        <p class="page-subtitle">Wohin gesichert wird. Jeder Ort wird beim Testen beschrieben, gelesen und wieder aufgeräumt.
-          Ein Ordner am Server liegt im Volume <span class="rmm-code">backup_data</span> – für echte Sicherheit zusätzlich einen Ort
-          außerhalb nehmen (z. B. eine Freigabe auf dem NAS).</p>
+        <p class="page-subtitle">Wohin gesichert wird – immer außerhalb des RIMPERIO-Servers: eine Freigabe auf dem NAS, ein
+          SFTP-Server oder Cloud-Speicher (S3). Jeder Ort wird beim Testen beschrieben, gelesen und wieder aufgeräumt.</p>
       </div>
       <button v-if="auth.isAdmin" class="btn btn-primary btn-sm" @click="openForm()"><AppIcon name="plus" :size="16" /> Ort anlegen</button>
     </div>
@@ -28,12 +28,14 @@
         </header>
         <div class="rmm-code bt-where">{{ t.where || '–' }}</div>
         <dl class="bt-facts">
-          <div><dt>Zugang</dt><dd>{{ t.kind === 'local' ? '–' : (t.username || '–') }}
+          <div><dt>{{ t.kind === 's3' ? 'Access Key' : 'Zugang' }}</dt><dd>{{ t.kind === 'local' ? '–' : (t.username || '–') }}
             <span v-if="t.secret_backend" class="rmm-muted">({{ t.secret_backend === 'vaultwarden' ? 'Vaultwarden' : 'lokal' }})</span></dd></div>
           <div><dt>Aufträge</dt><dd>{{ t.jobs }}</dd></div>
           <div><dt>Zuletzt ok</dt><dd>{{ fmtAgo(t.last_ok_at) }}</dd></div>
           <div v-if="t.free_bytes"><dt>Frei</dt><dd>{{ fmtBytes(t.free_bytes) }}</dd></div>
         </dl>
+        <p v-if="t.deprecated" class="rmm-note is-error">Ordner auf dem RIMPERIO-Server – RIMPERIO speichert keine Sicherungen
+          mehr selbst. Aufträge auf einen Ort außerhalb umstellen; vorhandene Sicherungen lassen sich weiter herunterladen.</p>
         <p v-if="t.last_error" class="rmm-muted bt-err">{{ t.last_error }}</p>
         <footer v-if="auth.isAdmin" class="rmm-actions">
           <button class="btn btn-secondary btn-sm" :disabled="busy" @click="test(t)">Testen</button>
@@ -52,10 +54,26 @@
           <label>Name<input v-model="form.name" class="input" placeholder="z. B. DS920 Backup-Freigabe" /></label>
           <label>Art
             <select v-model="form.kind" class="select">
-              <option value="local">Ordner am RIMPERIO-Server</option><option value="smb">SMB-Freigabe (NAS, Windows)</option>
+              <option value="smb">SMB-Freigabe (NAS, Windows)</option>
+              <option value="s3">Cloud-Speicher (S3: AWS, Hetzner, Wasabi, B2, IONOS, R2, MinIO …)</option>
               <option value="sftp">SFTP</option><option value="ftps">FTPS</option><option value="ftp">FTP (unverschlüsselt)</option>
+              <option v-if="form.id && form.kind === 'local'" value="local" disabled>Ordner am RIMPERIO-Server (nicht mehr erlaubt)</option>
             </select></label>
-          <template v-if="form.kind !== 'local'">
+          <template v-if="form.kind === 's3'">
+            <label>Anbieter
+              <select v-model="form.options.provider" class="select" @change="applyPreset">
+                <option v-for="(p, key) in presets" :key="key" :value="key">{{ p.label }}</option>
+              </select></label>
+            <label>Region<input v-model="form.options.region" class="input" placeholder="eu-central-1" @input="applyEndpoint" /></label>
+            <label class="is-wide">Endpunkt (leer = Amazon S3)<input v-model="form.host" class="input" placeholder="https://fsn1.your-objectstorage.com" /></label>
+            <label>Bucket<input v-model="form.share" class="input" placeholder="firma-backup" /></label>
+            <label>Speicherklasse (optional)<input v-model="form.options.storage_class" class="input" placeholder="STANDARD" /></label>
+            <label>Access Key<input v-model="form.username" class="input" autocomplete="off" /></label>
+            <label>Secret Key<input v-model="form.password" type="password" class="input" autocomplete="off" :placeholder="form.secret_id ? 'hinterlegt – leer = unverändert' : ''" /></label>
+            <label class="pol-check"><input v-model="form.options.path_style" type="checkbox" /> Pfad-Adressierung (MinIO, R2, eigene Server)</label>
+            <label class="pol-check"><input v-model="form.options.insecure" type="checkbox" /> Zertifikat nicht prüfen (nur eigener Server mit selbst signiertem Zertifikat)</label>
+          </template>
+          <template v-else-if="form.kind !== 'local'">
             <label v-if="nasList.length">NAS übernehmen (optional)
               <select v-model.number="form.nas_id" class="select" @change="fromNas">
                 <option :value="null">—</option>
@@ -67,14 +85,17 @@
             <label>Benutzer<input v-model="form.username" class="input" autocomplete="off" /></label>
             <label>Passwort<input v-model="form.password" type="password" class="input" autocomplete="off" :placeholder="form.secret_id ? 'hinterlegt – leer = unverändert' : ''" /></label>
           </template>
-          <label class="is-wide">{{ form.kind === 'local' ? 'Ordner (leer = /backups/jobs/<Name>)' : 'Unterordner' }}
-            <input v-model="form.path" class="input" :placeholder="form.kind === 'local' ? '/backups/extern' : 'rimperio'" /></label>
+          <label class="is-wide">{{ form.kind === 's3' ? 'Präfix im Bucket' : 'Unterordner' }}
+            <input v-model="form.path" class="input" placeholder="rimperio" /></label>
           <label class="pol-check"><input v-model="form.enabled" type="checkbox" /> aktiv</label>
           <p class="is-wide rmm-muted">Zugangsdaten landen {{ vaultActive ? 'in Vaultwarden' : 'lokal verschlüsselt' }}. Am Ort entsteht je Auftrag ein Unterordner.
-            SMB: Synology → Systemsteuerung → Freigegebener Ordner, Benutzer mit Lese-/Schreibrecht, SMB2/3.</p>
-          <p v-if="formError" class="is-wide rmm-note is-error">{{ formError }}</p>
+            <template v-if="form.kind === 's3'">S3: Der Schlüssel braucht im Bucket Lesen, Schreiben und Löschen (s3:GetObject, s3:PutObject,
+              s3:DeleteObject). Für Schutz vor Ransomware im Bucket Versionierung bzw. Object Lock einschalten.</template>
+            <template v-else>SMB: Synology → Systemsteuerung → Freigegebener Ordner, Benutzer mit Lese-/Schreibrecht, SMB2/3.</template></p>
+          <p v-if="busy" class="is-wide rmm-note is-info">Speichere und teste den Ort … (höchstens 90 Sekunden)</p>
+          <p v-if="formError" ref="errBox" class="is-wide rmm-note is-error" role="alert">{{ formError }}</p>
           <div class="is-wide rmm-actions">
-            <button class="btn btn-primary btn-sm" :disabled="busy" @click="save">Speichern und testen</button>
+            <button class="btn btn-primary btn-sm" :disabled="busy" @click="save">{{ busy ? 'Teste …' : 'Speichern und testen' }}</button>
             <button class="btn btn-ghost btn-sm" @click="form = null">Abbrechen</button>
           </div>
         </div>
@@ -84,7 +105,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
 import { fmtAgo } from '../utils/rmm'
@@ -99,6 +120,37 @@ const error = ref('')
 const notice = ref('')
 const busy = ref(false)
 const DEFAULT_PORT = { smb: 445, sftp: 22, ftp: 21, ftps: 21 }
+const presets = ref({ aws: { label: 'Amazon S3', endpoint: '', region: 'eu-central-1', path_style: false } })
+const errBox = ref(null)
+
+function applyEndpoint() {
+  const p = presets.value[form.value.options.provider]
+  if (p && p.endpoint && p.endpoint.includes('{region}')) form.value.host = p.endpoint.replace('{region}', form.value.options.region || p.region)
+}
+function applyPreset() {
+  const p = presets.value[form.value.options.provider]
+  if (!p) return
+  form.value.options.region = p.region
+  form.value.options.path_style = !!p.path_style
+  form.value.host = p.endpoint.replace('{region}', p.region)
+}
+async function showError(msg) {
+  formError.value = msg
+  await nextTick()
+  errBox.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+}
+function validate(f) {
+  if (!(f.name || '').trim()) return 'Bitte einen Namen angeben.'
+  if (f.kind === 's3') {
+    if (!(f.share || '').trim()) return 'Bitte den Bucket angeben.'
+    if (!f.secret_id && (!(f.username || '').trim() || !f.password)) return 'Bitte Access Key und Secret Key angeben.'
+    return ''
+  }
+  if (f.kind !== 'local' && !(f.host || '').trim()) return 'Bitte Server bzw. NAS-Adresse angeben.'
+  if (f.kind === 'smb' && !(f.share || '').trim()) return 'Für SMB bitte die Freigabe angeben (z. B. Backup).'
+  if (f.port && (f.port < 1 || f.port > 65535)) return 'Port zwischen 1 und 65535.'
+  return ''
+}
 
 function fmtBytes(v) {
   if (!v) return '–'
@@ -111,12 +163,16 @@ async function load() {
   try {
     const [t, o] = await Promise.all([auth.api('/api/backups/targets'), auth.api('/api/backups/overview')])
     targets.value = t; vaultActive.value = !!o.vault_active; error.value = ''
+    if (o.s3_presets) presets.value = o.s3_presets
   } catch (e) { error.value = e.message }
 }
 async function openForm(t) {
   formError.value = ''
   nasList.value = await auth.api('/api/nas').catch(() => [])
-  form.value = t ? { ...t, password: '' } : { name: '', kind: 'smb', host: '', port: null, share: '', path: 'rimperio', username: '', password: '', nas_id: null, enabled: true }
+  form.value = t
+    ? { ...t, password: '', options: { provider: 'aws', region: '', path_style: false, storage_class: '', insecure: false, ...(t.options || {}) } }
+    : { name: '', kind: 'smb', host: '', port: null, share: '', path: 'rimperio', username: '', password: '', nas_id: null, enabled: true,
+        options: { provider: 'aws', region: 'eu-central-1', path_style: false, storage_class: '', insecure: false } }
 }
 function fromNas() {
   const n = nasList.value.find(x => x.id === form.value.nas_id)
@@ -124,18 +180,36 @@ function fromNas() {
 }
 async function save() {
   formError.value = ''
+  const f = form.value
+  const problem = validate(f)
+  if (problem) { await showError(problem); return }
   busy.value = true
+  let saved = null
   try {
-    const f = form.value
-    const body = { name: f.name, kind: f.kind, host: f.host || '', port: f.port || null, share: f.share || '', path: f.path || '',
-      username: f.username || '', password: f.password || '', nas_id: f.nas_id || null, enabled: f.enabled }
-    const t = await auth.api(f.id ? `/api/backups/targets/${f.id}` : '/api/backups/targets', { method: f.id ? 'PUT' : 'POST', body })
-    const r = await auth.api(`/api/backups/targets/${t.id}/test`, { method: 'POST' })
-    if (!r.ok) { formError.value = r.message; form.value = { ...f, id: t.id, secret_id: t.secret_id, password: '' }; await load(); return }
-    notice.value = `„${t.name}“ gespeichert. ${r.message}`
+    const body = { name: f.name.trim(), kind: f.kind, host: f.host || '', port: f.port || null, share: f.share || '', path: f.path || '',
+      username: f.username || '', password: f.password || '', nas_id: f.nas_id || null, enabled: f.enabled,
+      options: f.kind === 's3' ? { ...f.options } : {} }
+    saved = await auth.api(f.id ? `/api/backups/targets/${f.id}` : '/api/backups/targets', { method: f.id ? 'PUT' : 'POST', body })
+  } catch (e) {
+    busy.value = false
+    await showError('Nicht gespeichert: ' + (e.message || 'unbekannter Fehler'))
+    return
+  }
+  // Ab hier ist der Ort gespeichert - ein fehlgeschlagener Test laesst das Formular offen.
+  form.value = { ...f, id: saved.id, secret_id: saved.secret_id, password: '' }
+  try {
+    const r = await auth.api(`/api/backups/targets/${saved.id}/test`, { method: 'POST' })
+    if (!r.ok) {
+      await load()
+      await showError('Gespeichert, aber der Test schlug fehl: ' + (r.message || 'ohne Begründung'))
+      return
+    }
+    notice.value = `„${saved.name}“ gespeichert. ${r.message}`
     form.value = null
     await load()
-  } catch (e) { formError.value = e.message } finally { busy.value = false }
+  } catch (e) {
+    await showError('Gespeichert, Test nicht möglich: ' + (e.message || 'unbekannter Fehler'))
+  } finally { busy.value = false }
 }
 async function test(t) {
   busy.value = true

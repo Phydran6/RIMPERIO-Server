@@ -36,7 +36,16 @@ export const useAuthStore = defineStore('auth', () => {
   async function parseError(res) {
     try {
       const data = await res.json()
-      if (data?.detail) return data.detail
+      const d = data?.detail
+      // FastAPI-Validierung liefert eine Liste ({loc, msg}) - lesbar machen statt "[object Object]".
+      if (Array.isArray(d)) {
+        return d.map(e => {
+          const field = (e.loc || []).filter(x => x !== 'body').join('.')
+          return (field ? field + ': ' : '') + (e.msg || JSON.stringify(e))
+        }).join(' · ')
+      }
+      if (d && typeof d === 'object') return d.message || JSON.stringify(d)
+      if (d) return d
       return JSON.stringify(data)
     } catch {
       try {
