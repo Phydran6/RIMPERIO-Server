@@ -1,6 +1,6 @@
 # Changelog — Syslog-Server
 
-Syslog-Empfang & Parsing (`syslog/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
+Syslog-Empfang & Parsing (`syslog/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
 
 ## 2026.11.23.06.00.00

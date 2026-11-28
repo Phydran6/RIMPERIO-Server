@@ -13,7 +13,8 @@
 #       bash agent/installer/synology/build-spk.sh            # baut die Programme selbst
 #       BIN_DIR=agent/bin bash agent/installer/synology/build-spk.sh
 #                         # nimmt fertige rimperio-agent-linux-{amd64,arm64,armv7}
-#       SPK_BUILD=17 …    # Build-Nummer (Standard: Anzahl Commits)
+#       SPK_BUILD=2 …     # Build-Nummer für DSM (Standard 1; nur hochzählen, wenn
+#                         # dieselbe Version neu gebaut wird)
 #
 #   Ergebnis: agent/bin/rimperio-agent-synology.spk (fester Name, damit
 #   …/releases/latest/download/rimperio-agent-synology.spk immer stimmt;
@@ -26,7 +27,9 @@ REPO="$(cd "$HERE/../../.." && pwd)"
 AGENT="$REPO/agent"
 OUT_DIR="${OUT_DIR:-$AGENT/bin}"
 VERSION="$(tr -d '[:space:]' < "$REPO/VERSION")"
-BUILD="${SPK_BUILD:-$(git -C "$REPO" rev-list --count HEAD 2>/dev/null || echo 1)}"
+# DSM verlangt Version-Build (z. B. 0.4.0-0001). Die Version kommt aus VERSION,
+# die Build-Nummer bleibt 1 – jede neue RIMPERIO-Version ist ohnehin höher.
+BUILD="${SPK_BUILD:-1}"
 SPK_VERSION="${VERSION%%-*}-$(printf '%04d' "$((10#$BUILD % 10000))")"
 
 WORK="$(mktemp -d)"

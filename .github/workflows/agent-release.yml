@@ -230,7 +230,7 @@ jobs:
           ./bin/rimperio-agent-linux-amd64 version
 
       - name: Synology-Paket bauen (DSM 7, x86_64/aarch64/armv7 in einem .spk)
-        run: BIN_DIR=agent/bin SPK_BUILD=${{ github.run_number }} bash agent/installer/synology/build-spk.sh
+        run: BIN_DIR=agent/bin bash agent/installer/synology/build-spk.sh
 
       - name: Als Release-Artefakte anhängen
         if: startsWith(github.ref, 'refs/tags/')
