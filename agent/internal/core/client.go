@@ -74,6 +74,12 @@ type CheckinRequest struct {
 
 type WaitResponse struct {
 	Commands []PendingCommand `json:"commands"`
+	Relay    []RelayRequest   `json:"relay"` // ab Server 0.3.0: weitergeleitete HTTP-Anfragen
+}
+
+// waitRequest kündigt an, was der Agent kann (z. B. "relay").
+type waitRequest struct {
+	Caps []string `json:"caps"`
 }
 
 // ErrNoWait: Der Server kennt die Warte-Verbindung nicht (älterer Server).
@@ -176,12 +182,28 @@ func (c *Client) Checkin(req CheckinRequest) (*CheckinResponse, error) {
 // Wait hält eine Verbindung offen, bis der Server einen Auftrag hat (höchstens
 // ~25 s, dann leere Liste). So kommt ein Befehl aus der Oberfläche sofort an
 // statt erst beim nächsten Check-in.
-func (c *Client) Wait() ([]PendingCommand, error) {
+func (c *Client) Wait(caps []string) (*WaitResponse, error) {
 	var res WaitResponse
-	if err := c.doJSON(http.MethodPost, "/api/rmm/agent/wait", c.Token, struct{}{}, &res); err != nil {
+	if caps == nil {
+		caps = []string{}
+	}
+	if err := c.doJSON(http.MethodPost, "/api/rmm/agent/wait", c.Token, waitRequest{Caps: caps}, &res); err != nil {
 		return nil, err
 	}
-	return res.Commands, nil
+	return &res, nil
+}
+
+// SendRelayResults schickt Antworten weitergeleiteter Anfragen zurück. Eigene,
+// längere Zeitgrenze: eine Antwort kann einige MB groß sein.
+func (c *Client) SendRelayResults(results []RelayResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+	long := *c
+	hc := *c.http
+	hc.Timeout = 5 * time.Minute
+	long.http = &hc
+	return long.doJSON(http.MethodPost, "/api/rmm/agent/relay-results", c.Token, results, nil)
 }
 
 func (c *Client) SendInventory(inv Inventory) error {

@@ -895,6 +895,8 @@ class NasDevice(Base):
     scheme = Column(String(8), default="https")
     verify_tls = Column(Boolean, default=False)
     secret_id = Column(Integer, ForeignKey("stored_secrets.id", ondelete="SET NULL"), nullable=True)
+    # NAS an einem anderen Standort: alle Aufrufe laufen ueber diesen Agent dort (app/relay.py)
+    via_agent_id = Column(Integer, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
     enabled = Column(Boolean, default=True)
     site = Column(String(128), default="Standard")
     status = Column(String(16), default="unknown")           # ok | warning | critical | down | unknown

@@ -3,7 +3,8 @@
 # Projekt:      RIMPERIO
 # Autor:        Phydran6
 # Version:      2026.11.27.14.00.00
-# Beschreibung: Baut die Agent-Artefakte (Windows .exe + .msi, Linux amd64/arm64),
+# Beschreibung: Baut die Agent-Artefakte (Windows .exe + .msi, Linux amd64/arm64/armv7/armv6,
+#               Synology-Paket .spk),
 #               signiert sie und hängt sie bei einem v*-Tag an das GitHub-Release.
 #
 # Reihenfolge Windows:  exe bauen → exe signieren → MSI (mit signierter exe)
@@ -38,8 +39,9 @@ permissions:
 
 env:
   RELEASE_BODY: |
-    RIMPERIO-Agent für Windows (`.exe`, `.msi`) und Linux (amd64, arm64, armv7, armv6 –
-    Raspberry Pi mit 32- und 64-Bit-System),
+    RIMPERIO-Agent für Windows (`.exe`, `.msi`), Linux (amd64, arm64, armv7, armv6 –
+    Raspberry Pi mit 32- und 64-Bit-System) und Synology DSM 7 (`rimperio-agent-synology.spk`,
+    Paket-Zentrum → Manuelle Installation),
     gebaut von GitHub Actions ausschließlich aus dem Quellcode dieses Repositorys.
 
     Installation und Verteilung: [agent/installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/agent/installer/README.md)
@@ -242,6 +244,9 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -trimpath -ldflags "$ldflags" -o bin/rimperio-agent-linux-armv6 ./cmd/rimperio-agent
           ./bin/rimperio-agent-linux-amd64 version
 
+      - name: Synology-Paket bauen (DSM 7, x86_64/aarch64/armv7 in einem .spk)
+        run: BIN_DIR=agent/bin SPK_BUILD=${{ github.run_number }} bash agent/installer/synology/build-spk.sh
+
       - name: Als Release-Artefakte anhängen
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -254,3 +259,4 @@ jobs:
             agent/bin/rimperio-agent-linux-arm64
             agent/bin/rimperio-agent-linux-armv7
             agent/bin/rimperio-agent-linux-armv6
+            agent/bin/rimperio-agent-synology.spk

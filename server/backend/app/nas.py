@@ -46,6 +46,15 @@ und einspielen.
 Andere NAS / Geraete mit Weboberflaeche
 ---------------------------------------
 Nur Erreichbarkeit und Ablauf des Zertifikats.
+
+NAS an einem anderen Standort
+-----------------------------
+Ist das NAS vom Server aus nicht erreichbar (anderes Netz, anderer Ort, kein
+VPN), laufen dieselben Aufrufe ueber einen Agent an diesem Standort
+(``via_agent_id``, siehe app/relay.py). Der Agent baut nur ausgehend HTTPS zum
+Server auf; am Standort wird kein Port geoeffnet. Steht dort nichts ausser dem
+NAS, laeuft der Agent als Synology-Paket auf dem NAS selbst und spricht mit
+``127.0.0.1:5001``. SNMP fragt dann ebenfalls dieser Agent ab.
 """
 
 from __future__ import annotations
@@ -64,7 +73,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import journal, vault
+from . import journal, relay, vault
 from .models import (Agent, DiscoveredDevice, NasDevice, NasJob, SnmpCredential, SnmpDevice)
 
 logger = logging.getLogger("rimperio.nas")
@@ -118,6 +127,12 @@ def base_url(scheme: str, host: str, port: Optional[int]) -> str:
 
 def _net_error(where: str, exc: Exception) -> NasError:
     text = str(exc)
+    if text.startswith("über Agent:"):
+        # Fehler auf dem Weg ueber den Agent am Standort: dessen Klartext zeigen.
+        if "CERTIFICATE_VERIFY_FAILED" in text:
+            return NasError(f"{where} ({text.replace(' (CERTIFICATE_VERIFY_FAILED)', '')}): Zertifikat nicht "
+                            "vertrauenswürdig – „Zertifikat prüfen“ ausschalten.")
+        return NasError(f"{where} – {text}")
     if "CERTIFICATE_VERIFY_FAILED" in text:
         return NasError(f"{where}: Zertifikat nicht vertrauenswürdig – „Zertifikat prüfen“ ausschalten "
                         "oder in DSM ein gültiges Zertifikat einrichten.")
@@ -134,10 +149,15 @@ def _net_error(where: str, exc: Exception) -> NasError:
 # Erkennung (ohne Anmeldung)
 # =============================================================================
 async def probe(host: str, port: Optional[int] = None, scheme: Optional[str] = None,
-                timeout: float = 4.0) -> Optional[dict]:
-    """Was antwortet unter dieser Adresse? None = kein bekanntes NAS."""
+                timeout: float = 4.0, via_agent: Optional[int] = None) -> Optional[dict]:
+    """Was antwortet unter dieser Adresse? None = kein bekanntes NAS.
+    ``via_agent``: vom Agent am Standort aus fragen statt vom Server."""
     candidates = [(port, scheme or ("https" if port in (5001, 443, 8443) else "http"))] if port else list(PROBE_PORTS)
-    async with httpx.AsyncClient(verify=False, timeout=timeout, follow_redirects=False) as c:
+    if via_agent and not relay.ready(via_agent):
+        raise NasError(f"{host}: Der Agent am Standort ist gerade nicht verbunden (oder zu alt für die "
+                       "Weiterleitung – ab Version 0.3.0).")
+    async with httpx.AsyncClient(verify=False, timeout=timeout, follow_redirects=False,
+                                 transport=relay.transport(via_agent)) as c:
         for p, sch in candidates:
             base = base_url(sch, host, p)
             try:
@@ -154,7 +174,7 @@ async def probe(host: str, port: Optional[int] = None, scheme: Optional[str] = N
                 auth = data["data"]["SYNO.API.Auth"]
                 return {"vendor": "synology", "label": "Synology DSM", "host": host, "port": p, "scheme": sch,
                         "url": base, "dsm7": int(auth.get("maxVersion", 0)) >= 7,
-                        "auth_max": auth.get("maxVersion"), "tls": sch == "https"}
+                        "auth_max": auth.get("maxVersion"), "tls": sch == "https", "via_agent_id": via_agent}
             # Kein DSM - vielleicht etwas anderes mit Weboberflaeche?
             try:
                 root = await c.get(base + "/")
@@ -164,10 +184,10 @@ async def probe(host: str, port: Optional[int] = None, scheme: Optional[str] = N
             low = text.lower()
             if "truenas" in low or "freenas" in low:
                 return {"vendor": "truenas", "label": "TrueNAS", "host": host, "port": p, "scheme": sch,
-                        "url": base, "tls": sch == "https"}
+                        "url": base, "tls": sch == "https", "via_agent_id": via_agent}
             if "qnap" in low or "qts" in low and "cgi-bin" in low:
                 return {"vendor": "qnap", "label": "QNAP", "host": host, "port": p, "scheme": sch,
-                        "url": base, "tls": sch == "https"}
+                        "url": base, "tls": sch == "https", "via_agent_id": via_agent}
     return None
 
 
@@ -181,6 +201,20 @@ def cert_info(host: str, port: int, timeout: float = 4.0) -> Optional[dict]:
             with ctx.wrap_socket(sock, server_hostname=host) as tls:
                 der = tls.getpeercert(binary_form=True)
     except OSError:
+        return None
+    return cert_from_der(der)
+
+
+async def certificate(host: str, port: int, via_agent: Optional[int] = None) -> Optional[dict]:
+    """Wie ``cert_info`` - mit ``via_agent`` vom Agent am Standort aus gesehen."""
+    if via_agent:
+        der = await relay.peer_certificate(via_agent, base_url("https", host, port) + "/")
+        return cert_from_der(der) if der else None
+    return await asyncio.to_thread(cert_info, host, port)
+
+
+def cert_from_der(der: Optional[bytes]) -> Optional[dict]:
+    if not der:
         return None
     try:
         from cryptography import x509
@@ -224,10 +258,12 @@ def _encode(v: Any) -> str:
 class Synology:
     """Eine Verbindung zu einem DSM. ``async with`` oder login()/logout()."""
 
-    def __init__(self, base: str, verify: bool = False, timeout: float = 30.0) -> None:
+    def __init__(self, base: str, verify: bool = False, timeout: float = 30.0,
+                 via_agent: Optional[int] = None) -> None:
         self.base = base.rstrip("/")
         self.verify = verify
         self.timeout = timeout
+        self.via_agent = via_agent
         self.apis: Dict[str, dict] = {}
         self.sid = ""
         self.synotoken = ""
@@ -237,7 +273,8 @@ class Synology:
         self._c: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "Synology":
-        self._c = httpx.AsyncClient(verify=self.verify, timeout=self.timeout)
+        self._c = httpx.AsyncClient(verify=self.verify, timeout=self.timeout,
+                                    transport=relay.transport(self.via_agent, self.verify))
         return self
 
     async def __aexit__(self, *exc) -> None:
@@ -357,7 +394,8 @@ async def synology_session(db: AsyncSession, nas: NasDevice, otp: str = "") -> S
     if not nas.secret_id:
         raise NasError("Für dieses NAS ist keine Anmeldung hinterlegt.")
     cred = await vault.get(db, nas.secret_id)
-    dsm = Synology(base_url(nas.scheme, nas.host, nas.port), verify=bool(nas.verify_tls))
+    dsm = Synology(base_url(nas.scheme, nas.host, nas.port), verify=bool(nas.verify_tls),
+                   via_agent=nas.via_agent_id)
     await dsm.__aenter__()
     try:
         token = (cred.get("fields") or {}).get("device_token", "")
@@ -694,9 +732,9 @@ async def synology_enable_snmp(dsm: Synology, community: str, log) -> dict:
 # TrueNAS (REST v2.0, API-Schluessel)
 # =============================================================================
 class TrueNas:
-    def __init__(self, base: str, api_key: str, verify: bool = False) -> None:
+    def __init__(self, base: str, api_key: str, verify: bool = False, via_agent: Optional[int] = None) -> None:
         self.base = base.rstrip("/") + "/api/v2.0"
-        self.c = httpx.AsyncClient(verify=verify, timeout=30.0,
+        self.c = httpx.AsyncClient(verify=verify, timeout=30.0, transport=relay.transport(via_agent, verify),
                                    headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"})
 
     async def req(self, method: str, path: str, **kw) -> Any:
@@ -756,7 +794,8 @@ def public(nas: NasDevice, detail: bool = False) -> dict:
            "last_poll_at": _iso(nas.last_poll_at), "last_ok_at": _iso(nas.last_ok_at), "last_error": nas.last_error,
            "problems": st.get("problems", []), "automation": {**DEFAULT_AUTOMATION, **(nas.automation or {})},
            "updates_summary": _upd_summary(nas.updates or {}),
-           "url": base_url(nas.scheme, nas.host, nas.port)}
+           "url": base_url(nas.scheme, nas.host, nas.port),
+           "via_agent_id": nas.via_agent_id, "relay": relay.status(nas.via_agent_id) if nas.via_agent_id else None}
     if detail:
         out.update({"state": st, "checks": nas.checks or [], "updates": nas.updates or {}})
     else:
@@ -807,7 +846,8 @@ async def refresh(db: AsyncSession, nas: NasDevice, with_updates: bool = False) 
                 await dsm.__aexit__(None, None, None)
         elif nas.vendor == "truenas":
             cred = await vault.get(db, nas.secret_id)
-            t = TrueNas(base_url(nas.scheme, nas.host, nas.port), cred.get("password", ""), bool(nas.verify_tls))
+            t = TrueNas(base_url(nas.scheme, nas.host, nas.port), cred.get("password", ""), bool(nas.verify_tls),
+                        via_agent=nas.via_agent_id)
             try:
                 st = await truenas_state(t)
                 if with_updates or _updates_due(nas):
@@ -821,10 +861,10 @@ async def refresh(db: AsyncSession, nas: NasDevice, with_updates: bool = False) 
             finally:
                 await t.close()
         else:
-            p = await probe(nas.host, nas.port, nas.scheme)
+            p = await probe(nas.host, nas.port, nas.scheme, via_agent=nas.via_agent_id)
             st = {"vendor": nas.vendor, "reachable": True, "probe": p, "errors": {}, "read_at": _iso(datetime.utcnow())}
         if nas.scheme == "https":
-            st["certificate"] = await asyncio.to_thread(cert_info, nas.host, nas.port or 443)
+            st["certificate"] = await certificate(nas.host, nas.port or 443, nas.via_agent_id)
         level, problems = evaluate(st)
         cert = st.get("certificate") or {}
         if cert and cert.get("days_left") is not None and cert["days_left"] < 14 and not cert.get("self_signed"):
@@ -932,8 +972,10 @@ async def onboarding_checks(dsm: Synology, st: dict, upd: dict, probe_info: dict
     return checks
 
 
-async def ensure_snmp_device(db: AsyncSession, nas: NasDevice, community: str) -> SnmpDevice:
-    """SNMP-Zugang und -Geraet fuer das NAS anlegen bzw. auffrischen."""
+async def ensure_snmp_device(db: AsyncSession, nas: NasDevice, community: str,
+                             poller: str = "server") -> SnmpDevice:
+    """SNMP-Zugang und -Geraet fuer das NAS anlegen bzw. auffrischen. ``poller``:
+    "server" oder die agent_uid des Agents am Standort, der SNMP abfragt."""
     dev = await db.get(SnmpDevice, nas.snmp_device_id) if nas.snmp_device_id else None
     cred = await db.get(SnmpCredential, dev.credential_id) if dev and dev.credential_id else None
     if cred is None:
@@ -943,10 +985,12 @@ async def ensure_snmp_device(db: AsyncSession, nas: NasDevice, community: str) -
     else:
         cred.version, cred.community = "2c", community
     if dev is None:
-        dev = (await db.execute(select(SnmpDevice).where(SnmpDevice.host == nas.host))).scalars().first()
+        # 127.0.0.1 (Agent auf dem NAS) gibt es an jedem Standort - dort zaehlt der Abfragende mit.
+        dev = (await db.execute(select(SnmpDevice).where(SnmpDevice.host == nas.host,
+                                                         SnmpDevice.poller == poller))).scalars().first()
     templates = ["system", "interfaces", "host", "synology", "ucd"] if nas.vendor == "synology" else ["system", "interfaces", "host"]
     if dev is None:
-        dev = SnmpDevice(name=nas.name, host=nas.host, credential_id=cred.id, poller="server", site=nas.site,
+        dev = SnmpDevice(name=nas.name, host=nas.host, credential_id=cred.id, poller=poller, site=nas.site,
                          templates=templates, custom=[], overrides={}, interval_sec=300, enabled=True,
                          status="unknown", state={}, system={}, discovered_device_id=nas.discovered_device_id)
         db.add(dev)
@@ -954,6 +998,7 @@ async def ensure_snmp_device(db: AsyncSession, nas: NasDevice, community: str) -
         dev.credential_id = cred.id
         dev.templates = sorted(set((dev.templates or []) + templates))
         dev.enabled = True
+        dev.poller = poller
     await db.flush()
     nas.snmp_device_id = dev.id
     await db.commit()
@@ -981,23 +1026,32 @@ async def enable_snmp(db: AsyncSession, nas: NasDevice, actor: str, dsm: Optiona
             raise NasError("SNMP automatisch einschalten geht bisher nur bei Synology.")
         if own:
             dsm = await synology_session(db, nas)
+        via = await db.get(Agent, nas.via_agent_id) if nas.via_agent_id else None
         existing = await db.get(SnmpDevice, nas.snmp_device_id) if nas.snmp_device_id else None
         if existing and existing.credential_id:
             cred = await db.get(SnmpCredential, existing.credential_id)
-            if cred and cred.community and await snmp_reachable(nas.host, cred.community, tries=1):
+            if cred and cred.community and (via is not None or await snmp_reachable(nas.host, cred.community, tries=1)):
                 community = cred.community
-                log("SNMP antwortet schon mit der hinterlegten Community.")
+                log("Hinterlegte SNMP-Community wird weiter benutzt.")
         await synology_enable_snmp(dsm, community, log)
-        info = await snmp_reachable(nas.host, community)
-        await ensure_snmp_device(db, nas, community)
-        if info:
-            log(f"SNMP antwortet: {info.get('sys_descr', '')[:120]}")
-            result = _check("snmp", "SNMP v2c", "ok", "eingeschaltet und von RIMPERIO aus erreichbar – unter SNMP-Geräte angelegt")
+        if via is not None and via.agent_uid:
+            # Vom Server aus ist das NAS nicht erreichbar - SNMP fragt der Agent am Standort ab.
+            await ensure_snmp_device(db, nas, community, poller=via.agent_uid)
+            log(f"SNMP fragt der Agent {via.hostname} am Standort ab.")
+            result = _check("snmp", "SNMP v2c", "ok",
+                            f"eingeschaltet – der Agent {via.hostname} am Standort fragt es ab "
+                            "(unter SNMP-Geräte angelegt; erste Werte nach dem nächsten Check-in).")
         else:
-            log("SNMP antwortet nicht – Firewall des NAS?")
-            result = _check("snmp", "SNMP v2c", "warn",
-                            "in DSM eingeschaltet, antwortet aber nicht. Firewall des NAS prüfen: UDP 161 für den "
-                            "RIMPERIO-Server freigeben (Systemsteuerung → Sicherheit → Firewall).")
+            info = await snmp_reachable(nas.host, community)
+            await ensure_snmp_device(db, nas, community)
+            if info:
+                log(f"SNMP antwortet: {info.get('sys_descr', '')[:120]}")
+                result = _check("snmp", "SNMP v2c", "ok", "eingeschaltet und von RIMPERIO aus erreichbar – unter SNMP-Geräte angelegt")
+            else:
+                log("SNMP antwortet nicht – Firewall des NAS?")
+                result = _check("snmp", "SNMP v2c", "warn",
+                                "in DSM eingeschaltet, antwortet aber nicht. Firewall des NAS prüfen: UDP 161 für den "
+                                "RIMPERIO-Server freigeben (Systemsteuerung → Sicherheit → Firewall).")
         job.status = "done"
     except (NasError, vault.VaultError) as exc:
         log(f"Fehler: {exc}")
@@ -1018,20 +1072,31 @@ async def enable_snmp(db: AsyncSession, nas: NasDevice, actor: str, dsm: Optiona
 async def connect(db: AsyncSession, *, actor: str, host: str, username: str, password: str,
                   otp: str = "", totp_secret: str = "", name: str = "", port: Optional[int] = None,
                   scheme: Optional[str] = None, verify_tls: bool = False, enable_snmp_now: bool = True,
-                  site: str = "Standard", nas_id: Optional[int] = None, vendor: Optional[str] = None) -> dict:
-    """Erstes Einrichten (oder neu anmelden). Wirft NasNeedsOtp, wenn ein Code fehlt."""
-    info = await probe(host, port, scheme)
+                  site: str = "Standard", nas_id: Optional[int] = None, vendor: Optional[str] = None,
+                  via_agent_id: Optional[int] = None) -> dict:
+    """Erstes Einrichten (oder neu anmelden). Wirft NasNeedsOtp, wenn ein Code fehlt.
+    ``via_agent_id``: das NAS steht an einem anderen Standort, alles laeuft ueber diesen Agent."""
+    via = None
+    if via_agent_id:
+        via = (await db.execute(select(Agent).where(Agent.id == via_agent_id))).scalars().first()
+        if via is None:
+            raise NasError("Unbekannter Agent für die Weiterleitung.")
+    info = await probe(host, port, scheme, via_agent=via_agent_id)
     if info is None:
         if vendor == "generic":
             info = {"vendor": "generic", "label": "Weboberfläche", "host": host, "port": port or 443,
                     "scheme": scheme or "https", "url": base_url(scheme or "https", host, port or 443)}
         else:
-            raise NasError(f"Unter {host} antwortet kein bekanntes NAS (Synology: Port 5000/5001).")
+            raise NasError(f"Unter {host} antwortet kein bekanntes NAS (Synology: Port 5000/5001)"
+                           + (f" – gefragt vom Agent {via.hostname}." if via else "."))
     vendor = info["vendor"] if info["vendor"] in ("synology", "truenas") else "generic"
     existing = await db.get(NasDevice, nas_id) if nas_id else None
     if existing is None:
-        existing = (await db.execute(select(NasDevice).where(NasDevice.host == host))).scalars().first()
-    cert = await asyncio.to_thread(cert_info, host, info["port"]) if info["scheme"] == "https" else None
+        # Gleiche Adresse und gleicher Weg = dasselbe NAS (127.0.0.1 gibt es an jedem Standort).
+        q = select(NasDevice).where(NasDevice.host == host)
+        q = q.where(NasDevice.via_agent_id == via_agent_id) if via_agent_id else q.where(NasDevice.via_agent_id.is_(None))
+        existing = (await db.execute(q)).scalars().first()
+    cert = await certificate(host, info["port"], via_agent_id) if info["scheme"] == "https" else None
 
     st: dict = {}
     upd: dict = {}
@@ -1039,14 +1104,14 @@ async def connect(db: AsyncSession, *, actor: str, host: str, username: str, pas
     dsm: Optional[Synology] = None
     try:
         if vendor == "synology":
-            dsm = Synology(info["url"], verify=verify_tls)
+            dsm = Synology(info["url"], verify=verify_tls, via_agent=via_agent_id)
             await dsm.__aenter__()
             code = otp or (vault.totp_now(totp_secret) if totp_secret else "")
             await dsm.login(username, password, otp=code)
             st = await synology_state(dsm)
             upd = await synology_updates(dsm, st.get("packages"))
         elif vendor == "truenas":
-            t = TrueNas(info["url"], password, verify_tls)
+            t = TrueNas(info["url"], password, verify_tls, via_agent=via_agent_id)
             try:
                 st = await truenas_state(t)
                 if st.get("errors", {}).get("system"):
@@ -1062,8 +1127,10 @@ async def connect(db: AsyncSession, *, actor: str, host: str, username: str, pas
         nas.name = name.strip() or (existing.name if existing else "") or (st.get("system") or {}).get("model") or host
         nas.vendor, nas.port, nas.scheme = vendor, info["port"], info["scheme"]
         nas.verify_tls, nas.secret_id, nas.site, nas.enabled = verify_tls, secret.id, site or "Standard", True
+        nas.via_agent_id = via_agent_id
         nas.automation = {**DEFAULT_AUTOMATION, **(nas.automation or {})}
-        disc = (await db.execute(select(DiscoveredDevice).where(DiscoveredDevice.ip_address == host))).scalars().first()
+        disc = None if via_agent_id else (await db.execute(
+            select(DiscoveredDevice).where(DiscoveredDevice.ip_address == host))).scalars().first()
         if disc:
             nas.discovered_device_id = disc.id
         if existing is None:
@@ -1082,6 +1149,10 @@ async def connect(db: AsyncSession, *, actor: str, host: str, username: str, pas
         if dsm:
             checks = await onboarding_checks(dsm, st, upd, info, cert, secret.backend,
                                              used_otp=bool(code or dsm.device_token))
+        if via is not None:
+            checks.insert(1, _check("relay", "Weg", "ok",
+                                    f"über den Agent {via.hostname} am Standort {via.site or 'Standard'} – nur "
+                                    "ausgehendes HTTPS, kein offener Port"))
         else:
             checks = [_check("reach", "Erreichbar", "ok", info["url"]),
                       _check("login", "Anmeldung", "ok" if vendor == "truenas" else "info",
@@ -1094,7 +1165,8 @@ async def connect(db: AsyncSession, *, actor: str, host: str, username: str, pas
             else:
                 await enable_snmp(db, nas, actor, dsm=dsm)
         journal.fire(category="rmm", event="nas.connected", actor=actor,
-                     message=f"NAS „{nas.name}“ ({info['label']}, {host}) verbunden.")
+                     message=f"NAS „{nas.name}“ ({info['label']}, {host}) verbunden"
+                             + (f" – über den Agent {via.hostname}." if via else "."))
         await db.refresh(nas)
         return public(nas, detail=True)
     finally:
@@ -1143,7 +1215,8 @@ async def _execute(nas_id: int, job_id: int, what: str, packages: Optional[List[
         try:
             if nas.vendor == "truenas":
                 cred = await vault.get(db, nas.secret_id)
-                t = TrueNas(base_url(nas.scheme, nas.host, nas.port), cred.get("password", ""), bool(nas.verify_tls))
+                t = TrueNas(base_url(nas.scheme, nas.host, nas.port), cred.get("password", ""), bool(nas.verify_tls),
+                        via_agent=nas.via_agent_id)
                 try:
                     log("TrueNAS-Update starten (mit Neustart)")
                     await t.req("POST", "/update/update", json={"reboot": True})
@@ -1221,7 +1294,11 @@ async def _await_back(db: AsyncSession, nas: NasDevice, log, old_version: str, m
     await _wait(90)
     deadline = datetime.utcnow() + timedelta(minutes=minutes)
     while datetime.utcnow() < deadline:
-        if await probe(nas.host, nas.port, nas.scheme, timeout=5):
+        try:
+            back = await probe(nas.host, nas.port, nas.scheme, timeout=5, via_agent=nas.via_agent_id)
+        except NasError:
+            back = None                                     # Agent (auf dem NAS) startet noch
+        if back:
             await _wait(30)
             try:
                 if nas.vendor == "synology":
@@ -1333,7 +1410,7 @@ async def annotate_discovered(session: AsyncSession) -> int:
 
 async def discovered(db: AsyncSession, live: bool = False) -> List[dict]:
     rows = (await db.execute(select(DiscoveredDevice).order_by(DiscoveredDevice.ip_address))).scalars().all()
-    known = {n.host for n in (await db.execute(select(NasDevice))).scalars().all()}
+    known = {n.host for n in (await db.execute(select(NasDevice))).scalars().all() if not n.via_agent_id}
     cand = [r for r in rows if not r.ignored and ((r.details or {}).get("nas") or r.kind == "nas"
                                                   or set(r.open_ports or []) & {5000, 5001})]
     if live:
@@ -1462,6 +1539,9 @@ async def ensure_schema() -> None:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=VAULT_TABLES + NAS_TABLES))
+            # 0.3.0: NAS an einem anderen Standort, ueber einen Agent dort
+            await conn.exec_driver_sql("ALTER TABLE nas_devices ADD COLUMN IF NOT EXISTS via_agent_id INTEGER "
+                                       "REFERENCES agents(id) ON DELETE SET NULL")
         logger.info("NAS-Schema bereit")
     except Exception as exc:                                        # defensiv
         logger.error("NAS-Schema nicht angelegt: %s", exc)

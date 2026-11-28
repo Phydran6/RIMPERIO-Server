@@ -17,7 +17,10 @@
           <span v-if="n" class="badge" :class="STATUS[n.status]?.[0]">{{ STATUS[n.status]?.[1] || n.status }}</span>
         </h1>
         <p v-if="n" class="page-subtitle">{{ n.model || n.vendor_label }} · {{ n.firmware || '–' }} ·
-          <a :href="n.url" target="_blank" rel="noopener" class="rmm-code">{{ n.url }}</a> · gelesen {{ fmtAgo(n.last_ok_at) }}</p>
+          <span v-if="n.via_agent_id" class="rmm-code">{{ n.url }}</span>
+          <a v-else :href="n.url" target="_blank" rel="noopener" class="rmm-code">{{ n.url }}</a>
+          <template v-if="n.via_agent"> · über Agent <router-link :to="`/rmm/agents/${n.via_agent.agent_uid}`">{{ n.via_agent.hostname }}</router-link></template>
+          · gelesen {{ fmtAgo(n.last_ok_at) }}</p>
       </div>
       <div v-if="n && auth.isAdmin" class="rmm-actions">
         <button class="btn btn-secondary btn-sm" :disabled="busy" @click="refresh(false)"><AppIcon name="refresh" :size="15" /> Neu lesen</button>
@@ -59,6 +62,16 @@
             </dd></div>
             <div><dt>Zugang</dt><dd>{{ d.secret ? (d.secret.backend === 'vaultwarden' ? 'Vaultwarden' : 'lokal verschlüsselt') : '–' }}
               <span class="rmm-muted">{{ d.secret?.username }}</span></dd></div>
+            <div><dt>Weg</dt><dd>
+              <template v-if="n.via_agent">
+                <span class="rmm-dot" :class="n.via_agent.ready ? 'is-online' : 'is-offline'" />
+                über {{ n.via_agent.on_nas ? 'den Agent auf dem NAS' : 'den Agent ' + n.via_agent.hostname }}
+                <div class="rmm-muted">{{ n.via_agent.site }} · {{ n.via_agent.ready ? 'verbunden' : (n.via_agent.live ? 'Agent zu alt (ab 0.3.0)' : 'Agent nicht verbunden') }}<template
+                  v-if="n.via_agent.last_ms != null"> · zuletzt {{ n.via_agent.last_ms }} ms</template></div>
+              </template>
+              <span v-else-if="n.via_agent_id" class="rmm-muted">über einen Agent (entfernt?)</span>
+              <span v-else>direkt vom Server</span>
+            </dd></div>
           </dl>
         </section>
 
@@ -235,6 +248,13 @@
           <label>Name<input v-model="edit.name" class="input" /></label>
           <label>Standort<input v-model="edit.site" class="input" /></label>
           <label>Abfrage alle (Sekunden)<input v-model.number="edit.poll_interval_sec" type="number" min="60" class="input" /></label>
+          <label class="is-wide">Weg zum NAS
+            <select v-model="edit.via_agent_id" class="select">
+              <option :value="null">direkt vom RIMPERIO-Server</option>
+              <option v-for="a in relayAgents" :key="a.id" :value="a.id">über Agent {{ a.hostname }} · {{ a.site }}{{ a.on_nas ? ' · läuft auf dem NAS' : '' }}{{ a.ready ? '' : ' · gerade nicht verbunden' }}</option>
+            </select>
+            <span class="rmm-muted">Für ein NAS an einem anderen Standort: Ein Agent dort fragt es ab, nur ausgehend per HTTPS. Die Adresse
+              ({{ n.host }}:{{ n.port }}) gilt dann im Netz des Agents.</span></label>
           <label class="pol-check"><input v-model="edit.verify_tls" type="checkbox" /> Zertifikat prüfen</label>
           <label class="pol-check"><input v-model="edit.enabled" type="checkbox" /> aktiv</label>
           <div class="is-wide rmm-actions">
@@ -283,6 +303,7 @@ const selected = ref([])
 const edit = ref(null)
 const relogin = ref(null)
 const autoForm = ref({})
+const relayAgents = ref([])
 const excludeText = ref('')
 let timer = null
 
@@ -356,7 +377,11 @@ async function saveAuto() {
     notice.value = 'Automatik gespeichert.'
   })
 }
-function openEdit() { edit.value = { name: n.value.name, site: n.value.site, poll_interval_sec: n.value.poll_interval_sec, verify_tls: n.value.verify_tls, enabled: n.value.enabled } }
+async function openEdit() {
+  edit.value = { name: n.value.name, site: n.value.site, poll_interval_sec: n.value.poll_interval_sec, verify_tls: n.value.verify_tls,
+    enabled: n.value.enabled, via_agent_id: n.value.via_agent_id ?? null }
+  try { relayAgents.value = await auth.api('/api/nas/relay-agents') } catch (e) { error.value = e.message }
+}
 async function saveEdit() {
   await guard(async () => {
     await auth.api(`/api/nas/${n.value.id}`, { method: 'PUT', body: { ...edit.value, automation: n.value.automation } })
@@ -374,7 +399,8 @@ async function doRelogin() {
     await auth.api('/api/nas/connect', { method: 'POST', body: {
       nas_id: n.value.id, host: n.value.host, port: n.value.port, scheme: n.value.scheme, name: n.value.name,
       username: relogin.value.username || d.value.secret?.username || '', password: relogin.value.password || '',
-      otp: (relogin.value.otp || '').trim(), verify_tls: n.value.verify_tls, enable_snmp: false, site: n.value.site, vendor: n.value.vendor } })
+      otp: (relogin.value.otp || '').trim(), verify_tls: n.value.verify_tls, enable_snmp: false, site: n.value.site, vendor: n.value.vendor,
+      via_agent_id: n.value.via_agent_id ?? null } })
     relogin.value = null
     notice.value = 'Angemeldet.'
     await loadData()

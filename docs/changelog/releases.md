@@ -11,6 +11,24 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
+## v0.3.0 (2026-11-27) – NAS an einem anderen Standort, nur über HTTPS
+
+- **Kein VPN, kein offener Port:** Ein NAS, das der RIMPERIO-Server nicht erreicht (anderes Netz, anderer Ort),
+  wird über einen Agent an seinem Standort angebunden. Der Agent baut nur ausgehend HTTPS auf, auf derselben
+  Verbindung, über die er seine Befehle bekommt, und stellt die Anfragen ans NAS im eigenen Netz. Zustand,
+  Prüfliste, DSM- und Paket-Updates (auch im Wartungsfenster), Hyper Backup und Konfigurationssicherung laufen
+  über diesen Weg. SNMP fragt der Agent am Standort ab.
+- **Steht nur das NAS dort:** Agent als **Synology-Paket** (`rimperio-agent-synology.spk`, DSM 7, x86_64/aarch64/armv7)
+  im Paket-Zentrum installieren. Der Assistent fragt Server-Adresse, Zugangsschlüssel und Standort. Der Agent läuft
+  als Paketkonto, nicht als root, und spricht mit DSM unter `127.0.0.1`.
+- **Einrichten:** *NAS verbinden → Über einen Agent am Standort*. Ein Agent auf dem NAS selbst wird erkannt
+  („läuft auf dem NAS“), Adresse und Port stehen dann schon da. Vorhandene NAS lassen sich unter *Einstellungen →
+  Weg zum NAS* umstellen. Die NAS-Seite zeigt den Weg und ob er gerade offen ist.
+- **Sicher:** Der Agent leitet nur an lokale Adressen weiter (privat, Loopback, Link-Local, CGNAT/VPN) und wird so
+  kein offener Proxy. Abschaltbar mit `"relay": "off"`.
+- Anleitung: [NAS an einem anderen Standort](../rmm/nas.md#nas-an-einem-anderen-standort),
+  [Synology-Paket](../../agent/installer/synology/README.md).
+
 ## v0.2.0 (2026-11-27) – Mandantenfähig, auf Wunsch
 
 - **Eine Instanz, mehrere Kunden:** RIMPERIO lässt sich mandantenfähig betreiben. Jeder Kunde (Mandant) hat eigene

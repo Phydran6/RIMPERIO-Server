@@ -1,0 +1,92 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# Datei:        start-stop-status
+# Projekt:      RIMPERIO — Agent als Synology-Paket
+# Autor:        Phydran6
+# Version:      2026.11.27.21.00.00
+#
+# Beschreibung: Startet und stoppt den Agent für DSM (Paket-Zentrum). Läuft als
+#               Paketkonto "rimperio-agent", nicht als root. Der Agent baut nur
+#               ausgehend HTTPS zum RIMPERIO-Server auf und spricht im NAS mit
+#               DSM unter 127.0.0.1 — kein Port wird geöffnet.
+#
+#               Wählt das Programm passend zur CPU (x86_64, aarch64, armv7l).
+# ---------------------------------------------------------------------------
+
+PKG="rimperio-agent"
+DEST="${SYNOPKG_PKGDEST:-/var/packages/$PKG/target}"
+VAR="${SYNOPKG_PKGVAR:-/var/packages/$PKG/var}"
+PID_FILE="$VAR/rimperio-agent.pid"
+LOG_FILE="$VAR/rimperio-agent.log"
+
+. "$DEST/bin/common.sh"
+
+msg() {
+    # Meldung im Paket-Zentrum (DSM zeigt den Inhalt dieser Datei an)
+    [ -n "$SYNOPKG_TEMP_LOGFILE" ] && echo "$1" > "$SYNOPKG_TEMP_LOGFILE"
+    echo "$1" >> "$LOG_FILE"
+}
+
+running() {
+    [ -s "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+case "$1" in
+    start)
+        if running; then
+            exit 0
+        fi
+        BIN="$(agent_bin "$DEST")"
+        if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
+            msg "RIMPERIO Agent: Diese CPU ($(uname -m)) wird nicht unterstützt (nur x86_64, aarch64, armv7)."
+            exit 1
+        fi
+        if [ ! -s "$VAR/etc/agent.json" ]; then
+            msg "RIMPERIO Agent ist noch nicht eingerichtet: Paket deinstallieren und mit Server-Adresse und Zugangsschlüssel neu installieren."
+            exit 1
+        fi
+        # Protokoll klein halten (beim Start ab 5 MB eins weiter)
+        if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE")" -gt 5000000 ]; then
+            mv -f "$LOG_FILE" "$LOG_FILE.1"
+        fi
+        cd "$VAR" || exit 1
+        RIMPERIO_HOME="$VAR" RIMPERIO_PACKAGE=synology HOME="$VAR" \
+            nohup "$BIN" foreground >> "$LOG_FILE" 2>&1 &
+        echo $! > "$PID_FILE"
+        sleep 1
+        if ! running; then
+            msg "RIMPERIO Agent startet nicht – Protokoll: $LOG_FILE"
+            tail -n 5 "$LOG_FILE" 2>/dev/null
+            exit 1
+        fi
+        exit 0
+        ;;
+    stop)
+        if running; then
+            kill "$(cat "$PID_FILE")" 2>/dev/null
+            n=0
+            while running && [ "$n" -lt 20 ]; do
+                sleep 1
+                n=$((n + 1))
+            done
+            if running; then
+                kill -9 "$(cat "$PID_FILE")" 2>/dev/null
+            fi
+        fi
+        rm -f "$PID_FILE"
+        exit 0
+        ;;
+    status)
+        if running; then
+            exit 0
+        fi
+        exit 3
+        ;;
+    log)
+        echo "$LOG_FILE"
+        exit 0
+        ;;
+    *)
+        exit 1
+        ;;
+esac

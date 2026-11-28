@@ -143,10 +143,17 @@ const cmdMsi = computed(() =>
 const cmdLinux = computed(() =>
   `curl -sSL ${raw}/linux/install-agent.sh | sudo bash -s -- \\\n  --server ${server} --secret ${k.value} --site Standard --user rimperio`)
 
+// Synology: Paket fürs Paket-Zentrum (Manuelle Installation); der Assistent
+// dort fragt Adresse, Schlüssel und Standort ab.
+const SPK_URL = 'https://github.com/Phydran6/RIMPERIO-Server/releases/latest/download/rimperio-agent-synology.spk'
+const cmdSynology = computed(() =>
+  `Paket:             ${SPK_URL}\nServer-Adresse:    ${server}\nZugangsschlüssel:  ${k.value}\nStandort:          Standard`)
+
 const commands = computed(() => [
   { id: 'win', title: 'Windows (PowerShell als Administrator)', text: cmdWindows.value },
   { id: 'msi', title: 'Windows per MSI (GPO, Intune)', text: cmdMsi.value },
   { id: 'linux', title: 'Linux', text: cmdLinux.value },
+  { id: 'synology', title: 'Synology-NAS (DSM 7: Paket-Zentrum → Manuelle Installation)', text: cmdSynology.value },
 ])
 
 async function toggleAdd() {

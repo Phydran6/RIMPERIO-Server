@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import agentwake, patchmgmt, rmm, snmpmon, tenancy, tokens
+from .. import agentwake, patchmgmt, relay, rmm, snmpmon, tenancy, tokens
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
 from ..limiter import client_ip
@@ -364,11 +364,18 @@ async def _abandon_running(db: AsyncSession, agent_id: int) -> None:
 
 
 @agent_router.post("/wait")
-async def wait(agent: Agent = Depends(current_agent), db: AsyncSession = Depends(get_db)) -> dict:
+async def wait(payload: Optional[Dict[str, Any]] = Body(None), agent: Agent = Depends(current_agent),
+               db: AsyncSession = Depends(get_db)) -> dict:
     """Long-Poll für die Sofort-Zustellung. Antwortet, sobald ein Auftrag für
     diesen Agent ansteht, spätestens nach WAIT_SECONDS mit leerer Liste. Die
-    Datenbankverbindung wird während des Wartens freigegeben (commit)."""
+    Datenbankverbindung wird während des Wartens freigegeben (commit).
+
+    Ab 0.3.0 kündigt der Agent im Körper an, was er kann (``{"caps":
+    ["relay"]}``). Dann kommen hier auch HTTP-Anfragen für die Weiterleitung
+    mit (``relay``, siehe app/relay.py) - etwa an ein NAS in seinem Netz."""
     agent_id = agent.id
+    if isinstance(payload, dict) and "caps" in payload:
+        relay.set_caps(agent_id, payload.get("caps"))
     ev = agentwake.event(agent_id)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + WAIT_SECONDS
@@ -377,11 +384,12 @@ async def wait(agent: Agent = Depends(current_agent), db: AsyncSession = Depends
         ev.clear()
         commands = await _claim_pending(db, agent_id, live=True)
         await db.commit()
-        if commands:
-            return {"commands": commands}
+        forwards = relay.take(agent_id) if relay.capable(agent_id) else []
+        if commands or forwards:
+            return {"commands": commands, "relay": forwards}
         left = deadline - loop.time()
         if left <= 0:
-            return {"commands": []}
+            return {"commands": [], "relay": []}
         try:
             await asyncio.wait_for(ev.wait(), timeout=min(left, WAIT_RECHECK))
         except asyncio.TimeoutError:
@@ -492,6 +500,12 @@ async def results(items: List[CommandResultIn], agent: Agent = Depends(current_a
                                   f"{agent.hostname}: {found_patches} neue Updates gefunden.",
                                   level="info", key=f"rmm:{agent.id}:patches")
     return {"status": "ok", "updated": updated}
+
+
+@agent_router.post("/relay-results")
+async def relay_results(items: List[Dict[str, Any]], agent: Agent = Depends(current_agent)) -> dict:
+    """Antworten auf weitergeleitete HTTP-Anfragen (app/relay.py)."""
+    return {"status": "ok", "accepted": relay.deliver(agent.id, items)}
 
 
 @agent_router.post("/snmp-results")

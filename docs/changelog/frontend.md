@@ -2,6 +2,13 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.3.0
+
+### Added
+- **NAS verbinden → Weg:** „Direkt vom RIMPERIO-Server“ oder „Über einen Agent am Standort“ mit Auswahl des Agents (`/api/nas/relay-agents`). Ein Agent auf dem NAS selbst setzt `127.0.0.1:5001` und den Standort; Hinweis mit Link zum Synology-Paket.
+- **NAS-Liste und -Seite:** Weg mit Zustand (verbunden / nicht verbunden / Agent zu alt, letzte Antwortzeit), Link zum Agent; ohne DSM-Link, wenn die Adresse nur im Netz des Agents gilt. **Einstellungen → Weg zum NAS** zum Umstellen; „Neu anmelden“ nimmt den Weg mit.
+- **Rechner → Agent hinzufügen:** Abschnitt „Synology-NAS“ mit Paket-Link, Server-Adresse und Zugangsschlüssel für den Assistenten in DSM.
+
 ## 0.2.0
 
 ### Added

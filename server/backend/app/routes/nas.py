@@ -15,6 +15,11 @@ Einrichten in zwei Schritten, wie in der Oberflaeche:
    fuer eine einzelne IP.
 2. ``POST /api/nas/connect`` - anmelden. Fehlt ein Zwei-Faktor-Code, kommt
    409 mit ``detail = "need_otp: …"``; dieselbe Anfrage mit ``otp`` wiederholen.
+
+NAS an einem anderen Standort: ``via_agent_id`` bei probe/connect (und PUT)
+- dann fragt ein Agent dort, nicht der Server. ``GET /api/nas/relay-agents``
+nennt die Agents, die dafuer in Frage kommen (auch den Agent als Paket auf dem
+NAS selbst).
 """
 
 from datetime import datetime
@@ -25,10 +30,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import journal, nas, vault
+from .. import journal, nas, relay, vault
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
-from ..models import NasDevice, NasJob, User
+from ..models import Agent, NasDevice, NasJob, User
 
 router = APIRouter(prefix="/api/nas", tags=["NAS"])
 
@@ -36,6 +41,7 @@ router = APIRouter(prefix="/api/nas", tags=["NAS"])
 class ProbeIn(BaseModel):
     host: str = Field(min_length=1, max_length=255)
     port: Optional[int] = Field(default=None, ge=1, le=65535)
+    via_agent_id: Optional[int] = Field(default=None, description="vom Agent am Standort aus fragen")
 
 
 class ConnectIn(BaseModel):
@@ -52,6 +58,7 @@ class ConnectIn(BaseModel):
     site: str = "Standard"
     nas_id: Optional[int] = None
     vendor: Optional[str] = Field(default=None, pattern="^(synology|truenas|generic)$")
+    via_agent_id: Optional[int] = Field(default=None, description="NAS an einem anderen Standort: über diesen Agent")
 
 
 class NasIn(BaseModel):
@@ -61,6 +68,8 @@ class NasIn(BaseModel):
     enabled: bool = True
     poll_interval_sec: int = Field(default=600, ge=60, le=86400)
     automation: Dict[str, Any] = Field(default_factory=dict)
+    # Nur wenn angegeben: Weg aendern (null = direkt vom Server)
+    via_agent_id: Optional[int] = None
 
 
 class UpdateIn(BaseModel):
@@ -83,10 +92,52 @@ async def _get(db: AsyncSession, nas_id: int) -> NasDevice:
     return n
 
 
+def _appliance(a: Agent) -> dict:
+    return ((a.inventory or {}).get("appliance") or {}) if isinstance(a.inventory, dict) else {}
+
+
+def _agent_brief(a: Optional[Agent]) -> Optional[dict]:
+    if a is None:
+        return None
+    app = _appliance(a)
+    return {"id": a.id, "agent_uid": a.agent_uid, "hostname": a.hostname, "site": a.site or "Standard",
+            "version": a.agent_version, "on_nas": app.get("vendor") == "synology",
+            "appliance": app or None, **relay.status(a.id)}
+
+
+async def _check_agent(db: AsyncSession, agent_id: Optional[int]) -> Optional[Agent]:
+    """Agent fuer die Weiterleitung - nur einer, den dieser Benutzer sieht (Mandant)."""
+    if not agent_id:
+        return None
+    a = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalars().first()
+    if a is None or not a.agent_uid:
+        raise HTTPException(status_code=422, detail="Unbekannter Agent für die Weiterleitung.")
+    return a
+
+
+async def _with_agents(db: AsyncSession, items: List[dict]) -> List[dict]:
+    ids = {i["via_agent_id"] for i in items if i.get("via_agent_id")}
+    agents = {a.id: a for a in (await db.execute(select(Agent).where(Agent.id.in_(ids)))).scalars().all()} if ids else {}
+    for i in items:
+        i["via_agent"] = _agent_brief(agents.get(i.get("via_agent_id")))
+    return items
+
+
 @router.get("")
 async def list_nas(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)) -> List[dict]:
     rows = (await db.execute(select(NasDevice).order_by(NasDevice.name))).scalars().all()
-    return [{**nas.public(n), "busy": nas.busy(n.id)} for n in rows]
+    return await _with_agents(db, [{**nas.public(n), "busy": nas.busy(n.id)} for n in rows])
+
+
+@router.get("/relay-agents")
+async def relay_agents(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_admin)) -> List[dict]:
+    """Agents, über die ein NAS an einem anderen Standort angebunden werden kann.
+    Zuerst die, die gerade verbunden sind und weiterleiten können; ``on_nas``:
+    der Agent läuft als Paket auf dem NAS selbst (dann Adresse 127.0.0.1)."""
+    rows = (await db.execute(select(Agent).where(Agent.agent_uid.is_not(None)))).scalars().all()
+    out = [_agent_brief(a) for a in rows]
+    out.sort(key=lambda x: (not x["ready"], not x["on_nas"], (x["site"] or "").lower(), x["hostname"].lower()))
+    return out
 
 
 @router.get("/summary")
@@ -112,15 +163,19 @@ async def special(db: AsyncSession = Depends(get_db), _: User = Depends(get_curr
 
 
 @router.post("/probe")
-async def probe(data: ProbeIn, _: User = Depends(get_current_admin)) -> dict:
-    info = await nas.probe(data.host.strip(), data.port)
+async def probe(data: ProbeIn, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_admin)) -> dict:
+    via = await _check_agent(db, data.via_agent_id)
+    try:
+        info = await nas.probe(data.host.strip(), data.port, via_agent=via.id if via else None)
+    except nas.NasError as exc:
+        return {"found": False, "message": str(exc)}
     if info is None:
-        return {"found": False, "message": f"Unter {data.host} antwortet kein bekanntes NAS (Synology: 5000/5001)."}
+        return {"found": False, "message": f"Unter {data.host} antwortet kein bekanntes NAS (Synology: 5000/5001)"
+                + (f" – gefragt vom Agent {via.hostname}." if via else ".")}
     cert = None
     if info["scheme"] == "https":
-        import asyncio
-        cert = await asyncio.to_thread(nas.cert_info, info["host"], info["port"])
-    return {"found": True, **info, "certificate": cert}
+        cert = await nas.certificate(info["host"], info["port"], via.id if via else None)
+    return {"found": True, **info, "certificate": cert, "via_agent": _agent_brief(via)}
 
 
 @router.post("/connect")
@@ -136,12 +191,13 @@ async def connect(data: ConnectIn, db: AsyncSession = Depends(get_db), user: Use
         username, password = username or cred.get("username", ""), cred.get("password", "")
     if not username or not password:
         raise HTTPException(status_code=422, detail="Benutzer und Passwort (TrueNAS: API-Schlüssel) angeben.")
+    via = await _check_agent(db, data.via_agent_id)
     try:
         return await nas.connect(db, actor=user.username, host=data.host.strip(), username=username,
                                  password=password, otp=data.otp, totp_secret=data.totp_secret, name=data.name,
                                  port=data.port, scheme=data.scheme, verify_tls=data.verify_tls,
                                  enable_snmp_now=data.enable_snmp, site=data.site, nas_id=data.nas_id,
-                                 vendor=data.vendor)
+                                 vendor=data.vendor, via_agent_id=via.id if via else None)
     except (nas.NasError, vault.VaultError) as exc:
         raise _bad(exc) from exc
 
@@ -155,8 +211,9 @@ async def detail(nas_id: int, db: AsyncSession = Depends(get_db), _: User = Depe
     if n.secret_id:
         from ..models import StoredSecret
         secret = vault.public_secret(await db.get(StoredSecret, n.secret_id))
-    return {**nas.public(n, detail=True), "busy": nas.busy(n.id), "secret": secret,
-            "jobs": [_job(j) for j in jobs]}
+    out = {**nas.public(n, detail=True), "busy": nas.busy(n.id), "secret": secret,
+           "jobs": [_job(j) for j in jobs]}
+    return (await _with_agents(db, [out]))[0]
 
 
 def _job(j: NasJob) -> dict:
@@ -176,9 +233,20 @@ async def update(nas_id: int, data: NasIn, db: AsyncSession = Depends(get_db),
     auto["days"] = sorted({int(d) for d in auto.get("days") or [] if 0 <= int(d) <= 6})
     n.name, n.site, n.verify_tls, n.enabled = data.name.strip(), data.site, data.verify_tls, data.enabled
     n.poll_interval_sec, n.automation = data.poll_interval_sec, auto
+    if "via_agent_id" in data.model_fields_set and data.via_agent_id != n.via_agent_id:
+        via = await _check_agent(db, data.via_agent_id)
+        n.via_agent_id = via.id if via else None
+        # SNMP fragt, wer das NAS auch sonst erreicht: der Agent am Standort oder der Server.
+        if n.snmp_device_id:
+            from ..models import SnmpDevice
+            dev = await db.get(SnmpDevice, n.snmp_device_id)
+            if dev is not None:
+                dev.poller = via.agent_uid if via else "server"
+        journal.fire(category="rmm", event="nas.route", actor=user.username,
+                     message=f"NAS „{n.name}“: Weg jetzt {'über den Agent ' + via.hostname if via else 'direkt vom Server'}.")
     await db.commit()
     journal.fire(category="rmm", event="nas.updated", actor=user.username, message=f"NAS „{n.name}“ geändert.")
-    return nas.public(n, detail=True)
+    return (await _with_agents(db, [nas.public(n, detail=True)]))[0]
 
 
 @router.delete("/{nas_id}")
