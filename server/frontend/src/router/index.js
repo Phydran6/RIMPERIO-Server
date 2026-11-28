@@ -107,6 +107,7 @@ const routes = [
       { path: 'devices/nas', name: 'NasDevices', component: () => import('../views/NasDevices.vue') },
       { path: 'devices/nas/:id', name: 'NasDetail', component: () => import('../views/NasDetail.vue') },
       { path: 'devices/special', name: 'SpecialSystems', component: () => import('../views/SpecialSystems.vue') },
+      { path: 'devices/docker', name: 'DockerStacks', component: () => import('../views/DockerStacks.vue'), meta: { admin: true } },
       { path: 'backups', redirect: '/backups/jobs' },
       { path: 'backups/jobs', name: 'BackupJobs', component: () => import('../views/BackupJobs.vue') },
       { path: 'backups/targets', name: 'BackupTargets', component: () => import('../views/BackupTargets.vue') },

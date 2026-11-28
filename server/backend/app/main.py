@@ -59,6 +59,7 @@ from .routes.dbmigrate import router as dbmigrate_router
 from .routes.nas import router as nas_router
 from .routes.backupjobs import router as backupjobs_router, upload_router as backup_upload_router
 from .routes.vault import router as vault_router
+from .routes.compose import router as compose_router
 from .routes.licensing import router as licensing_router
 from .routes.tenants import router as tenants_router
 from . import tenancy
@@ -187,6 +188,7 @@ app.include_router(nas_router)
 app.include_router(backupjobs_router)
 app.include_router(backup_upload_router)
 app.include_router(vault_router)
+app.include_router(compose_router)
 app.include_router(licensing_router)
 app.include_router(tenants_router)
 app.include_router(caddy_router.router)

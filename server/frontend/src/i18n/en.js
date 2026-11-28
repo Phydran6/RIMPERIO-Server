@@ -98,6 +98,7 @@ export default {
     proxmox: 'Hosts & guests',
     nas: 'NAS (Synology …)',
     special: 'Raspberry Pi & special systems',
+    dockerStacks: 'Docker stacks',
     backupJobs: 'Jobs (what & when)',
     backupTargets: 'Locations (where)',
     backupRuns: 'History & restore',

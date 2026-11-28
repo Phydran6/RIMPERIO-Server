@@ -67,6 +67,7 @@ export const NAV_SECTIONS = [
       { key: 'pve-patching', group: 'grpProxmox', to: '/devices/proxmox/patching', name: 'PveUpdates', icon: 'download', label: 'pveUpdates' },
       { key: 'nas', group: 'grpNas', to: '/devices/nas', name: 'NasDevices', match: ['NasDetail'], icon: 'archive', label: 'nas' },
       { key: 'special', group: 'grpNas', to: '/devices/special', name: 'SpecialSystems', icon: 'devices', label: 'special' },
+      { key: 'docker-stacks', to: '/devices/docker', name: 'DockerStacks', icon: 'container', label: 'dockerStacks', admin: true },
       { key: 'discovery', to: '/discovery', name: 'Discovery', icon: 'network', label: 'discovery', admin: true },
       { key: 'agent-tokens', to: '/agent-tokens', name: 'AgentTokens', icon: 'key', label: 'agentTokens', admin: true },
     ],
