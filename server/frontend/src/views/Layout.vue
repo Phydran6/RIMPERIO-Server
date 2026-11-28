@@ -443,7 +443,16 @@ watch(() => active.value.section?.key, (key) => {
 
 // Untermenues (z. B. Integrationen -> Anmeldung): zugeklappt, bis man sie
 // oeffnet - ausser die geoeffnete Seite steht darin oder es wird gesucht.
+// Vorher galt ein Untermenue mit der geoeffneten Seite als immer offen - der
+// Knopf zum Zuklappen tat dort nichts ("Integrationen lassen sich nicht mehr
+// schliessen"). Jetzt zaehlt allein, was man geklickt hat; beim Wechsel auf
+// eine Seite darin geht das Untermenue einmal auf.
 const openGroups = ref(readOpen(OPEN_GROUPS_KEY))
+
+function storeGroups(next) {
+  openGroups.value = next
+  writeStored(OPEN_GROUPS_KEY, JSON.stringify([...next]))
+}
 
 function groupHasActive(row) {
   return row.items.some(item => isEntryActive(item, route))
@@ -451,7 +460,7 @@ function groupHasActive(row) {
 
 function isGroupOpen(row) {
   if (searching.value || isCollapsed.value) return true
-  return openGroups.value.has(row.key) || groupHasActive(row)
+  return openGroups.value.has(row.key)
 }
 
 function toggleGroup(key) {
@@ -459,9 +468,15 @@ function toggleGroup(key) {
   const next = new Set(openGroups.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
-  openGroups.value = next
-  writeStored(OPEN_GROUPS_KEY, JSON.stringify([...next]))
+  storeGroups(next)
 }
+
+watch(() => route.fullPath, () => {
+  const sec = active.value.section
+  if (!sec || !active.value.item?.group) return
+  const key = `${sec.key}:${active.value.item.group}`
+  if (!openGroups.value.has(key)) storeGroups(new Set([...openGroups.value, key]))
+}, { immediate: true })
 
 function openFirstMatch() {
   const first = visibleSections.value[0]?.items[0]
