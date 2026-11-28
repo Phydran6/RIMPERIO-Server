@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     port: 3000,
-    proxy: { '/api': { target: 'http://localhost:8000', changeOrigin: true } }
+    proxy: { '/api': { target: 'http://localhost:8000', changeOrigin: true, ws: true } }
   },
   build: {
     rollupOptions: {

@@ -59,6 +59,8 @@ from .routes.dbmigrate import router as dbmigrate_router
 from .routes.nas import router as nas_router
 from .routes.backupjobs import router as backupjobs_router, upload_router as backup_upload_router
 from .routes.vault import router as vault_router
+from .routes.compose import router as compose_router
+from .routes.remote import router as remote_router, agent_router as remote_agent_router
 from .routes.licensing import router as licensing_router
 from .routes.tenants import router as tenants_router
 from . import tenancy
@@ -187,6 +189,9 @@ app.include_router(nas_router)
 app.include_router(backupjobs_router)
 app.include_router(backup_upload_router)
 app.include_router(vault_router)
+app.include_router(compose_router)
+app.include_router(remote_router)
+app.include_router(remote_agent_router)
 app.include_router(licensing_router)
 app.include_router(tenants_router)
 app.include_router(caddy_router.router)
@@ -1248,6 +1253,10 @@ async def start_background_tasks():
     # Haelt Ausschau nach einem neuen Stand auf GitHub und meldet ihn sofort an
     # alle offenen Oberflaechen (siehe app/updater.py -> watch_task).
     _spawn(updater.watch_task())
+    # Autopilot: Releases, fremde Images und Host-Sicherheitsupdates von selbst
+    # (app/selfupdate.py); kritische Updates warten auf Freigabe (auch per App).
+    from . import selfupdate
+    _spawn(selfupdate.loop())
     # Sucht das Netz nach Systemen ab: kurz nach dem ersten Start, danach im
     # eingestellten Takt (app/discovery.py, abschaltbar in der Oberflaeche).
     _spawn(discovery.watch_task())

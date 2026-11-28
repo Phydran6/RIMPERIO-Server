@@ -99,9 +99,15 @@ func Execute(pc PendingCommand) CommandResult {
 	return res
 }
 
+// truncate kuerzt lange Ausgaben auf n Bytes. Behalten werden Anfang UND
+// Ende: Skripte des Servers (DB-Updates, Sicherungen) schreiben ihre
+// Abschlussmarken (@@DONE=…) ans Ende - fiel das Ende weg, galt ein
+// erfolgreicher Lauf als abgebrochen.
 func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n] + "\n…(gekürzt)"
+	if len(s) <= n {
+		return s
 	}
-	return s
+	head := n * 2 / 5
+	tail := n - head
+	return s[:head] + "\n…(gekürzt)…\n" + s[len(s)-tail:]
 }

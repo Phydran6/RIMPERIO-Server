@@ -97,7 +97,7 @@ SERVICE_BY_COMPONENT: Dict[str, str] = {
     "backend": "backend", "frontend": "frontend", "syslog": "syslog",
     "postgres": "postgres", "caddy": "caddy", "n8n": "n8n",
     "portainer": "portainer", "postfix": "postfix",
-    "openwebui": "openwebui", "tugtainer": "tugtainer",
+    "openwebui": "openwebui", "tugtainer": "tugtainer", "guacd": "guacd",
 }
 
 # Diese Dienste liegen hinter einem Compose-Profil - ohne `--profile` tut sich

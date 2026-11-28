@@ -368,14 +368,19 @@ async def install_via_guest_agent(host: PveHost, node: str, vmid: int, os_family
     else:
         argv = ["/bin/sh", "-c", command]
     async with PveClient(host, timeout=30.0) as pve:
-        # Proxmox nimmt "command" als Liste (mehrfacher Parameter).
+        # Proxmox nimmt "command" als Liste (mehrfacher Parameter). httpx
+        # kodiert eine Liste im dict als "command=a&command=b"; eine Liste von
+        # Tupeln dagegen hielt httpx fuer einen Datenstrom -> TypeError -> HTTP 500.
         assert pve._client
         headers = {"CSRFPreventionToken": pve._csrf} if pve._csrf else None
         try:
             r = await pve._client.post(f"/nodes/{node}/qemu/{int(vmid)}/agent/exec",
-                                       data=[("command", part) for part in argv], headers=headers)
+                                       data={"command": argv}, headers=headers)
         except httpx.HTTPError as exc:
             raise _net_error(pve.base, exc) from exc
+        if r.status_code >= 500 and "agent" in (r.text or "").lower():
+            raise PveError("Der QEMU-Gastagent in der VM antwortet nicht – ist er installiert und gestartet "
+                           "(qemu-guest-agent) und in den VM-Optionen „QEMU Guest Agent“ eingeschaltet?")
         data = pve._unwrap(r, "Gastagent")
     return {"pid": (data or {}).get("pid")}
 

@@ -25,12 +25,13 @@ NAS selbst).
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import journal, nas, relay, vault
+from .. import dsmpackage, journal, nas, relay, tokens, vault
 from ..auth import get_current_admin, get_current_user
 from ..database import get_db
 from ..models import Agent, NasDevice, NasJob, User
@@ -160,6 +161,54 @@ async def discovered(live: bool = Query(False), db: AsyncSession = Depends(get_d
 @router.get("/special")
 async def special(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)) -> dict:
     return await nas.special_systems(db)
+
+
+class DsmPackageIn(BaseModel):
+    server: str = Field(default="", max_length=300, description="Leer = Adresse, unter der RIMPERIO gerade erreicht wird")
+    site: str = Field(default="Standard", max_length=100)
+    insecure: bool = False
+
+
+async def _package_for(db: AsyncSession, request: Request, data: DsmPackageIn, user: User,
+                       nas_name: str = "") -> dict:
+    from .. import public_url
+    server = (data.server or "").strip().rstrip("/") or public_url.base_url(request).rstrip("/")
+    if not server.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="Server-Adresse mit http:// oder https:// angeben.")
+    _, secret = await tokens.create(db, name=f"DSM-Paket {nas_name or ''}".strip()[:100], kind="enroll",
+                                    expires_in_hours=30 * 24, max_uses=5, created_by=user.username,
+                                    note="Für das RIMPERIO-Paket im Synology-Paketzentrum erzeugt.")
+    await db.commit()
+    return await dsmpackage.build_spk(server, secret, data.site or "Standard", data.insecure)
+
+
+@router.post("/dsm-package")
+async def dsm_package(data: DsmPackageIn, request: Request, db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_current_admin)) -> Response:
+    """RIMPERIO-Agent als Synology-Paket (.spk) mit vorbelegter Server-Adresse und Einladung."""
+    spk = await _package_for(db, request, data, user)
+    journal.fire(category="rmm", event="nas.dsm_package", actor=user.username,
+                 message=f"DSM-Paket {spk['version']} erzeugt (Programme: {', '.join(spk['binaries']) or 'Download beim Start'}).")
+    return Response(content=spk["data"], media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{spk["filename"]}"',
+                             "X-Rimperio-Binaries": ",".join(spk["binaries"]), "Cache-Control": "no-store"})
+
+
+@router.post("/{nas_id}/install-package")
+async def install_package(nas_id: int, data: DsmPackageIn, request: Request, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(get_current_admin)) -> dict:
+    """Paket direkt ueber die DSM-API hochladen und installieren (Synology, DSM 7)."""
+    n = await _get(db, nas_id)
+    if n.vendor != "synology":
+        raise HTTPException(status_code=422, detail="Das Paket gibt es für Synology DSM.")
+    spk = await _package_for(db, request, data, user, n.name)
+    try:
+        result = await nas.install_spk(db, n, spk["data"], spk["filename"])
+    except (nas.NasError, vault.VaultError) as exc:
+        raise _bad(exc) from exc
+    journal.fire(category="rmm", event="nas.package.install", actor=user.username,
+                 message=f"RIMPERIO-Paket auf NAS „{n.name}“ installiert.")
+    return result
 
 
 @router.post("/probe")

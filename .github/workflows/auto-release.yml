@@ -132,9 +132,8 @@ jobs:
           # agent-release.yml danach an (ohne den Text noch einmal anzufuegen).
           cat >> notes.md <<'AGENT'
 
-          RIMPERIO-Agent für Windows (`.exe`, `.msi`), Linux (amd64, arm64, armv7, armv6 –
-          Raspberry Pi mit 32- und 64-Bit-System) und Synology DSM 7 (`rimperio-agent-synology.spk`,
-          Paket-Zentrum → Manuelle Installation),
+          RIMPERIO-Agent für Windows (`.exe`, `.msi`) und Linux (amd64, arm64, armv7, armv6 –
+          Raspberry Pi mit 32- und 64-Bit-System),
           gebaut von GitHub Actions ausschließlich aus dem Quellcode dieses Repositorys.
 
           Installation und Verteilung: [agent/installer/README.md](https://github.com/Phydran6/RIMPERIO-Server/blob/main/agent/installer/README.md)

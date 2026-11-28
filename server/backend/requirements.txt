@@ -29,3 +29,5 @@ tzdata==2025.2
 websockets>=13,<18
 # Vaultwarden-Konten mit Argon2id-Schluesselableitung (app/vault.py)
 argon2-cffi==25.1.0
+# Cloud-Speicher (S3: AWS, Hetzner, Wasabi, Backblaze B2, IONOS, Cloudflare R2, MinIO) als Backup-Ort
+boto3==1.35.99

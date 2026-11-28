@@ -104,18 +104,23 @@
                   <select v-model="wizard.via_agent_id" class="select" @change="pickAgent">
                     <option :value="null" disabled>– Agent wählen –</option>
                     <option v-for="a in relayAgents" :key="a.id" :value="a.id" :disabled="!a.ready">
-                      {{ a.hostname }} · {{ a.site }}{{ a.on_nas ? ' · läuft auf dem NAS' : '' }}{{ a.ready ? '' : (a.live ? ' · zu alt (ab 0.4.0)' : ' · nicht verbunden') }}
+                      {{ a.hostname }} · {{ a.site }}{{ a.on_nas ? ' · läuft auf dem NAS' : '' }}{{ a.ready ? '' : (a.live ? ' · zu alt (ab 0.5.0)' : ' · nicht verbunden') }}
                     </option>
                   </select>
                   <span v-if="!relayAgents.some(a => a.ready)" class="rmm-muted">Noch kein passender Agent verbunden.</span>
                 </label>
               </div>
               <div class="rmm-note is-info">
-                <strong>Nur das NAS am Standort?</strong> In DSM 7 unter <em>Paket-Zentrum → Manuelle Installation</em> das Paket
-                <a :href="SPK_URL" rel="noopener">rimperio-agent-synology.spk</a> installieren. Der Assistent dort fragt nach Server-Adresse
-                (<span class="rmm-code">{{ origin }}</span>) und Zugangsschlüssel (<router-link to="/rmm">Rechner → Agent hinzufügen</router-link>).
+                <strong>Nur das NAS am Standort?</strong> Das Paket „RIMPERIO Agent“ herunterladen – Server-Adresse
+                (<span class="rmm-code">{{ origin }}</span>) und eine Einladung sind schon eingetragen – und in DSM 7 unter
+                <em>Paket-Zentrum → Manuelle Installation</em> einspielen (Vertrauensebene „Alle Herausgeber“).
                 Danach erscheint das NAS hier als Agent „läuft auf dem NAS“, mit Adresse 127.0.0.1.
+                <div class="rmm-actions mt-2">
+                  <button class="btn btn-secondary btn-sm" :disabled="busy" @click="downloadPkg">Paket (.spk) herunterladen</button>
+                  <button class="btn btn-ghost btn-sm" :disabled="busy" @click="loadRelayAgents">Agents neu laden</button>
+                </div>
               </div>
+              <p v-if="notice" class="rmm-note is-ok">{{ notice }}</p>
             </template>
 
             <template v-if="wizard.route === 'direct'">
@@ -237,7 +242,6 @@ const wizard = ref(null)
 const otpInput = ref(null)
 const relayAgents = ref([])
 const origin = window.location.origin
-const SPK_URL = 'https://github.com/Phydran6/RIMPERIO-Server/releases/latest/download/rimperio-agent-synology.spk'
 
 const STATUS = {
   ok: ['badge-success', 'in Ordnung'], warning: ['badge-warning', 'Warnung'], critical: ['badge-danger', 'kritisch'],
@@ -271,6 +275,24 @@ async function loadRelayAgents() {
     const first = relayAgents.value.find(a => a.ready)
     if (first) { w.via_agent_id = first.id; pickAgent() }
   }
+}
+// Paket "RIMPERIO Agent" fuer DSM 7 - baut der Server, mit Adresse und Einladung (POST /api/nas/dsm-package).
+async function downloadPkg() {
+  const w = wizard.value
+  w.error = ''
+  busy.value = true
+  try {
+    const a = relayAgents.value.find(x => x.id === w.via_agent_id)
+    const res = await fetch('/api/nas/dsm-package', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify({ server: '', site: (w.site && w.site !== 'Standard') ? w.site : (a?.site || 'Standard') }) })
+    if (!res.ok) { let m = `HTTP ${res.status}`; try { m = (await res.json()).detail || m } catch { /* Text */ } throw new Error(m) }
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'RIMPERIO-Agent.spk'
+    const url = URL.createObjectURL(await res.blob())
+    const link = document.createElement('a'); link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    notice.value = `${name} heruntergeladen – im DSM-Paketzentrum über „Manuelle Installation“ einspielen.`
+  } catch (e) { w.error = e.message } finally { busy.value = false }
 }
 // Agent laeuft auf dem NAS selbst: dann ist DSM unter 127.0.0.1:5001, Standort wie der Agent.
 function pickAgent() {

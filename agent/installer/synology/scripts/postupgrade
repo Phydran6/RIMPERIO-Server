@@ -1,3 +1,0 @@
-#!/bin/sh
-# RIMPERIO — Agent als Synology-Paket: postupgrade (nichts zu tun; DSM verlangt die Datei)
-exit 0

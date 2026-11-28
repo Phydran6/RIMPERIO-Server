@@ -36,7 +36,7 @@ upload_router = APIRouter(prefix="/api/backup-upload", tags=["Backup"])
 
 class TargetIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    kind: str = Field(pattern="^(local|smb|sftp|ftp|ftps)$")
+    kind: str = Field(pattern="^(local|smb|sftp|ftp|ftps|s3)$")
     host: str = ""
     port: Optional[int] = Field(default=None, ge=1, le=65535)
     share: str = ""
@@ -44,6 +44,7 @@ class TargetIn(BaseModel):
     username: str = ""
     password: str = Field(default="", description="Leer = unverändert")
     nas_id: Optional[int] = None
+    options: Dict[str, Any] = Field(default_factory=dict, description="S3: region, path_style, storage_class, insecure")
     enabled: bool = True
 
 
@@ -77,7 +78,9 @@ async def overview(db: AsyncSession = Depends(get_db), _: User = Depends(get_cur
             "ok": sum(1 for j in jobs if j.last_status == "done"),
             "failed": sum(1 for j in jobs if j.last_status == "error"),
             "overdue": sum(1 for j in pj if j["overdue"]), "targets": len(targets),
+            "usable_targets": sum(1 for t in targets if t.enabled and t.kind != "local"),
             "stored_bytes": total, "kinds": bj.KINDS, "target_kinds": bj.TARGET_KINDS,
+            "new_target_kinds": list(bj.NEW_TARGET_KINDS), "s3_presets": bj.S3_PRESETS,
             "key": vault.public_secret(key), "vault_active": await vault.is_active(db)}
 
 
@@ -95,7 +98,18 @@ async def targets(db: AsyncSession = Depends(get_db), _: User = Depends(get_curr
     return out
 
 
-def _check_target(data: TargetIn) -> None:
+def _check_target(data: TargetIn, current: Optional[BackupTarget] = None) -> None:
+    if data.kind == "local" and not (current is not None and current.kind == "local"):
+        raise HTTPException(status_code=422, detail="RIMPERIO speichert selbst keine Sicherungen. Bitte einen Ort "
+                            "außerhalb des Servers wählen: SMB-Freigabe (NAS), SFTP, FTPS oder Cloud-Speicher (S3).")
+    if data.kind == "s3":
+        if not data.share.strip():
+            raise HTTPException(status_code=422, detail="Für S3 bitte den Bucket angeben.")
+        if not data.username.strip() and not (current is not None and current.secret_id):
+            raise HTTPException(status_code=422, detail="Für S3 bitte Access Key und Secret Key angeben.")
+        if not data.password and not (current is not None and current.secret_id):
+            raise HTTPException(status_code=422, detail="Für S3 bitte den Secret Key angeben.")
+        return
     if data.kind != "local" and not data.host.strip():
         raise HTTPException(status_code=422, detail="Bitte Server bzw. NAS-Adresse angeben.")
     if data.kind == "smb" and not data.share.strip():
@@ -107,6 +121,9 @@ def _check_target(data: TargetIn) -> None:
 async def _save_target(db: AsyncSession, t: BackupTarget, data: TargetIn) -> BackupTarget:
     t.name, t.kind, t.host, t.port = data.name.strip(), data.kind, data.host.strip(), data.port
     t.share, t.path, t.nas_id, t.enabled = data.share.strip(), data.path.strip(), data.nas_id, data.enabled
+    opts = data.options or {}
+    t.options = {k: opts[k] for k in ("region", "path_style", "storage_class", "insecure", "provider") if k in opts} \
+        if data.kind == "s3" else {}
     if data.kind != "local" and (data.username or data.password or t.secret_id):
         if data.password or not t.secret_id:
             secret = await vault.put(db, secret_id=t.secret_id, kind="backup_target", name=f"Backup-Ort {t.name}",
@@ -142,7 +159,7 @@ async def update_target(target_id: int, data: TargetIn, db: AsyncSession = Depen
     t = await db.get(BackupTarget, target_id)
     if t is None:
         raise HTTPException(status_code=404, detail="Unbekannter Ort.")
-    _check_target(data)
+    _check_target(data, t)
     try:
         t = await _save_target(db, t, data)
     except vault.VaultError as exc:
@@ -175,11 +192,18 @@ async def test_target(target_id: int, db: AsyncSession = Depends(get_db), _: Use
         raise HTTPException(status_code=404, detail="Unbekannter Ort.")
     try:
         store = await bj.store_for(db, t)
-        res = await asyncio.to_thread(store.test)
-    except Exception as exc:
-        t.last_error = str(exc)[:500]
+        # Obergrenze, falls eine Bibliothek ihr eigenes Zeitlimit nicht einhaelt -
+        # die Oberflaeche wartet sonst ohne Rueckmeldung.
+        res = await asyncio.wait_for(asyncio.to_thread(store.test), timeout=90)
+    except asyncio.TimeoutError:
+        t.last_error = "Zeitüberschreitung beim Verbindungstest (90 s)."
         await db.commit()
-        return {"ok": False, "message": f"Nicht beschreibbar: {exc}"}
+        return {"ok": False, "message": "Keine Antwort vom Ort innerhalb von 90 s – Adresse, Port und Firewall prüfen."}
+    except Exception as exc:
+        msg = str(exc) or exc.__class__.__name__
+        t.last_error = msg[:500]
+        await db.commit()
+        return {"ok": False, "message": f"Nicht beschreibbar: {msg}"}
     t.last_ok_at, t.last_error, t.free_bytes = datetime.utcnow(), None, res.get("free_bytes")
     await db.commit()
     return {"ok": res["ok"], "message": f"Schreiben, Lesen, Löschen ok: {res['where']}", **res}
@@ -192,8 +216,14 @@ async def _validate_job(db: AsyncSession, data: JobIn) -> None:
     src = data.source
     if data.kind not in ("nas_task", "pve") and not data.target_id:
         raise HTTPException(status_code=422, detail="Bitte einen Ort wählen, wohin gesichert wird.")
-    if data.target_id and await db.get(BackupTarget, data.target_id) is None:
+    if data.kind in ("rimperio", "files", "nas_config") and not data.target_id:
+        raise HTTPException(status_code=422, detail="Bitte einen Ort wählen, wohin gesichert wird.")
+    target = await db.get(BackupTarget, data.target_id) if data.target_id else None
+    if data.target_id and target is None:
         raise HTTPException(status_code=422, detail="Unbekannter Ort.")
+    if target is not None and target.kind == "local":
+        raise HTTPException(status_code=422, detail=f"„{target.name}“ ist ein Ordner auf dem RIMPERIO-Server – "
+                            "RIMPERIO speichert selbst keine Sicherungen. Bitte einen Ort außerhalb wählen.")
     if data.kind == "files":
         if not src.get("agent_uid") or not (await db.execute(select(Agent).where(Agent.agent_uid == src["agent_uid"]))).scalars().first():
             raise HTTPException(status_code=422, detail="Bitte einen Rechner wählen.")

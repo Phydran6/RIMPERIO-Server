@@ -229,9 +229,6 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -trimpath -ldflags "$ldflags" -o bin/rimperio-agent-linux-armv6 ./cmd/rimperio-agent
           ./bin/rimperio-agent-linux-amd64 version
 
-      - name: Synology-Paket bauen (DSM 7, x86_64/aarch64/armv7 in einem .spk)
-        run: BIN_DIR=agent/bin bash agent/installer/synology/build-spk.sh
-
       - name: Als Release-Artefakte anhängen
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -242,4 +239,3 @@ jobs:
             agent/bin/rimperio-agent-linux-arm64
             agent/bin/rimperio-agent-linux-armv7
             agent/bin/rimperio-agent-linux-armv6
-            agent/bin/rimperio-agent-synology.spk

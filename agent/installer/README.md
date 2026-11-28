@@ -5,8 +5,8 @@ dass Windows und Virenscanner ihnen vertrauen.
 
 ← [Übersicht](../README.md) · [Agent](../README.md)
 
-> **Synology-NAS:** Der Agent als Paket für DSM 7 (`rimperio-agent-synology.spk`) – für Standorte, an denen nur
-> das NAS steht: [Synology-Paket](synology/README.md).
+> **Synology-NAS:** Den Agent als Paket für DSM 7 baut der RIMPERIO-Server selbst, mit Server-Adresse und Einladung
+> vorbelegt – siehe [NAS an einem anderen Standort](../../docs/rmm/nas.md#nas-an-einem-anderen-standort).
 
 ---
 

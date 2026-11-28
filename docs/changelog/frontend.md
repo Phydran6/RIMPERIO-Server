@@ -1,13 +1,24 @@
 # Changelog — Frontend
 
-Vue-3-Weboberfläche (`frontend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
+Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
+
+## 0.5.0
+
+### Added
+- **NAS verbinden → Weg:** „Direkt vom RIMPERIO-Server“ oder „Über einen Agent am Standort“ mit Auswahl des Agents (`/api/nas/relay-agents`). Ein Agent auf dem NAS selbst setzt `127.0.0.1:5001` und den Standort; Knopf „Paket (.spk) herunterladen“ (Paket „RIMPERIO Agent“ vom Server, `POST /api/nas/dsm-package`).
+- **NAS-Liste und -Seite:** Weg mit Zustand (verbunden / nicht verbunden / Agent zu alt, letzte Antwortzeit), Link zum Agent; ohne DSM-Link, wenn die Adresse nur im Netz des Agents gilt. **Einstellungen → Weg zum NAS** zum Umstellen; „Neu anmelden“ nimmt den Weg mit.
 
 ## 0.4.0
 
 ### Added
-- **NAS verbinden → Weg:** „Direkt vom RIMPERIO-Server“ oder „Über einen Agent am Standort“ mit Auswahl des Agents (`/api/nas/relay-agents`). Ein Agent auf dem NAS selbst setzt `127.0.0.1:5001` und den Standort; Hinweis mit Link zum Synology-Paket.
-- **NAS-Liste und -Seite:** Weg mit Zustand (verbunden / nicht verbunden / Agent zu alt, letzte Antwortzeit), Link zum Agent; ohne DSM-Link, wenn die Adresse nur im Netz des Agents gilt. **Einstellungen → Weg zum NAS** zum Umstellen; „Neu anmelden“ nimmt den Weg mit.
-- **Rechner → Agent hinzufügen:** Abschnitt „Synology-NAS“ mit Paket-Link, Server-Adresse und Zugangsschlüssel für den Assistenten in DSM.
+- **Fernzugriff** (`RemoteSession.vue`): Live-Shell mit xterm.js, RDP und Live-Sitzung mit guacamole-common-js; Knöpfe auf der Rechner-Seite.
+- **Docker-Stacks** (`DockerStacks.vue`): Editor mit Zeilennummern, YAML-Prüfung (js-yaml), Image-Tag-Tabelle, Warnung bei Datenbank-Images.
+- **Updates → Autopilot**: Einstellungen, Wartungsfenster, Freigabe, Verlauf.
+- **Backup-Orte**: S3 mit Anbieter-Vorlagen; **NAS**: Karte „RIMPERIO auf dem NAS (Paket)“; **Raspberry Pi**: Aktionen und Zustandsprüfung; **KI**: Modellauswahl, Ollama, Vorlagen je Bereich.
+
+### Fixed
+- Untermenüs (z. B. Integrationen → Anmeldung) ließen sich nicht schließen, wenn die geöffnete Seite darin lag; Untermenüs mit nur einem Eintrag entfallen.
+- Validierungsfehler der API erscheinen lesbar statt als „[object Object]“; Backup-Orte zeigen Speichern und Test getrennt an.
 
 ## 0.3.0
 

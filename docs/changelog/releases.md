@@ -11,23 +11,48 @@ Einzelheiten je Bereich stehen in den [Bereichs-Changelogs](README.md).
 
 ---
 
-## v0.4.0 (2026-11-28) – NAS an einem anderen Standort, nur über HTTPS
+## v0.5.0 (2026-11-28) – NAS an einem anderen Standort, nur über HTTPS
 
 - **Kein VPN, kein offener Port:** Ein NAS, das der RIMPERIO-Server nicht erreicht (anderes Netz, anderer Ort),
   wird über einen Agent an seinem Standort angebunden. Der Agent baut nur ausgehend HTTPS auf, auf derselben
   Verbindung, über die er seine Befehle bekommt, und stellt die Anfragen ans NAS im eigenen Netz. Zustand,
   Prüfliste, DSM- und Paket-Updates (auch im Wartungsfenster), Hyper Backup und Konfigurationssicherung laufen
   über diesen Weg. SNMP fragt der Agent am Standort ab.
-- **Steht nur das NAS dort:** Agent als **Synology-Paket** (`rimperio-agent-synology.spk`, DSM 7, x86_64/aarch64/armv7)
-  im Paket-Zentrum installieren. Der Assistent fragt Server-Adresse, Zugangsschlüssel und Standort. Der Agent läuft
-  als Paketkonto, nicht als root, und spricht mit DSM unter `127.0.0.1`.
+- **Steht nur das NAS dort:** das Paket „RIMPERIO Agent“ (vom Server gebaut, Server und Einladung vorbelegt) auf dem
+  NAS installieren – der Assistent bietet den Download an. Der Agent spricht dann mit DSM unter `127.0.0.1`.
 - **Einrichten:** *NAS verbinden → Über einen Agent am Standort*. Ein Agent auf dem NAS selbst wird erkannt
   („läuft auf dem NAS“), Adresse und Port stehen dann schon da. Vorhandene NAS lassen sich unter *Einstellungen →
   Weg zum NAS* umstellen. Die NAS-Seite zeigt den Weg und ob er gerade offen ist.
 - **Sicher:** Der Agent leitet nur an lokale Adressen weiter (privat, Loopback, Link-Local, CGNAT/VPN) und wird so
   kein offener Proxy. Abschaltbar mit `"relay": "off"`.
-- Anleitung: [NAS an einem anderen Standort](../rmm/nas.md#nas-an-einem-anderen-standort),
-  [Synology-Paket](../../agent/installer/synology/README.md).
+- Anleitung: [NAS an einem anderen Standort](../rmm/nas.md#nas-an-einem-anderen-standort).
+
+## v0.4.0 (2026-11-28) – Fernzugriff, Autopilot, Docker-Stacks, S3, DSM-Paket
+
+- **Fernzugriff wie bei NinjaOne:** *Live-Shell* für Linux und Windows (echtes Terminal im Browser),
+  **Remotedesktop (RDP)** und **Live-Sitzung** (Bildschirm der angemeldeten Person) für Windows – alles durch
+  einen verschlüsselten Tunnel, den der Agent selbst per HTTPS aufbaut. Auf dem Rechner ist dafür kein Port
+  offen. RDP einschalten und die Live-Sitzung (VNC nur für localhost) vorbereiten geht mit einem Klick.
+  Neuer Container `guacd` (Apache Guacamole) zeichnet RDP/VNC im Browser. **Agent aktualisieren**, damit der
+  Fernzugriff geht.
+- **Autopilot – RIMPERIO hält sich selbst aktuell:** Fehlerbehebungen und neue Funktionen im Wartungsfenster,
+  Sicherheits-Releases sofort, fremde Images und auf Wunsch Sicherheitsupdates des Host-Betriebssystems.
+  Hauptversionen und Releases mit „[Freigabe]“ warten auf eine Freigabe – per App mit einem Tipp.
+- **Docker-Stacks:** Compose-Dateien und `.env` auf den Rechnern im Browser bearbeiten, Image-Tags umstellen,
+  prüfen (`docker compose config`), ausrollen – mit Sicherung und automatischem Zurückholen bei Fehlern.
+- **Backup:** neuer Ort **Cloud-Speicher (S3)** (AWS, Hetzner, Wasabi, Backblaze B2, IONOS, Cloudflare R2, MinIO).
+  Fehler beim Anlegen eines Orts werden angezeigt statt still zu scheitern. RIMPERIO speichert selbst keine
+  Sicherungen mehr: Aufträge brauchen einen Ort außerhalb des Servers.
+- **NAS:** Paket-Updates scheiterten, wenn die regelmäßige Zustandsabfrage die Sitzung beendete – behoben.
+  Neues **Paket „RIMPERIO Agent“ für Synology DSM 7**: im Paketzentrum sichtbar, herunterladen oder direkt
+  installieren.
+- **KI:** Open WebUI über seine HTTPS-Adresse, **Ollama direkt**, OpenAI-kompatible Dienste; Modelle als
+  Auswahlliste; Vorlagen für die Anweisungen je Bereich (Logs, Logzeile, Updates, DB-Updates).
+- **Raspberry Pi:** Aktionen je Pi (Konsole, Updates, Checks, Sichern, Zustand prüfen, Neustart), Hinweise
+  zu Temperatur, Unterspannung und Speicherkarte, Pis mit nur Log-Agent werden erkannt.
+- **Behoben:** Proxmox-VMs per QEMU-Gastagent einbinden lieferte HTTP 500. DB-Update-Probeläufe schlugen oft
+  fehl (Init-Server der Datenbank, wachsende Tabellen, Passwort per Datei). Die erneute Anmeldung eines Agents
+  mit bekanntem Namen lieferte HTTP 500 statt eines Hinweises. Untermenüs ließen sich nicht schließen.
 
 ## v0.3.0 (2026-11-27) – Mandanten lizenzieren und abrechnen
 

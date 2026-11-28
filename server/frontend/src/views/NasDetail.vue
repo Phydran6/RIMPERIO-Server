@@ -66,7 +66,7 @@
               <template v-if="n.via_agent">
                 <span class="rmm-dot" :class="n.via_agent.ready ? 'is-online' : 'is-offline'" />
                 über {{ n.via_agent.on_nas ? 'den Agent auf dem NAS' : 'den Agent ' + n.via_agent.hostname }}
-                <div class="rmm-muted">{{ n.via_agent.site }} · {{ n.via_agent.ready ? 'verbunden' : (n.via_agent.live ? 'Agent zu alt (ab 0.4.0)' : 'Agent nicht verbunden') }}<template
+                <div class="rmm-muted">{{ n.via_agent.site }} · {{ n.via_agent.ready ? 'verbunden' : (n.via_agent.live ? 'Agent zu alt (ab 0.5.0)' : 'Agent nicht verbunden') }}<template
                   v-if="n.via_agent.last_ms != null"> · zuletzt {{ n.via_agent.last_ms }} ms</template></div>
               </template>
               <span v-else-if="n.via_agent_id" class="rmm-muted">über einen Agent (entfernt?)</span>
@@ -202,6 +202,29 @@
       </section>
 
       <!-- Pakete -->
+      <section v-if="n.vendor === 'synology'" class="card">
+        <div class="card-header"><h2 class="card-title">RIMPERIO auf dem NAS (Paket)</h2>
+          <span v-if="agentPkg" class="badge badge-success">installiert{{ agentPkg.version ? ' · ' + agentPkg.version : '' }}</span>
+          <span v-else class="badge badge-neutral">nicht installiert</span></div>
+        <div class="card-body space-y-2 text-sm">
+          <p>Bisher spricht RIMPERIO nur von außen mit dem NAS (DSM per HTTPS). Mit dem Paket <strong>RIMPERIO Agent</strong>
+            ist RIMPERIO auch auf dem NAS selbst zu sehen: im DSM-Paketzentrum unter „Installiert“ – starten, anhalten,
+            deinstallieren wie jedes Paket. Das NAS erscheint dann zusätzlich unter Geräte → Rechner mit Live-Werten,
+            Befehlen, Checks und Logs. Server-Adresse und Einladung sind im Paket schon eingetragen.</p>
+          <div class="rmm-form">
+            <label class="is-wide">Server-Adresse, unter der das NAS RIMPERIO erreicht
+              <input v-model="pkg.server" class="input" :placeholder="origin" /></label>
+            <label class="pol-check"><input v-model="pkg.insecure" type="checkbox" /> Zertifikat nicht prüfen (selbst signiert)</label>
+          </div>
+          <div class="rmm-actions">
+            <button class="btn btn-primary btn-sm" :disabled="busy" @click="installPkg">Direkt auf dem NAS installieren</button>
+            <button class="btn btn-secondary btn-sm" :disabled="busy" @click="downloadPkg">Paket (.spk) herunterladen</button>
+          </div>
+          <p class="rmm-muted">Von Hand: DSM → Paketzentrum → Einstellungen → Vertrauensebene „Alle Herausgeber“, dann
+            Paketzentrum → „Manuelle Installation“ → die .spk-Datei wählen. DSM 7.0 oder neuer, Intel/AMD und ARM (64 und 32 Bit).</p>
+        </div>
+      </section>
+
       <section v-if="(st.packages || []).length" class="card">
         <div class="card-header"><h2 class="card-title">Installierte Pakete <span class="rmm-muted">{{ st.packages.length }}</span></h2></div>
         <div class="card-body nd-pkgs">
@@ -341,6 +364,30 @@ async function loadData() {
     clearTimeout(timer)
     if (d.value.busy || (d.value.jobs || []).some(j => j.status === 'running')) timer = setTimeout(loadData, 5000)
   } catch (e) { error.value = e.message }
+}
+const origin = window.location.origin
+const pkg = ref({ server: '', insecure: false })
+const agentPkg = computed(() => (st.value?.packages || []).find(p => p.id === 'RIMPERIOAgent' || p.name === 'RIMPERIO Agent'))
+async function downloadPkg() {
+  await guard(async () => {
+    const res = await fetch('/api/nas/dsm-package', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify({ server: pkg.value.server.trim(), insecure: pkg.value.insecure }) })
+    if (!res.ok) { let m = `HTTP ${res.status}`; try { m = (await res.json()).detail || m } catch { /* Text */ } throw new Error(m) }
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'RIMPERIO-Agent.spk'
+    const url = URL.createObjectURL(await res.blob())
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    notice.value = `${name} heruntergeladen – im DSM-Paketzentrum über „Manuelle Installation“ einspielen.`
+  })
+}
+async function installPkg() {
+  if (!confirm(`Paket „RIMPERIO Agent“ auf „${n.value.name}“ installieren?`)) return
+  await guard(async () => {
+    const r = await auth.api(`/api/nas/${n.value.id}/install-package`, { method: 'POST', body: { server: pkg.value.server.trim(), insecure: pkg.value.insecure } })
+    notice.value = r.message
+    await loadData()
+  })
 }
 async function guard(fn) {
   busy.value = true

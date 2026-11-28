@@ -74,7 +74,7 @@ type CheckinRequest struct {
 
 type WaitResponse struct {
 	Commands []PendingCommand `json:"commands"`
-	Relay    []RelayRequest   `json:"relay"` // ab Server 0.4.0: weitergeleitete HTTP-Anfragen
+	Relay    []RelayRequest   `json:"relay"` // ab Server 0.5.0: weitergeleitete HTTP-Anfragen
 }
 
 // waitRequest kündigt an, was der Agent kann (z. B. "relay").
@@ -90,7 +90,7 @@ type PendingCommand struct {
 	Shell   string `json:"shell"`
 	Command string `json:"command"`
 	Timeout int    `json:"timeout"`
-	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | docker_scan | docker_update | health_snapshot | reboot | software_inventory | uninstall
+	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | docker_scan | docker_update | health_snapshot | reboot | software_inventory | uninstall | tunnel
 }
 
 type CheckSpec struct {

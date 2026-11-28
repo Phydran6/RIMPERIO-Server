@@ -454,7 +454,7 @@ func RunService() error {
 
 // RunForeground läuft ohne Dienstmanager im Vordergrund, bis SIGTERM/SIGINT
 // kommt — für Paketformen, deren Startskript den Prozess selbst verwaltet
-// (Synology-Paket: start-stop-status).
+// (Paket, Container).
 func RunForeground() error {
 	p := &program{}
 	if err := p.Start(nil); err != nil {

@@ -171,7 +171,7 @@ async def forward(agent_id: int, *, method: str, url: str, headers: Optional[Dic
         raise RelayUnavailable("Der Agent am Standort ist gerade nicht verbunden.")
     if not capable(agent_id):
         raise RelayUnavailable("Der Agent am Standort kann noch nicht weiterleiten – bitte auf "
-                               "Version 0.4.0 oder neuer aktualisieren.")
+                               "Version 0.5.0 oder neuer aktualisieren.")
     if len(body) > MAX_BODY:
         raise RelayError("Anfrage zu groß für die Weiterleitung.")
     rid = secrets.token_hex(12)

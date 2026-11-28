@@ -11,9 +11,9 @@
 //               Inventur trägt das als "appliance" — der Server schlägt den
 //               Agent dann beim Einrichten des NAS vor (Adresse 127.0.0.1).
 //
-//               Als Synology-Paket (.spk) setzt das Startskript
-//               RIMPERIO_PACKAGE=synology und RIMPERIO_HOME auf das
-//               Datenverzeichnis des Pakets.
+//               Als DSM-Paket „RIMPERIO Agent“ (server/backend/app/dsmpackage.py)
+//               setzt das Startskript RIMPERIO_PACKAGE=synology und
+//               RIMPERIO_HOME auf das Datenverzeichnis des Pakets.
 // ---------------------------------------------------------------------------
 
 package core

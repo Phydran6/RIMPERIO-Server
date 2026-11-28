@@ -2,19 +2,26 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
-## 0.4.0 — Weiterleitung für Geräte am Standort, Synology-Paket
+## 0.5.0 — Weiterleitung für Geräte am Standort
 
 ### Added
 - **Weiterleitung** (`internal/core/relay.go`): HTTP-Anfragen des Servers aus der Warte-Verbindung im eigenen Netz stellen und das Ergebnis an `/api/rmm/agent/relay-results` schicken – für ein NAS an einem anderen Standort. Nur lokale Ziele (privat, Loopback, Link-Local, CGNAT), geprüft an der angewählten IP; nie über einen Proxy; 3xx nicht selbst verfolgen; 8 gleichzeitig, Antwort bis 32 MB; Zertifikat der Gegenstelle auf Wunsch. Einstellung `relay` in `agent.json` (`lan`/`any`/`off`), `RIMPERIO_RELAY` hat Vorrang. Die Warte-Anfrage kündigt `{"caps": ["relay"]}` an.
 - **Synology DSM erkennen** (`internal/core/appliance.go`): `/etc.defaults/VERSION`, Modell aus `/proc/sys/kernel/syno_hw_version` bzw. `synoinfo.conf`; Inventur-Feld `appliance` (`vendor`, `model`, `version`, `build`, `packaged`), OS „Synology DSM 7.x-…“.
-- **Synology-Paket** (`installer/synology/`): `rimperio-agent-synology.spk` für DSM 7 (x86_64, aarch64, armv7 in einem Paket), Paketkonto statt root, Assistent für Server, Zugangsschlüssel und Standort, Abmelden beim Deinstallieren. `build-spk.sh`; CI prüft Aufbau und `postinst`, das Release hängt das Paket an.
-- **`rimperio-agent foreground`**: läuft ohne Dienstmanager bis SIGTERM (für das Paket).
-- Deinstallation aus der Oberfläche als Paket: Anmeldung löschen und anhalten; das Paket entfernt DSM.
+- **Als DSM-Paket „RIMPERIO Agent“:** `RIMPERIO_PACKAGE=synology` markiert die Inventur (`appliance.packaged`); eine Deinstallation aus der Oberfläche löscht nur die Anmeldung und hält an – das Paket entfernt DSM.
+- **`rimperio-agent foreground`**: läuft ohne Dienstmanager bis SIGTERM (Paket, Container).
 - **Tests:** `relay_test.go` (Zielprüfung, Einstellung, TLS mit und ohne Prüfung, Kopfzeilen, Fehlerarten, DSM-Erkennung).
 
 ### Changed
 - `Client.Wait` liefert die ganze Antwort (`commands`, `relay`) und schickt die Fähigkeiten mit.
 - Auf einem NAS keine Einplatinen-Angaben mehr (ein ARM-NAS ist kein Raspberry Pi).
+
+## 0.4.0
+
+### Added
+- **Tunnel für den Fernzugriff** (`internal/core/tunnel.go`): Auftrag `tunnel` → WebSocket zum Server; Live-Shell (`terminal_unix.go` mit PTY, `terminal_windows.go` mit ConPTY und Pipe-Ersatz) oder TCP nur zu 127.0.0.1:3389/5900.
+
+### Fixed
+- Lange Ausgaben behalten Anfang **und** Ende (Abschlussmarken der Server-Skripte gingen verloren).
 
 ## 2026.11.27.14.00.00 — Version aus `VERSION`, bereit für SemVer
 

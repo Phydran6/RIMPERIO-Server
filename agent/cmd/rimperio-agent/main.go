@@ -65,7 +65,7 @@ func main() {
 		core.DropRoot()
 		must(core.RunService(), "Dienst läuft nicht")
 	case "foreground":
-		// Ohne Dienstmanager (Synology-Paket): läuft, bis SIGTERM kommt.
+		// Ohne Dienstmanager (Paket, Container): läuft, bis SIGTERM kommt.
 		core.DropRoot()
 		must(core.RunForeground(), "Agent läuft nicht")
 	case "once":

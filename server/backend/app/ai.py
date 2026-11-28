@@ -103,20 +103,103 @@ PROVIDERS: Dict[str, dict] = {
         "default_url": "http://rimperio-n8n:5678/webhook/rimperio",
     },
     "openwebui": {
-        "label": "Open WebUI — eigene KI, auch lokal",
-        "label_en": "Open WebUI — self-hosted, can be local",
-        "hint": ("Open WebUI spricht dieselbe Sprache wie OpenAI, hat dahinter aber "
-                 "das Modell, das man selbst wählt — auch ein lokales über Ollama. "
-                 "Läuft es auf diesem Server, verlässt keine Logzeile das Haus."),
+        "label": "Open WebUI — eigene KI (z. B. mit Ollama dahinter)",
+        "label_en": "Open WebUI — self-hosted (e.g. Ollama behind it)",
+        "hint": ("Die Adresse, unter der du Open WebUI im Browser öffnest – z. B. "
+                 "https://ki.firma.de. RIMPERIO spricht dessen OpenAI-kompatible API "
+                 "(/api/chat/completions). Das Modell wählst du nach dem Laden aus der Liste."),
         "needs_key": True,
         "needs_url": True,
-        "default_model": "llama3.1",
-        "default_url": "http://rimperio-openwebui:8080",
+        "default_model": "",
+        "default_url": "",
+        "url_placeholder": "https://ki.firma.de",
         "key_url": "",
-        "key_hint": ("In Open WebUI: Profil → Einstellungen → Konto → API-Schlüssel. "
-                     "Ein Lese-Schlüssel genügt."),
+        "key_hint": ("In Open WebUI: oben rechts Profil → Einstellungen → Konto → API-Schlüssel → "
+                     "„Neuen Schlüssel erzeugen“ (sk-…). Fehlt der Punkt: Admin-Bereich → Einstellungen → "
+                     "Allgemein → „API-Schlüssel aktivieren“."),
         "local": True,
     },
+    "ollama": {
+        "label": "Ollama — direkt",
+        "label_en": "Ollama — direct",
+        "hint": ("Direkt an Ollama, ohne Open WebUI dazwischen – z. B. http://192.168.1.50:11434 "
+                 "oder eine HTTPS-Adresse über einen Reverse Proxy. Ollama muss von RIMPERIO aus "
+                 "erreichbar sein (OLLAMA_HOST=0.0.0.0). Ein Schlüssel ist nur nötig, wenn der Proxy einen verlangt."),
+        "needs_key": False,
+        "key_optional": True,
+        "needs_url": True,
+        "default_model": "",
+        "default_url": "",
+        "url_placeholder": "http://192.168.1.50:11434",
+        "key_hint": "Nur falls ein Reverse Proxy davor einen Bearer-Token verlangt.",
+        "local": True,
+    },
+    "openai_compatible": {
+        "label": "OpenAI-kompatibel (LM Studio, vLLM, LiteLLM, LocalAI …)",
+        "label_en": "OpenAI-compatible (LM Studio, vLLM, LiteLLM, LocalAI …)",
+        "hint": ("Jeder Dienst mit OpenAI-Schnittstelle (/v1/chat/completions). Adresse ohne /v1 "
+                 "oder mit – beides geht."),
+        "needs_key": False,
+        "key_optional": True,
+        "needs_url": True,
+        "default_model": "",
+        "default_url": "",
+        "url_placeholder": "http://192.168.1.50:1234",
+        "local": True,
+    },
+}
+
+# Bereiche, in denen RIMPERIO die KI fragt - jeder mit eigener Anweisung
+# (Prompt). "structured": die Antwort wird maschinell gelesen (JSON) - dort wird
+# die eigene Anweisung an die feste angehaengt statt sie zu ersetzen.
+AREAS: Dict[str, dict] = {
+    "log_analysis": {"label": "Logs auswerten", "structured": False,
+                     "hint": "Logs → markierte Zeilen „Mit KI auswerten“ und die App."},
+    "log_explain": {"label": "Logzeile erklären", "structured": True,
+                    "hint": "Klartext zu einer einzelnen Logzeile (Log-Handling)."},
+    "patch_assess": {"label": "Updates einschätzen", "structured": True,
+                     "hint": "Patchmanagement: Risiko und Freigabe je Update."},
+    "db_review": {"label": "DB-Update prüfen", "structured": True,
+                  "hint": "Bewertung des Probelaufs bei Datenbank-Updates."},
+}
+
+# Fertige Vorlagen je Bereich - waehlbar in der Oberflaeche, danach frei aenderbar.
+PROMPT_TEMPLATES: Dict[str, List[dict]] = {
+    "log_analysis": [
+        {"id": "standard", "label": "Knapp für Admins", "text": ""},
+        {"id": "einsteiger", "label": "Ausführlich für Einsteiger",
+         "text": ("Du bist ein geduldiger IT-Ausbilder. Erkläre auf Deutsch, was in diesen Logs passiert, "
+                  "ohne Fachchinesisch. Gliedere: 1. Was ist passiert? 2. Ist das schlimm? (ja/nein mit Grund) "
+                  "3. Was genau soll ich jetzt tun – Schritt für Schritt. Erfinde nichts.")},
+        {"id": "security", "label": "Sicherheit / Angriffe",
+         "text": ("Du bist Security-Analyst (SOC). Prüfe die Logs auf Angriffe, Brute-Force, ungewöhnliche "
+                  "Anmeldungen, Rechteausweitung und Datenabfluss. Nenne je Fund: Schwere (kritisch/hoch/mittel/"
+                  "niedrig), betroffenes System, Beleg (Zeile), Sofortmaßnahme. Auf Deutsch, keine Spekulation.")},
+        {"id": "ursache", "label": "Ursachenanalyse (Root Cause)",
+         "text": ("Finde die eigentliche Ursache hinter den Fehlern. Ordne die Ereignisse zeitlich, trenne "
+                  "Ursache von Folgefehlern und nenne die eine Stelle, an der man ansetzen muss. Deutsch, knapp.")},
+    ],
+    "log_explain": [
+        {"id": "standard", "label": "Standard", "text": ""},
+        {"id": "einsteiger", "label": "Für Einsteiger",
+         "text": "Schreibe so, dass es auch jemand ohne Admin-Erfahrung versteht. Keine Abkürzungen ohne Erklärung."},
+        {"id": "windows", "label": "Schwerpunkt Windows/AD",
+         "text": "Beziehe dich wo passend auf Windows-Ereignis-IDs, Active Directory und Gruppenrichtlinien."},
+    ],
+    "patch_assess": [
+        {"id": "standard", "label": "Standard", "text": ""},
+        {"id": "vorsichtig", "label": "Vorsichtig (Produktion)",
+         "text": ("Wir betreiben Produktivsysteme mit wenig Wartungsfenstern. Bewerte im Zweifel konservativ: "
+                  "Kernel, Datenbanken, Treiber und Major-Updates nie ohne Freigabe.")},
+        {"id": "sicherheit", "label": "Sicherheit zuerst",
+         "text": ("Sicherheitsupdates mit bekannten, ausgenutzten Lücken (CISA KEV, aktive Exploits) haben "
+                  "Vorrang und sollen sofort eingespielt werden, auch wenn ein kleines Störungsrisiko besteht.")},
+    ],
+    "db_review": [
+        {"id": "standard", "label": "Standard", "text": ""},
+        {"id": "streng", "label": "Streng",
+         "text": "Empfiehl 'go' nur, wenn Tabellen und Zeilen exakt übereinstimmen und kein Fehler auftrat."},
+    ],
 }
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -128,6 +211,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "max_logs": DEFAULT_LOGS,
     "include_raw": False,           # Rohzeilen mitschicken (mehr Kontext, mehr Daten)
     "enabled_for_users": False,     # nur Admins, oder alle Angemeldeten?
+    "verify_tls": True,             # Zertifikat der Gegenstelle pruefen (aus = selbst signiert)
+    "prompts": {},                  # {bereich: eigene Anweisung} - leer = Vorgabe
+    "prompt_templates": {},         # {bereich: gewaehlte Vorlage} - nur fuer die Oberflaeche
     "api_key": "",                  # wird nie ausgeliefert
 }
 
@@ -164,9 +250,15 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
     for key in ("model", "webhook_url", "webhook_header", "system_prompt"):
         if key in incoming and incoming[key] is not None:
             config[key] = str(incoming[key]).strip()
-    for key in ("include_raw", "enabled_for_users"):
+    for key in ("include_raw", "enabled_for_users", "verify_tls"):
         if key in incoming and incoming[key] is not None:
             config[key] = bool(incoming[key])
+    if isinstance(incoming.get("prompts"), dict):
+        config["prompts"] = {k: str(v)[:8000] for k, v in incoming["prompts"].items() if k in AREAS and str(v).strip()}
+    if isinstance(incoming.get("prompt_templates"), dict):
+        config["prompt_templates"] = {k: str(v)[:64] for k, v in incoming["prompt_templates"].items() if k in AREAS}
+    if provider in ("openwebui", "ollama", "openai_compatible") and config.get("webhook_url"):
+        config["webhook_url"] = normalize_base(config["webhook_url"])
     if incoming.get("max_logs") is not None:
         config["max_logs"] = max(1, min(int(incoming["max_logs"]), MAX_LOGS))
 
@@ -181,6 +273,9 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
         config["api_key"] = ""
 
     spec = PROVIDERS[provider]
+    if config["webhook_url"] == "http://rimperio-openwebui:8080" and provider == "openwebui":
+        # Alte Vorgabe, unter der fast nie etwas antwortete.
+        raise ValueError("Bitte die Adresse eintragen, unter der Open WebUI erreichbar ist (z. B. https://ki.firma.de).")
     if spec.get("needs_key") and not config["api_key"]:
         raise ValueError(f"Für '{spec['label']}' fehlt der API-Schlüssel.")
     if spec.get("needs_url") and not config["webhook_url"]:
@@ -189,6 +284,8 @@ async def save_config(db: AsyncSession, incoming: dict) -> dict:
         raise ValueError("Die Webhook-Adresse muss mit http:// oder https:// beginnen.")
     if not config["model"] and spec.get("default_model"):
         config["model"] = spec["default_model"]
+    if provider in ("openwebui", "ollama", "openai_compatible") and not config["model"]:
+        raise ValueError("Bitte ein Modell wählen – „Modelle laden“ zeigt, was die Gegenstelle anbietet.")
 
     row = (await db.execute(select(Setting).where(Setting.key == SETTING_KEY))).scalar_one_or_none()
     if row:
@@ -209,11 +306,126 @@ def public_config(config: dict) -> dict:
     return safe
 
 
+def normalize_base(url: str) -> str:
+    """https://ki.firma.de/  ·  …/api  ·  …/api/v1  ·  …/v1  ·  …/api/chat/completions  ->  https://ki.firma.de
+
+    Bei Open WebUI, Ollama und OpenAI-kompatiblen Diensten setzt RIMPERIO den
+    Pfad selbst; was man aus dem Browser kopiert, darf trotzdem passen."""
+    u = (url or "").strip().rstrip("/")
+    if u and "://" not in u:
+        u = ("http://" if u.split("/")[0].endswith(":11434") else "https://") + u
+    for suffix in ("/chat/completions", "/api/chat", "/api/generate", "/api/tags", "/models", "/api/v1",
+                   "/v1", "/api"):
+        if u.lower().endswith(suffix):
+            u = u[: -len(suffix)].rstrip("/")
+    return u
+
+
+def prompt_for(config: dict, area: str, default: str) -> str:
+    """Systemanweisung fuer einen Bereich: eigene Anweisung ersetzt (Freitext) bzw.
+    ergaenzt (Bereiche mit JSON-Antwort) die Vorgabe."""
+    own = str((config.get("prompts") or {}).get(area) or "").strip()
+    if area == "log_analysis" and not own:
+        own = str(config.get("system_prompt") or "").strip()      # alte Einstellung
+    if not own:
+        return default
+    if AREAS.get(area, {}).get("structured"):
+        return f"{default}\n\nZusätzliche Hinweise des Betreibers (das Antwortformat oben bleibt verbindlich):\n{own}"
+    return own
+
+
+def _client(config: dict, timeout: float) -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=timeout, verify=bool(config.get("verify_tls", True)), follow_redirects=True)
+
+
+def _chat_endpoint(config: dict) -> str:
+    """Wohin die Chat-Anfrage geht (OpenAI-Format)."""
+    provider = config.get("provider")
+    base = normalize_base(config.get("webhook_url") or "")
+    if provider == "openai":
+        return PROVIDERS["openai"]["endpoint"]
+    if not base:
+        raise ValueError("Für diesen Anbieter fehlt die Adresse.")
+    if provider == "openwebui":
+        return f"{base}/api/chat/completions"
+    return f"{base}/v1/chat/completions"     # ollama (OpenAI-kompatibel seit 0.1.24) und openai_compatible
+
+
+def _auth_headers(config: dict) -> dict:
+    key = (config.get("api_key") or "").strip()
+    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"} if key \
+        else {"Content-Type": "application/json"}
+
+
+async def list_models(config: dict) -> Dict[str, Any]:
+    """Modelle der eingestellten Gegenstelle - fuer die Auswahlliste.
+
+    Liefert {"models": [{"id", "label"}], "error": ""}; ein Fehler ist kein
+    Abbruch, dann traegt man den Namen von Hand ein."""
+    provider = config.get("provider", "off")
+    key = (config.get("api_key") or "").strip()
+    try:
+        async with _client(config, 25.0) as c:
+            if provider == "anthropic":
+                if not key:
+                    return {"models": [], "error": "API-Schlüssel fehlt."}
+                r = await c.get("https://api.anthropic.com/v1/models", params={"limit": 100},
+                                headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+                data = _json_or_error(r, "Anthropic")
+                items = [{"id": m["id"], "label": m.get("display_name") or m["id"]} for m in data.get("data", [])]
+            elif provider in ("openai", "openai_compatible"):
+                url = "https://api.openai.com/v1/models" if provider == "openai" else \
+                    f"{normalize_base(config.get('webhook_url') or '')}/v1/models"
+                r = await c.get(url, headers=_auth_headers(config))
+                data = _json_or_error(r, "Gegenstelle")
+                items = [{"id": m["id"], "label": m["id"]} for m in data.get("data", []) if m.get("id")]
+                if provider == "openai":
+                    items = [m for m in items if m["id"].startswith(("gpt", "o1", "o3", "o4", "chatgpt"))]
+            elif provider == "ollama":
+                r = await c.get(f"{normalize_base(config.get('webhook_url') or '')}/api/tags", headers=_auth_headers(config))
+                data = _json_or_error(r, "Ollama")
+                items = [{"id": m.get("name") or m.get("model"),
+                          "label": f"{m.get('name')} ({round((m.get('size') or 0) / 2**30, 1)} GB)"}
+                         for m in data.get("models", []) if m.get("name") or m.get("model")]
+            elif provider == "openwebui":
+                if not key:
+                    return {"models": [], "error": "API-Schlüssel fehlt."}
+                r = await c.get(f"{normalize_base(config.get('webhook_url') or '')}/api/models", headers=_auth_headers(config))
+                data = _json_or_error(r, "Open WebUI")
+                entries = data.get("data") if isinstance(data, dict) else data
+                items = [{"id": m["id"], "label": m.get("name") or m["id"]} for m in entries or []
+                         if isinstance(m, dict) and m.get("id")]
+            else:
+                return {"models": [], "error": "Für diesen Weg gibt es keine Modellliste."}
+    except httpx.ConnectError as exc:
+        return {"models": [], "error": _conn_hint(config, exc)}
+    except httpx.TimeoutException:
+        return {"models": [], "error": "Keine Antwort innerhalb von 25 Sekunden – Adresse und Firewall prüfen."}
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        return {"models": [], "error": str(exc)}
+    items.sort(key=lambda m: m["id"])
+    return {"models": items, "error": "" if items else "Die Gegenstelle meldet keine Modelle."}
+
+
+def _conn_hint(config: dict, exc: Exception) -> str:
+    text = str(exc)
+    url = config.get("webhook_url") or ""
+    if "CERTIFICATE_VERIFY_FAILED" in text or "certificate verify" in text.lower():
+        return ("Zertifikat nicht vertrauenswürdig (selbst signiert?). Entweder ein gültiges Zertifikat "
+                "verwenden oder „Zertifikat prüfen“ ausschalten.")
+    if "localhost" in url or "127.0.0.1" in url:
+        return ("Keine Verbindung. „localhost“ ist aus Sicht von RIMPERIO der RIMPERIO-Container selbst – "
+                "bitte IP oder Namen des Rechners eintragen, auf dem die KI läuft.")
+    return f"Keine Verbindung zu {url or 'der Gegenstelle'}: {text or exc.__class__.__name__}"
+
+
 def catalog() -> List[dict]:
-    """Die vier Wege als Liste fuer die Oberflaeche."""
+    """Die Wege als Liste fuer die Oberflaeche."""
     return [
         {"id": key, "label": spec["label"], "label_en": spec["label_en"],
          "hint": spec["hint"], "needs_key": spec.get("needs_key", False),
+         "key_optional": bool(spec.get("key_optional")),
+         "url_placeholder": spec.get("url_placeholder", ""),
          "needs_url": spec.get("needs_url", False),
          "default_model": spec.get("default_model", ""),
          "default_url": spec.get("default_url", ""),
@@ -281,7 +493,7 @@ def _as_text(payload: dict) -> str:
 async def _ask_anthropic(config: dict, payload: dict) -> dict:
     spec = PROVIDERS["anthropic"]
     model = config.get("model") or spec["default_model"]
-    system = config.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
+    system = prompt_for(config, "log_analysis", DEFAULT_SYSTEM_PROMPT)
     question = payload["question"] or "Was fällt an diesen Logs auf?"
 
     body = {
@@ -313,7 +525,7 @@ async def _ask_anthropic(config: dict, payload: dict) -> dict:
 async def _ask_openai(config: dict, payload: dict) -> dict:
     spec = PROVIDERS["openai"]
     model = config.get("model") or spec["default_model"]
-    system = config.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
+    system = prompt_for(config, "log_analysis", DEFAULT_SYSTEM_PROMPT)
     question = payload["question"] or "Was fällt an diesen Logs auf?"
 
     body = {
@@ -349,14 +561,12 @@ async def _ask_openwebui(config: dict, payload: dict) -> dict:
     denen Benutzernamen, interne Adressen und Fehlermeldungen stehen, ist das
     der Unterschied zwischen "geht" und "geht nicht".
     """
-    base = (config.get("webhook_url") or "").rstrip("/")
-    if not base:
-        raise ValueError("Für Open WebUI fehlt die Adresse.")
-    # Nachsichtig: der vollstaendige Pfad darf mit angegeben werden.
-    endpoint = base if base.endswith("/chat/completions") else f"{base}/api/chat/completions"
-
-    model = config.get("model") or PROVIDERS["openwebui"]["default_model"]
-    system = config.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
+    endpoint = _chat_endpoint(config)
+    who = PROVIDERS.get(config.get("provider"), {}).get("label", "KI").split(" —")[0]
+    model = config.get("model") or ""
+    if not model:
+        raise ValueError(f"{who}: Bitte ein Modell auswählen (Liste laden) oder den Namen eintragen.")
+    system = prompt_for(config, "log_analysis", DEFAULT_SYSTEM_PROMPT)
     question = payload["question"] or "Was fällt an diesen Logs auf?"
 
     body = {
@@ -369,24 +579,23 @@ async def _ask_openwebui(config: dict, payload: dict) -> dict:
                          f"{_as_text(payload)}")},
         ],
     }
-    headers = {"Authorization": f"Bearer {config['api_key']}",
-               "Content-Type": "application/json"}
-
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        response = await client.post(endpoint, json=body, headers=headers)
-        data = _json_or_error(response, "Open WebUI")
+    try:
+        async with _client(config, REQUEST_TIMEOUT) as client:
+            response = await client.post(endpoint, json=body, headers=_auth_headers(config))
+            data = _json_or_error(response, who)
+    except httpx.ConnectError as exc:
+        raise RuntimeError(_conn_hint(config, exc)) from exc
 
     choices = data.get("choices") or [{}]
     text = ((choices[0].get("message") or {}).get("content") or "").strip()
     if not text:
-        raise RuntimeError("Open WebUI hat geantwortet, aber ohne Text. Stimmt der "
-                           "Modellname? Die verfügbaren Modelle stehen dort unter "
-                           "Einstellungen → Modelle.")
+        raise RuntimeError(f"{who} hat geantwortet, aber ohne Text. Stimmt der Modellname "
+                           f"„{model}“? Mit „Modelle laden“ die verfügbaren auswählen.")
     return {"answer": text, "model": data.get("model", model),
             "usage": data.get("usage", {})}
 
 
-async def list_openwebui_models(config: dict) -> list:
+async def list_openwebui_models(config: dict) -> list:  # noqa: D401 - alte Schnittstelle
     """Welche Modelle bietet dieses Open WebUI an?
 
     Damit man den Modellnamen nicht abtippen muss - und vor allem nicht raet.
@@ -503,6 +712,8 @@ async def ask(config: dict, logs: List[Any], question: str = "") -> dict:
         "anthropic": _ask_anthropic,
         "openai": _ask_openai,
         "openwebui": _ask_openwebui,
+        "ollama": _ask_openwebui,
+        "openai_compatible": _ask_openwebui,
         "n8n_external": _ask_n8n,
         "n8n_local": _ask_n8n,
     }
@@ -628,14 +839,16 @@ async def _text_anthropic(config: dict, system: str, prompt: str, web_search: bo
 async def _text_openai_like(config: dict, system: str, prompt: str, endpoint: str,
                             default_model: str, who: str) -> dict:
     model = config.get("model") or default_model
-    body = {"model": model, "messages": [{"role": "system", "content": system},
-                                         {"role": "user", "content": prompt}]}
-    if who == "Open WebUI":
-        body["stream"] = False
-    headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=TEXT_TIMEOUT) as client:
-        response = await client.post(endpoint, json=body, headers=headers)
-        data = _json_or_error(response, who)
+    if not model:
+        raise ValueError(f"{who}: kein Modell gewählt.")
+    body = {"model": model, "stream": False, "messages": [{"role": "system", "content": system},
+                                                          {"role": "user", "content": prompt}]}
+    try:
+        async with _client(config, TEXT_TIMEOUT) as client:
+            response = await client.post(endpoint, json=body, headers=_auth_headers(config))
+            data = _json_or_error(response, who)
+    except httpx.ConnectError as exc:
+        raise RuntimeError(_conn_hint(config, exc)) from exc
     choices = data.get("choices") or [{}]
     return {"answer": ((choices[0].get("message") or {}).get("content") or "").strip(),
             "model": data.get("model", model), "usage": data.get("usage", {}), "sources": []}
@@ -655,11 +868,9 @@ async def ask_text(config: dict, system: str, prompt: str, web_search: bool = Fa
         elif provider == "openai":
             result = await _text_openai_like(config, system, prompt, PROVIDERS["openai"]["endpoint"],
                                              PROVIDERS["openai"]["default_model"], "OpenAI")
-        elif provider == "openwebui":
-            base = (config.get("webhook_url") or "").rstrip("/")
-            endpoint = base if base.endswith("/chat/completions") else f"{base}/api/chat/completions"
-            result = await _text_openai_like(config, system, prompt, endpoint,
-                                             PROVIDERS["openwebui"]["default_model"], "Open WebUI")
+        elif provider in ("openwebui", "ollama", "openai_compatible"):
+            result = await _text_openai_like(config, system, prompt, _chat_endpoint(config), "",
+                                             PROVIDERS[provider]["label"].split(" —")[0])
         elif provider in ("n8n_external", "n8n_local"):
             result = await _ask_n8n(config, {"kind": "text", "system": system, "question": prompt,
                                              "count": 0, "logs": []})

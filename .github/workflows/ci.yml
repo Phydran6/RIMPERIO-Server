@@ -76,29 +76,6 @@ jobs:
           done
           shellcheck -S error agent/installer/linux/install-agent.sh agent/logship/install-linux.sh /tmp/rimperio-helper \
             || { echo "::error title=Installer::shellcheck meldet Fehler (siehe Log)"; exit 1; }
-      - name: Synology-Paket bauen und prüfen
-        # Paket-Skripte (laufen auf dem NAS mit /bin/sh), Aufbau des .spk und
-        # ein Probelauf: entpacken, postinst mit Assistenten-Werten, Konfiguration da?
-        run: |
-          set -e
-          shellcheck -S warning agent/installer/synology/scripts/* agent/installer/synology/common.sh \
-            agent/installer/synology/build-spk.sh \
-            || { echo "::error title=Synology-Paket::shellcheck meldet Fehler (siehe Log)"; exit 1; }
-          bash agent/installer/synology/build-spk.sh
-          spk=agent/bin/rimperio-agent-synology.spk
-          tar -tf "$spk" | sort > /tmp/spk.lst
-          for f in INFO package.tgz scripts/start-stop-status scripts/postinst scripts/preuninst conf/privilege \
-                   WIZARD_UIFILES/install_uifile PACKAGE_ICON.PNG PACKAGE_ICON_256.PNG; do
-            grep -qx "$f" /tmp/spk.lst || { echo "::error title=Synology-Paket::$f fehlt"; exit 1; }
-          done
-          python3 -c "import json,sys; json.load(open('agent/installer/synology/WIZARD_UIFILES/install_uifile')); json.load(open('agent/installer/synology/conf/privilege'))"
-          w=$(mktemp -d); mkdir -p "$w/target"
-          tar -xf "$spk" -C "$w"; tar -xzf "$w/package.tgz" -C "$w/target"
-          test "$(tar -xOf "$spk" INFO | sed -n 's/^checksum="\(.*\)"$/\1/p')" = "$(md5sum "$w/package.tgz" | cut -d' ' -f1)"
-          SYNOPKG_PKGDEST="$w/target" SYNOPKG_PKGVAR="$w/var" wizard_server=https://rmm.example.invalid \
-            wizard_secret=probe wizard_site=CI sh "$w/scripts/postinst"
-          grep -q '"enroll_secret": "probe"' "$w/var/etc/agent.json"
-          "$w/target/bin/rimperio-agent-amd64" version
 
   msi:
     # Baut das MSI bei jedem Push mit und spielt Installation und Deinstallation

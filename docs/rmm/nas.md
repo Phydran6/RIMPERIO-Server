@@ -80,13 +80,13 @@ Hyper Backup und Konfigurationssicherung laufen über diesen Weg.
 |---|---|---|
 | ein Windows- oder Linux-Rechner (läuft dauerhaft) | der normale Agent auf diesem Rechner | LAN-IP des NAS, z. B. `192.168.1.20` |
 | ein Raspberry Pi | der normale Agent (ARM) | LAN-IP des NAS |
-| **nur das NAS** (Synology DSM 7) | **der Agent als Synology-Paket auf dem NAS selbst** | `127.0.0.1`, Port `5001` |
+| **nur das NAS** (Synology DSM 7) | **der Agent als Paket „RIMPERIO Agent“ auf dem NAS selbst** | `127.0.0.1`, Port `5001` |
 
-**Synology-Paket:** [`rimperio-agent-synology.spk`](https://github.com/Phydran6/RIMPERIO-Server/releases/latest/download/rimperio-agent-synology.spk)
-– in DSM unter *Paket-Zentrum → Manuelle Installation* hochladen. DSM warnt, dass das Paket nicht von Synology
-stammt; bestätigen. Der Assistent fragt nach **Server-Adresse**, **Zugangsschlüssel** (*Rechner → Agent
-hinzufügen* erzeugt eine Einladung) und **Standort**. Danach meldet sich der Agent selbst an und erscheint
-unter *Rechner* mit dem System „Synology DSM …“. Einzelheiten: [Synology-Paket](../../agent/installer/synology/README.md).
+**Paket „RIMPERIO Agent“:** baut der RIMPERIO-Server selbst, mit Server-Adresse und Einladung vorbelegt – im Assistenten
+*NAS verbinden → Über einen Agent am Standort → Paket (.spk) herunterladen* (oder auf der Seite eines schon
+verbundenen NAS). In DSM unter *Paket-Zentrum → Manuelle Installation* einspielen; DSM verlangt dafür unter
+*Einstellungen → Vertrauensebene* „Alle Herausgeber“. Danach meldet sich der Agent selbst an und erscheint unter
+*Rechner* mit dem System „Synology DSM …“.
 
 ### Einrichten
 
