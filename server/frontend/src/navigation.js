@@ -61,14 +61,15 @@ export const NAV_SECTIONS = [
     title: 'secDevices',
     icon: 'devices',
     items: [
-      { key: 'computers', to: '/rmm', name: 'RmmAgents', match: ['RmmAgentDetail'], icon: 'devices', label: 'computers' },
+      { key: 'computers', to: '/rmm', name: 'RmmAgents', match: ['RmmAgentDetail', 'RemoteSession'], icon: 'devices', label: 'computers' },
       { key: 'snmp', to: '/rmm/snmp', name: 'RmmSnmp', match: ['RmmSnmpDevice'], icon: 'router', label: 'snmp' },
-      { key: 'discovery', to: '/discovery', name: 'Discovery', icon: 'network', label: 'discovery', admin: true },
-      { key: 'agent-tokens', to: '/agent-tokens', name: 'AgentTokens', icon: 'key', label: 'agentTokens', admin: true },
       { key: 'proxmox', group: 'grpProxmox', to: '/devices/proxmox', name: 'RmmProxmox', icon: 'backup', label: 'proxmox' },
       { key: 'pve-patching', group: 'grpProxmox', to: '/devices/proxmox/patching', name: 'PveUpdates', icon: 'download', label: 'pveUpdates' },
       { key: 'nas', group: 'grpNas', to: '/devices/nas', name: 'NasDevices', match: ['NasDetail'], icon: 'archive', label: 'nas' },
       { key: 'special', group: 'grpNas', to: '/devices/special', name: 'SpecialSystems', icon: 'devices', label: 'special' },
+      { key: 'docker-stacks', to: '/devices/docker', name: 'DockerStacks', icon: 'container', label: 'dockerStacks', admin: true },
+      { key: 'discovery', to: '/discovery', name: 'Discovery', icon: 'network', label: 'discovery', admin: true },
+      { key: 'agent-tokens', to: '/agent-tokens', name: 'AgentTokens', icon: 'key', label: 'agentTokens', admin: true },
     ],
   },
   {
@@ -271,8 +272,12 @@ export function sectionsFor(isAdmin, opts = {}) {
 export function rowsFor(section) {
   const rows = []
   const groups = new Map()
+  // Ein Untermenue mit nur einem Eintrag ist nur ein Klick mehr - dann steht
+  // der Eintrag direkt im Bereich.
+  const sizes = {}
+  for (const item of section.items) if (item.group) sizes[item.group] = (sizes[item.group] || 0) + 1
   for (const item of section.items) {
-    if (!item.group) {
+    if (!item.group || sizes[item.group] < 2) {
       rows.push({ type: 'item', item, key: item.key })
       continue
     }

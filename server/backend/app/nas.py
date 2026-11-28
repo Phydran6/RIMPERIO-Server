@@ -205,6 +205,16 @@ DSM_ERRORS = {
     106: "Sitzung abgelaufen", 107: "Sitzung durch zweite Anmeldung beendet", 114: "Angabe fehlt",
     117: "Funktion nur im Netz des NAS", 119: "Sitzung unbekannt", 120: "Angabe ungültig",
 }
+# Paketzentrum (SYNO.Core.Package.*): DSM liefert nur Nummern.
+PACKAGE_ERRORS = {
+    4500: "Paketzentrum: allgemeiner Fehler", 4501: "Paket nicht gefunden bzw. Download nicht möglich",
+    4502: "Paketdatei ungültig oder beschädigt (Prüfsumme)", 4503: "nicht genug freier Speicher auf dem Volume",
+    4504: "Paket passt nicht zu diesem Modell bzw. dieser DSM-Version",
+    4505: "Abhängigkeit fehlt (anderes Paket muss zuerst installiert/aktualisiert werden)",
+    4506: "Paket läuft noch und lässt sich nicht anhalten", 4507: "Signatur des Pakets ungültig",
+    4508: "Paket wird gerade von DSM installiert oder aktualisiert",
+    4520: "Download fehlgeschlagen (Internetverbindung des NAS?)",
+}
 AUTH_ERRORS = {
     400: "Benutzer oder Passwort falsch", 401: "Konto deaktiviert", 402: "Anmeldung für dieses Konto nicht erlaubt",
     403: "Zwei-Faktor-Code nötig", 404: "Zwei-Faktor-Code falsch", 406: "DSM verlangt für dieses Konto Zwei-Faktor – bitte erst in DSM einrichten",
@@ -234,6 +244,12 @@ class Synology:
         self.device_token = ""
         self.otp_used = False
         self.account = ""
+        # Eigener Sitzungsname je Verbindung: DSM beendet beim Abmelden alle
+        # Sitzungen mit diesem Namen. Mit einem gemeinsamen Namen ("RIMPERIO")
+        # warf die regelmaessige Zustandsabfrage einen laufenden Paket-Download
+        # mitten drin hinaus ("Sitzung abgelaufen" beim Paket-Update).
+        self.session_name = f"RIMPERIO-{secrets.token_hex(4)}"
+        self._relogin: Optional[tuple] = None
         self._c: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "Synology":
@@ -278,7 +294,7 @@ class Synology:
             raise NasError("DSM meldet keine Anmelde-Schnittstelle.")
         ver = self._version("SYNO.API.Auth", 7)
         params = {"api": "SYNO.API.Auth", "version": str(ver), "method": "login", "account": account,
-                  "passwd": password, "session": "RIMPERIO", "format": "sid", "enable_syno_token": "yes",
+                  "passwd": password, "session": self.session_name, "format": "sid", "enable_syno_token": "yes",
                   "device_name": "RIMPERIO"}
         if otp:
             params.update({"otp_code": otp.replace(" ", ""), "enable_device_token": "yes"})
@@ -302,18 +318,35 @@ class Synology:
         self.device_token = d.get("did") or d.get("device_id") or device_token or ""
         self.otp_used = bool(otp or device_token)
         self.account = account
+        # Fuer eine erneute Anmeldung, falls DSM die Sitzung unterwegs verwirft -
+        # nur mit Geraete-Token (ein TOTP-Code gilt nur einmal).
+        self._relogin = (account, password, self.device_token) if (self.device_token or not otp) else None
         return d
 
     async def logout(self) -> None:
         try:
             await self.call("SYNO.API.Auth", "logout", version=self._version("SYNO.API.Auth", 6),
-                            session="RIMPERIO")
+                            session=self.session_name, _retry=False)
         except NasError:
             pass
         self.sid = ""
 
     async def call(self, api: str, method: str, version: Optional[int] = None,
-                   raw: bool = False, timeout: Optional[float] = None, **params) -> Any:
+                   raw: bool = False, timeout: Optional[float] = None, _retry: bool = True, **params) -> Any:
+        try:
+            return await self._call(api, method, version, raw, timeout, **params)
+        except NasError as exc:
+            # Sitzung abgelaufen/verdraengt (106/107/119): einmal neu anmelden und wiederholen.
+            if not (_retry and exc.code in (106, 107, 119) and self._relogin and api != "SYNO.API.Auth"):
+                raise
+            account, password, token = self._relogin
+            logger.info("DSM %s: Sitzung verloren (%s) - melde neu an", self.base, exc.code)
+            self.sid = ""
+            await self.login(account, password, device_token=token)
+            return await self._call(api, method, version, raw, timeout, **params)
+
+    async def _call(self, api: str, method: str, version: Optional[int] = None,
+                    raw: bool = False, timeout: Optional[float] = None, **params) -> Any:
         if api not in self.apis:
             raise NasError(f"{api} gibt es auf diesem DSM nicht.", 102)
         spec = self.apis[api]
@@ -341,8 +374,14 @@ class Synology:
         except ValueError as exc:
             raise NasError(f"{api}.{method}: keine lesbare Antwort (HTTP {r.status_code}).") from exc
         if not data.get("success"):
-            code = int((data.get("error") or {}).get("code", 0) or 0)
-            raise NasError(f"{api}.{method}: {DSM_ERRORS.get(code, f'Fehler {code}')}", code)
+            err = data.get("error") or {}
+            code = int(err.get("code", 0) or 0)
+            text = DSM_ERRORS.get(code) or (PACKAGE_ERRORS.get(code) if api.startswith("SYNO.Core.Package") else None) \
+                or f"Fehler {code}"
+            extra = err.get("errors")
+            if isinstance(extra, (dict, list)) and extra:
+                text += f" ({json.dumps(extra, ensure_ascii=False)[:200]})"
+            raise NasError(f"{api}.{method}: {text}", code)
         return data.get("data") if data.get("data") is not None else {}
 
     async def try_call(self, api: str, method: str, **kw) -> Tuple[Any, Optional[str]]:
@@ -593,19 +632,36 @@ async def _wait(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
+def _json_str(v: Any) -> Any:
+    """Wie die DSM-Oberflaeche: Zeichenketten JSON-kodiert ("name" statt name)."""
+    return json.dumps(v) if isinstance(v, str) else v
+
+
 async def synology_update_package(dsm: Synology, pkg: dict, log) -> None:
     """Ein Paket aktualisieren: herunterladen, pruefen, upgraden."""
     if not pkg.get("link"):
-        raise NasError(f"{pkg['id']}: kein Download-Link im Paketzentrum.")
+        raise NasError(f"{pkg['id']}: kein Download-Link im Paketzentrum – bitte im DSM-Paketzentrum aktualisieren "
+                       "(kostenpflichtige oder Drittanbieter-Pakete lassen sich nicht aus der Ferne laden).")
     log(f"{pkg['id']}: Download {pkg.get('installed')} → {pkg.get('available')}")
-    data = await dsm.call("SYNO.Core.Package.Installation", "install", version=1, operation="install", type=0,
-                          blqinst=False, url=pkg["link"], name=pkg["id"], checksum=pkg.get("md5", ""),
-                          filesize=pkg.get("size", ""))
-    task_id = (data or {}).get("taskid")
+    params = dict(operation="install", type=0, blqinst=False, url=pkg["link"], name=pkg["id"],
+                  checksum=pkg.get("md5", ""), filesize=str(pkg.get("size", "")))
+    try:
+        data = await dsm.call("SYNO.Core.Package.Installation", "install", version=1, **params)
+    except NasError as exc:
+        # Manche DSM-Staende lesen die Angaben nur JSON-kodiert (so schickt sie die eigene Oberflaeche).
+        if exc.code not in (101, 114, 120, 4500, 4501):
+            raise
+        log(f"{pkg['id']}: zweiter Versuch mit DSM-Kodierung ({exc})")
+        data = await dsm.call("SYNO.Core.Package.Installation", "install", version=1,
+                              **{k: _json_str(v) for k, v in params.items()})
+    task_id = (data or {}).get("taskid") or (data or {}).get("task_id")
     if not task_id:
-        raise NasError(f"{pkg['id']}: DSM hat den Download nicht gestartet.")
+        raise NasError(f"{pkg['id']}: DSM hat den Download nicht gestartet (Antwort: {str(data)[:200]}).")
     for _ in range(360):                          # bis 30 min
-        st = await dsm.call("SYNO.Core.Package.Installation", "status", version=1, task_id=task_id)
+        st = await dsm.call("SYNO.Core.Package.Installation", "status", version=1, task_id=task_id) or {}
+        if str(st.get("status", "")).lower() in ("error", "failed", "fail", "broken"):
+            raise NasError(f"{pkg['id']}: Download fehlgeschlagen ({st.get('status')}"
+                           + (f", Fehler {st['error']}" if st.get("error") else "") + ").")
         if st.get("finished"):
             break
         await _wait(5)
@@ -1255,6 +1311,59 @@ async def _config_backup_before(db: AsyncSession, nas: NasDevice, log) -> None:
 
 
 # -----------------------------------------------------------------------------
+# RIMPERIO-Paket (app/dsmpackage.py) direkt installieren
+# -----------------------------------------------------------------------------
+async def install_spk(db: AsyncSession, nas: NasDevice, data: bytes, filename: str) -> dict:
+    """Laedt das .spk ueber die DSM-API hoch und installiert es.
+
+    Wie die Oberflaeche von DSM: SYNO.Core.Package.Installation upload (multipart),
+    danach install mit dem hochgeladenen Pfad. Klappt das nicht (aeltere DSM-Staende,
+    Vertrauensebene), sagt die Meldung, wie es von Hand geht."""
+    dsm = await synology_session(db, nas)
+    try:
+        api = "SYNO.Core.Package.Installation"
+        if not dsm.has(api):
+            raise NasError("Dieses DSM bietet keine Paket-Installation über die API – bitte von Hand installieren.")
+        # Drittanbieter-Pakete erlauben (Vertrauensebene), sonst lehnt DSM ab.
+        if dsm.has("SYNO.Core.Package.Setting"):
+            cur, _ = await dsm.try_call("SYNO.Core.Package.Setting", "get")
+            if isinstance(cur, dict) and cur.get("trust_level") not in (None, 1, 2, "1", "2"):
+                await dsm.try_call("SYNO.Core.Package.Setting", "set", trust_level=1)
+        spec = dsm.apis[api]
+        assert dsm._c
+        url = f"{dsm.base}/webapi/{spec.get('path') or 'entry.cgi'}"
+        params = {"api": api, "version": str(dsm._version(api, 1)), "method": "upload", "_sid": dsm.sid}
+        headers = {"X-SYNO-TOKEN": dsm.synotoken} if dsm.synotoken else {}
+        try:
+            r = await dsm._c.post(url, params=params, headers=headers, timeout=300,
+                                  files={"file": (filename, data, "application/octet-stream")})
+            up = r.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise NasError(f"Hochladen fehlgeschlagen: {exc}") from exc
+        if not up.get("success"):
+            code = int((up.get("error") or {}).get("code", 0) or 0)
+            raise NasError(f"DSM nimmt das Paket nicht an: {PACKAGE_ERRORS.get(code) or DSM_ERRORS.get(code) or f'Fehler {code}'}. "
+                           "Paketzentrum → Einstellungen → Vertrauensebene auf „Alle Herausgeber“ stellen oder "
+                           "das .spk unter „Manuelle Installation“ von Hand einspielen.", code)
+        info = up.get("data") or {}
+        task_id = info.get("task_id") or info.get("taskid")
+        path = info.get("path") or (f"{info['tmp_folder']}/{filename}" if info.get("tmp_folder") else "")
+        volume = info.get("volume_path") or ""
+        if not volume and dsm.has("SYNO.Core.Storage.Volume"):
+            vols, _ = await dsm.try_call("SYNO.Core.Storage.Volume", "list", offset=0, limit=-1, location="internal")
+            vlist = (vols or {}).get("volumes") or []
+            volume = (vlist[0].get("volume_path") if vlist else "") or "/volume1"
+        res = await dsm.call(api, "install", version=1, type=0, volume_path=volume or "/volume1", path=path,
+                             task_id=task_id, check_codesign=False, force=True, installrunpackage=True,
+                             extra_values=json.dumps({}), timeout=600)
+        return {"ok": True, "message": "Installiert – im DSM-Paketzentrum als „RIMPERIO Agent“ sichtbar. "
+                                       "Der Agent meldet sich in einer Minute unter Geräte → Rechner.",
+                "detail": res if isinstance(res, dict) else {}}
+    finally:
+        await dsm.__aexit__(None, None, None)
+
+
+# -----------------------------------------------------------------------------
 # Hyper Backup und Konfigurationssicherung (fuer backupjobs)
 # -----------------------------------------------------------------------------
 async def hyperbackup_run(db: AsyncSession, nas: NasDevice, task_id: Any) -> None:
@@ -1351,33 +1460,68 @@ async def discovered(db: AsyncSession, live: bool = False) -> List[dict]:
 
 async def special_systems(db: AsyncSession) -> dict:
     """Raspberry Pi & Co.: Rechner mit Agent auf Einplatinen-Hardware und gefundene Pis ohne Agent."""
+    from .models import PatchItem
+    from .rmm import is_online
+    from sqlalchemy import func
     agents = (await db.execute(select(Agent))).scalars().all()
-    out_agents = []
-    pi_macs = set()
+    open_patches = dict((await db.execute(
+        select(PatchItem.agent_id, func.count()).where(
+            PatchItem.status.in_(("auto", "approved", "needs_approval", "review"))).group_by(PatchItem.agent_id))).all())
+    out_agents, log_only = [], []
+    pi_macs, pi_ips = set(), set()
     for a in agents:
-        if not a.agent_uid:
-            continue
         inv = a.inventory or {}
         hw = inv.get("hardware") or {}
         model = hw.get("model") or ""
         macs = [m.lower() for m in inv.get("macs") or []]
+        if a.mac_address:
+            macs.append(a.mac_address.lower())
+        arch = str(inv.get("arch") or a.arch or "")
         is_pi = "raspberry" in model.lower() or any(is_raspberry_mac(m) for m in macs)
-        is_arm = str(inv.get("arch", "")).startswith("arm") or str(inv.get("kernel_arch", "")).startswith(("arm", "aarch"))
-        if not (is_pi or hw.get("board") or (is_arm and model)):
+        is_arm = arch.startswith(("arm", "aarch")) or str(inv.get("kernel_arch", "")).startswith(("arm", "aarch"))
+        if not a.agent_uid:
+            # Nur Log-Agent (Syslog/Log-Lieferung): angebunden, aber ohne Fernwartung.
+            if is_pi:
+                log_only.append({"id": a.id, "hostname": a.hostname, "ip": a.ip_address, "mac": a.mac_address,
+                                 "last_seen": _iso(a.last_seen)})
+                pi_macs.update(macs)
+                if a.ip_address:
+                    pi_ips.add(a.ip_address)
+            continue
+        # Auch aeltere Agents ohne Modell-Angabe: jede ARM-Linux-Maschine gehoert hierher.
+        if not (is_pi or hw.get("board") or is_arm):
             continue
         pi_macs.update(macs)
+        for ip in (a.ip_address, inv.get("local_ip")):
+            if ip:
+                pi_ips.add(ip)
+        temp, throttled = hw.get("temp_c"), hw.get("throttled")
+        hints = []
+        if is_pi and throttled is None and hw:
+            hints.append("Drosselung nicht lesbar: das Dienstkonto braucht die Gruppe video "
+                         "(sudo usermod -aG video rimperio && sudo systemctl restart rimperio-agent).")
+        if temp is not None and temp >= 80:
+            hints.append("SoC über 80 °C – Kühlkörper/Lüfter prüfen, der Pi drosselt sonst dauerhaft.")
+        if any("Unterspannung" in t and "jetzt" in t for t in (hw.get("throttled_text") or [])):
+            hints.append("Unterspannung jetzt: Netzteil (5,1 V / 3 A bzw. 5 A beim Pi 5) und Kabel tauschen.")
+        disk = a.last_disk
+        if disk is not None and disk >= 90:
+            hints.append(f"Speicherkarte zu {disk:.0f} % voll.")
         out_agents.append({"agent_uid": a.agent_uid, "hostname": a.hostname,
-                           "model": model or ("Raspberry Pi" if is_pi else inv.get("cpu_model", "")),
-                           "arch": inv.get("arch"), "os": inv.get("os") or inv.get("platform"),
-                           "temp_c": hw.get("temp_c"), "throttled": hw.get("throttled"),
+                           "model": model or ("Raspberry Pi" if is_pi else (inv.get("cpu_model") or "ARM-Rechner")),
+                           "arch": arch, "os": inv.get("os") or inv.get("platform"),
+                           "ip": (inv.get("local_ip") or a.ip_address),
+                           "online": is_online(a, 300), "raspberry_pi": is_pi,
+                           "temp_c": temp, "throttled": throttled,
                            "throttled_text": hw.get("throttled_text"), "last_seen": _iso(a.rmm_last_seen),
-                           "agent_version": inv.get("agent_version")})
+                           "agent_version": inv.get("agent_version"), "open_patches": int(open_patches.get(a.id, 0)),
+                           "hints": hints})
     rows = (await db.execute(select(DiscoveredDevice))).scalars().all()
     loose = [{"id": r.id, "ip": r.ip_address, "hostname": r.hostname, "mac": r.mac_address, "os_guess": r.os_guess,
               "ports": r.open_ports or [], "ssh": 22 in (r.open_ports or [])}
              for r in rows if is_raspberry_mac(r.mac_address) and (r.mac_address or "").lower() not in pi_macs
-             and not r.ignored]
-    return {"agents": out_agents, "discovered": loose}
+             and r.ip_address not in pi_ips and not r.ignored]
+    return {"agents": out_agents, "log_only": log_only, "discovered": loose}
 
 
 # -----------------------------------------------------------------------------

@@ -2,6 +2,14 @@
 
 Installer & Log-Forwarder für Linux/Windows (`agents/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.4.0
+
+### Added
+- **Tunnel für den Fernzugriff** (`internal/core/tunnel.go`): Auftrag `tunnel` → WebSocket zum Server; Live-Shell (`terminal_unix.go` mit PTY, `terminal_windows.go` mit ConPTY und Pipe-Ersatz) oder TCP nur zu 127.0.0.1:3389/5900.
+
+### Fixed
+- Lange Ausgaben behalten Anfang **und** Ende (Abschlussmarken der Server-Skripte gingen verloren).
+
 ## 2026.11.27.14.00.00 — Version aus `VERSION`, bereit für SemVer
 
 ### Changed

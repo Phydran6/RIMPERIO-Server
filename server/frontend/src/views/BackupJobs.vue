@@ -22,8 +22,13 @@
 
     <p v-if="error" class="rmm-note is-error">{{ error }}</p>
     <p v-if="notice" class="rmm-note is-ok">{{ notice }}</p>
-    <p v-if="auth.isAdmin && !targets.length" class="rmm-note is-info">Noch kein Ort angelegt – zuerst unter
-      <router-link to="/backups/targets">Orte</router-link> festlegen, wohin gesichert wird (z. B. eine SMB-Freigabe auf dem NAS).</p>
+    <p v-if="auth.isAdmin && !usableTargets.length" class="rmm-note is-info">Noch kein Ort außerhalb des Servers – RIMPERIO
+      speichert selbst keine Sicherungen. Zuerst unter <router-link to="/backups/targets">Orte</router-link> festlegen, wohin
+      gesichert wird (SMB-Freigabe auf dem NAS, SFTP oder Cloud-Speicher S3). Ohne Ort lassen sich nur Hyper-Backup- und
+      Proxmox-Aufträge anlegen (die speichern am NAS bzw. auf dem Proxmox-Speicher).</p>
+    <p v-if="localJobs.length" class="rmm-note is-error">{{ localJobs.length }} Auftrag/Aufträge sichern noch in einen Ordner auf dem
+      RIMPERIO-Server ({{ localJobs.map(j => j.name).join(', ') }}). Das ist nicht mehr erlaubt – bitte auf einen Ort außerhalb umstellen,
+      sonst laufen sie nicht mehr.</p>
     <p v-if="auth.isAdmin && !ov.vault_active" class="rmm-note is-info">Tipp: Mit <router-link to="/integrations/vault">Vaultwarden</router-link>
       liegen Backup-Passwort und alle Zugänge zentral in deinem Tresor statt nur auf diesem Server.</p>
 
@@ -139,8 +144,10 @@
           <label v-if="!['nas_task', 'pve'].includes(form.kind)" class="is-wide">Wohin
             <select v-model.number="form.target_id" class="select">
               <option :value="null">— Ort wählen —</option>
-              <option v-for="t in targets" :key="t.id" :value="t.id">{{ t.name }} – {{ t.kind_label }}</option>
-            </select></label>
+              <option v-for="t in usableTargets" :key="t.id" :value="t.id">{{ t.name }} – {{ t.kind_label }}</option>
+            </select>
+            <span v-if="!usableTargets.length" class="rmm-note is-error">Kein Ort vorhanden. Bitte zuerst unter
+              <router-link to="/backups/targets">Backup → Orte</router-link> einen anlegen.</span></label>
           <template v-if="!['nas_task', 'pve'].includes(form.kind)">
             <label class="pol-check"><input v-model="form.encrypt" type="checkbox" /> verschlüsseln (empfohlen)</label>
             <label v-if="form.encrypt" class="pol-check"><input v-model="form.own_key" type="checkbox" /> eigener Schlüssel für diesen Auftrag</label>
@@ -184,6 +191,9 @@ const auth = useAuthStore()
 const route = useRoute()
 const jobs = ref([])
 const targets = ref([])
+// RIMPERIO speichert nicht selbst: nur Orte ausserhalb des Servers sind waehlbar.
+const usableTargets = computed(() => targets.value.filter(t => t.enabled && t.kind !== 'local'))
+const localJobs = computed(() => jobs.value.filter(j => j.target && j.target.kind === 'local'))
 const ov = ref({})
 const agents = ref([])
 const nasList = ref([])
@@ -268,7 +278,7 @@ function taskName() {
 
 function blank(kind = 'rimperio') {
   return { name: '', kind, source: { scopes: [], paths: [], excludes: [], agent_uid: '', nas_id: null, task_id: null, host_id: null, storage: '' },
-    target_id: targets.value[0]?.id ?? null, encrypt: true, own_key: false,
+    target_id: usableTargets.value[0]?.id ?? null, encrypt: true, own_key: false,
     schedule: { type: 'daily', time: '02:30', days: [6], every_hours: 6, tz: 'Europe/Berlin' },
     keep_last: 14, keep_days: 0, max_age_hours: 0, enabled: true, note: '' }
 }
@@ -282,6 +292,7 @@ async function openForm(j, preset) {
   } else {
     form.value = blank(preset?.kind)
     if (preset?.nas) form.value.source.nas_id = Number(preset.nas)
+    if (preset?.agent) form.value.source.agent_uid = String(preset.agent)
     if (preset?.task) { form.value.source.task_id = isNaN(Number(preset.task)) ? preset.task : Number(preset.task); form.value.source.task_name = preset.task_name || '' }
     if (preset?.kind === 'nas_config') form.value.schedule = { ...form.value.schedule, type: 'weekly', days: [6], time: '02:00' }
   }
@@ -300,6 +311,12 @@ async function save() {
     body.source.excludes = excludesText.value.split('\n').map(s => s.trim()).filter(Boolean)
   }
   if (['nas_task', 'pve'].includes(f.kind)) { body.target_id = null; body.encrypt = false }
+  else if (!body.target_id || !usableTargets.value.some(t => t.id === body.target_id)) {
+    formError.value = usableTargets.value.length
+      ? 'Bitte einen Ort wählen, wohin gesichert wird.'
+      : 'Es gibt noch keinen Ort außerhalb des Servers – bitte zuerst unter Backup → Orte einen anlegen.'
+    return
+  }
   busy.value = true
   try {
     await auth.api(f.id ? `/api/backups/jobs/${f.id}` : '/api/backups/jobs', { method: f.id ? 'PUT' : 'POST', body })
@@ -322,7 +339,7 @@ function onKey(e) { if (e.key === 'Escape' && form.value) form.value = null }
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
   await load()
-  if (route.query.new && auth.isAdmin) openForm(null, { kind: String(route.query.new), nas: route.query.nas, task: route.query.task, task_name: route.query.task_name })
+  if (route.query.new && auth.isAdmin) openForm(null, { kind: String(route.query.new), nas: route.query.nas, task: route.query.task, task_name: route.query.task_name, agent: route.query.agent })
 })
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeout(timer) })
 </script>

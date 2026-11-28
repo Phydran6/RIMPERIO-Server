@@ -2,6 +2,28 @@
 
 FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versionsschema) ab `0.0.1`, davor `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.4.0
+
+### Added
+- **Fernzugriff** (`app/remote.py`, `app/routes/remote.py`): Sitzungen `shell|rdp|vnc` je Administrator, WebSocket des Agents unter `/api/rmm/agent/tunnel/{id}` (Agent-Token), Browser unter `/api/remote/sessions/{id}/shell` bzw. `/guac` (Ticket `console`). Guacamole-Relais mit Handschlag zu guacd; guacd verbindet sich mit einem Port des Backends, der in den Tunnel führt. `POST /api/remote/{uid}/rdp/enable`, `POST /api/remote/{uid}/live/prepare` (TightVNC nur localhost, Passwort je Rechner aus dem Server-Geheimnis abgeleitet).
+- **Autopilot** (`app/selfupdate.py`): Releases je Stufe (PATCH/MINOR automatisch, MAJOR bzw. `[Freigabe]`/`BREAKING` nur mit Freigabe), Sicherheits-Releases ohne Wartungsfenster, fremde Images, `unattended-upgrades` auf dem Host. Meldung mit Aktion `rimperio_update`. API `GET|PUT /api/updates/auto`, `POST /api/updates/auto/{approve,skip,check}`, `GET|POST /api/app/server/autopilot`.
+- **Docker-Stacks** (`app/compose.py`, `app/routes/compose.py`): `GET /api/rmm/docker-hosts`, `GET|PUT /api/rmm/agents/{uid}/stacks/{project}`, Aktionen und Sicherungen; Prüfung mit `docker compose config` vor dem Schreiben, Sicherung `.rimperio-<zeit>.bak`, Zurückholen bei fehlgeschlagenem Ausrollen.
+- **S3 als Backup-Ort** (boto3, Multipart), Spalte `backup_targets.options`; Vorlagen für bekannte Anbieter.
+- **DSM-Paket** (`app/dsmpackage.py`): `.spk` (noarch, DSM 7) mit vorbelegter Einladung; `POST /api/nas/dsm-package`, `POST /api/nas/{id}/install-package`.
+- **KI:** Anbieter `ollama` und `openai_compatible`, `POST /api/ai/models` für alle Anbieter (auch ungespeichert), Anweisungen je Bereich (`prompts`, `ai.prompt_for`), `verify_tls`.
+- **Raspberry Pi:** `POST /api/rmm/agents/{uid}/reboot`, `POST /api/rmm/agents/{uid}/pi-check`; `/api/nas/special` mit Hinweisen, offenen Updates und `log_only`.
+
+### Changed
+- Backup: neue Orte nur außerhalb des Servers; Aufträge (RIMPERIO, Ordner, NAS-Konfiguration) brauchen einen solchen Ort; Läufe auf „Ordner am Server“ werden abgelehnt.
+- DSM: eigener Sitzungsname je Verbindung, erneute Anmeldung bei Code 106/107/119, Paketzentrum-Fehler als Klartext.
+- Open WebUI ohne interne Vorgabe-Adresse; Adressen werden normalisiert.
+
+### Fixed
+- `pve.install_via_guest_agent`: Tupel-Liste als `data` → TypeError → HTTP 500.
+- DB-Probelauf: Bereitschaft über TCP und PID 1 statt Init-Server; Vergleich gegen Zählung direkt vor/nach dem Abzug; `*_FILE`-Geheimnisse; Image-Variablen nicht übernommen.
+- `POST /api/rmm/agent/enroll`: Zugriff auf abgelaufenes Objekt nach Rollback → HTTP 500 statt 409.
+- Verbindungstests der Backup-Orte mit Zeitlimit.
+
 ## 0.3.0
 
 ### Added

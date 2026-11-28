@@ -23,6 +23,13 @@
         <router-link v-if="agent.hostname" :to="`/devices/${encodeURIComponent(agent.hostname)}`" class="btn btn-secondary btn-sm">
           <AppIcon name="logs" :size="16" /> Logs
         </router-link>
+        <template v-if="auth.isAdmin">
+          <router-link :to="`/rmm/agents/${uid}/remote/shell`" class="btn btn-primary btn-sm">Live-Shell</router-link>
+          <template v-if="(agent.platform || '').toLowerCase().startsWith('win')">
+            <router-link :to="`/rmm/agents/${uid}/remote/rdp`" class="btn btn-secondary btn-sm">Remotedesktop</router-link>
+            <router-link :to="`/rmm/agents/${uid}/remote/vnc`" class="btn btn-secondary btn-sm">Live-Sitzung</router-link>
+          </template>
+        </template>
         <button v-if="auth.isAdmin" class="btn btn-danger btn-sm" @click="showRemove = !showRemove">Agent entfernen</button>
       </div>
     </div>

@@ -2,6 +2,18 @@
 
 Vue-3-Weboberfläche (`frontend/`). Versionsformat: `YYYY.MM.DD.HH.MM.SS`.
 
+## 0.4.0
+
+### Added
+- **Fernzugriff** (`RemoteSession.vue`): Live-Shell mit xterm.js, RDP und Live-Sitzung mit guacamole-common-js; Knöpfe auf der Rechner-Seite.
+- **Docker-Stacks** (`DockerStacks.vue`): Editor mit Zeilennummern, YAML-Prüfung (js-yaml), Image-Tag-Tabelle, Warnung bei Datenbank-Images.
+- **Updates → Autopilot**: Einstellungen, Wartungsfenster, Freigabe, Verlauf.
+- **Backup-Orte**: S3 mit Anbieter-Vorlagen; **NAS**: Karte „RIMPERIO auf dem NAS (Paket)“; **Raspberry Pi**: Aktionen und Zustandsprüfung; **KI**: Modellauswahl, Ollama, Vorlagen je Bereich.
+
+### Fixed
+- Untermenüs (z. B. Integrationen → Anmeldung) ließen sich nicht schließen, wenn die geöffnete Seite darin lag; Untermenüs mit nur einem Eintrag entfallen.
+- Validierungsfehler der API erscheinen lesbar statt als „[object Object]“; Backup-Orte zeigen Speichern und Test getrennt an.
+
 ## 0.3.0
 
 ### Added

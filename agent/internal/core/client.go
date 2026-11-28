@@ -84,7 +84,7 @@ type PendingCommand struct {
 	Shell   string `json:"shell"`
 	Command string `json:"command"`
 	Timeout int    `json:"timeout"`
-	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | docker_scan | docker_update | health_snapshot | reboot | software_inventory | uninstall
+	Kind    string `json:"kind"` // shell | patch_scan | patch_apply | docker_scan | docker_update | health_snapshot | reboot | software_inventory | uninstall | tunnel
 }
 
 type CheckSpec struct {

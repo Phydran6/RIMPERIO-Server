@@ -15,7 +15,7 @@ Auswertung schickt Logdaten an einen Dritten.
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -44,6 +44,17 @@ class ConfigRequest(BaseModel):
     api_key: Optional[str] = Field(default=None,
                                    description="Leer lassen = bestehenden Schlüssel behalten")
     clear_api_key: bool = False
+    verify_tls: Optional[bool] = None
+    prompts: Optional[Dict[str, str]] = None
+    prompt_templates: Optional[Dict[str, str]] = None
+
+
+class ModelsRequest(BaseModel):
+    """Modelle laden, bevor gespeichert ist: die Angaben aus dem Formular."""
+    provider: str
+    webhook_url: str = ""
+    api_key: str = Field(default="", description="Leer = gespeicherten Schlüssel nehmen")
+    verify_tls: bool = True
 
 
 class AskRequest(BaseModel):
@@ -113,6 +124,8 @@ async def get_config(db: AsyncSession = Depends(get_db), _=Depends(get_current_a
         "providers": ai.catalog(),
         "limits": {"max_logs": ai.MAX_LOGS, "default_logs": ai.DEFAULT_LOGS},
         "default_system_prompt": ai.DEFAULT_SYSTEM_PROMPT,
+        "areas": [{"id": k, **v} for k, v in ai.AREAS.items()],
+        "templates": ai.PROMPT_TEMPLATES,
     }
 
 
@@ -134,6 +147,19 @@ async def test(db: AsyncSession = Depends(get_db), _=Depends(get_current_admin))
     return await ai.test_connection(await ai.load_config(db))
 
 
+@router.post("/models")
+async def models_for(data: ModelsRequest, db: AsyncSession = Depends(get_db), _=Depends(get_current_admin)):
+    """Modellliste fuer die Angaben im Formular (auch ungespeichert) - fuer alle Anbieter."""
+    saved = await ai.load_config(db)
+    cfg = {"provider": data.provider, "webhook_url": data.webhook_url.strip(), "verify_tls": data.verify_tls,
+           "api_key": data.api_key.strip() or saved.get("api_key", "")}
+    if data.provider in ("openwebui", "ollama", "openai_compatible"):
+        cfg["webhook_url"] = ai.normalize_base(cfg["webhook_url"])
+        if not cfg["webhook_url"]:
+            return {"models": [], "error": "Bitte zuerst die Adresse eintragen."}
+    return {**(await ai.list_models(cfg)), "provider": data.provider, "base": cfg["webhook_url"]}
+
+
 @router.get("/models")
 async def models(db: AsyncSession = Depends(get_db), _=Depends(get_current_admin)):
     """Welche Modelle bietet die eingerichtete Gegenstelle an?
@@ -148,9 +174,8 @@ async def models(db: AsyncSession = Depends(get_db), _=Depends(get_current_admin
     Modellname von Hand einzutragen ist.
     """
     config = await ai.load_config(db)
-    if config.get("provider") != "openwebui":
-        return {"models": [], "provider": config.get("provider"),
-                "note": "Eine Modellliste gibt es nur für Open WebUI."}
+    res = await ai.list_models(config)
+    return {"models": res["models"], "provider": config.get("provider"), "note": res.get("error", "")}
     found = await ai.list_openwebui_models(config)
     return {
         "models": found,

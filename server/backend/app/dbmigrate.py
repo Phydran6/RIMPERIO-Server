@@ -221,6 +221,9 @@ ENGINES: Dict[str, Dict[str, str]] = {
         "version": "postgres -V 2>/dev/null | head -1",
         "datadir": 'echo "${PGDATA:-/var/lib/postgresql/data}"',
         "ready": 'pg_isready -q -U "${POSTGRES_USER:-postgres}"',
+        # Der Init-Server des Entrypoints hoert nur auf dem Unix-Socket - ueber
+        # TCP antwortet erst der richtige Server.
+        "ready_tcp": 'pg_isready -q -h 127.0.0.1 -U "${POSTGRES_USER:-postgres}"',
         "dump": 'pg_dumpall -U "${POSTGRES_USER:-postgres}"',
         "dumpfile": "dump.sql",
         "restore": 'psql -U "${POSTGRES_USER:-postgres}" -d postgres -v ON_ERROR_STOP=0 -q',
@@ -246,6 +249,8 @@ CLI="$(command -v mariadb || command -v mysql)"; DUMP="$(command -v mariadb-dump
 ADM="$(command -v mariadb-admin || command -v mysqladmin)"
 if [ -n "$P" ]; then export MYSQL_PWD="$P"; fi''',
         "ready": '$ADM ping -uroot --silent',
+        # Init-Server laeuft mit --skip-networking; erst der echte hoert auf TCP.
+        "ready_tcp": '$ADM ping -uroot --silent -h 127.0.0.1 --protocol=tcp',
         "dump": r'''DBS="$($CLI -uroot -N -e "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('mysql','sys','performance_schema','information_schema')" | tr '\n' ' ')"
 $DUMP -uroot --single-transaction --routines --events --triggers --hex-blob --databases $DBS''',
         "dumpfile": "dump.sql",
@@ -300,13 +305,46 @@ def _in_container(target: str, engine_name: str, body: str, stdin: str = "") -> 
     return (f"docker exec -i {target} sh <<'EOS' {stdin}\n{pre}\n{body}\nEOS\n")
 
 
-def _wait_ready(target: str, engine_name: str, seconds: int = 180) -> str:
+SERVER_PROCS = "postgres|mariadbd|mysqld|mongod|redis-server|valkey-server"
+
+
+def _wait_ready(target: str, engine_name: str, seconds: int = 180, fresh: bool = False) -> str:
+    """Wartet, bis die Datenbank im Container antwortet.
+
+    fresh=True fuer einen frisch angelegten Container (Probelauf, Neuanlage beim
+    Hauptversions-Sprung): Die offiziellen Images starten beim ersten Start einen
+    *Init-Server* (nur Unix-Socket, ohne Netzwerk), spielen die Init-Skripte ein,
+    halten ihn an und starten dann den echten Server. Ein einfaches "ping" ist
+    schon im Init-Server erfolgreich - wer dann einspielt, verliert die
+    Verbindung mitten im Abzug (der haeufigste Grund fuer fehlgeschlagene
+    Probelaeufe). Darum gilt "bereit" hier erst, wenn die Datenbank ueber TCP
+    antwortet UND der Server-Prozess PID 1 ist (der Entrypoint hat sich per exec
+    ersetzt). Images ohne dieses Muster gelten nach 30 s stabiler Antwort als bereit.
+    """
     e = ENGINES[engine_name]
-    return f"""i=0; until docker exec {target} sh -c {_q((e.get('pw', '') + chr(10) + e['ready']))} >/dev/null 2>&1; do
+    if not fresh:
+        probe = _q(e.get('pw', '') + chr(10) + e['ready'])
+        return f"""i=0; until docker exec {target} sh -c {probe} >/dev/null 2>&1; do
   i=$((i+3)); [ $i -ge {seconds} ] && {{ echo "@@FAIL=Datenbank in {target} wurde nicht bereit ({seconds} s)."; docker logs --tail 30 {target} 2>&1 | sed 's/^/@@LOG|/'; break; }}
   sleep 3
 done
 [ $i -lt {seconds} ] && echo "@@READY={target}"
+"""
+    check = (e.get('pw', '') + chr(10) + (e.get('ready_tcp') or e['ready']) + " >/dev/null 2>&1 || exit 1" + chr(10)
+             + 'case "$(cat /proc/1/comm 2>/dev/null)" in ' + SERVER_PROCS + ') exit 0;; esac' + chr(10) + "exit 3")
+    return f"""i=0; stable=0; ok=0
+while [ $i -lt {seconds} ]; do
+  st="$(docker inspect -f '{{{{.State.Status}}}}' {target} 2>/dev/null)"
+  if [ "$st" = "exited" ] || [ "$st" = "dead" ]; then echo "@@FAIL=Container {target} hat sich beendet (Status $st)."; docker logs --tail 30 {target} 2>&1 | sed 's/^/@@LOG|/'; break; fi
+  docker exec {target} sh -c {_q(check)} >/dev/null 2>&1; rc=$?
+  if [ $rc -eq 0 ]; then stable=$((stable+1)); [ $stable -ge 2 ] && {{ ok=1; break; }}
+  elif [ $rc -eq 3 ]; then stable=$((stable+1)); [ $stable -ge 10 ] && {{ ok=1; break; }}
+  else stable=0; fi
+  i=$((i+3)); sleep 3
+done
+if [ $ok -eq 1 ]; then echo "@@READY={target}"; else
+  [ $i -ge {seconds} ] && {{ echo "@@FAIL=Datenbank in {target} wurde nicht bereit ({seconds} s)."; docker logs --tail 30 {target} 2>&1 | sed 's/^/@@LOG|/'; }}
+fi
 """
 
 
@@ -346,8 +384,16 @@ echo "@@NEWVER=$(docker run --rm --entrypoint sh "$T" -c {_q(e['version'])} 2>/d
 echo "@@FREE_BK=$(df -PB1 "$BK" | awk 'NR==2{{print $4}}')"
 DR="$(docker info -f '{{{{.DockerRootDir}}}}' 2>/dev/null)"; echo "@@FREE_DOCKER=$(df -PB1 "${{DR:-/var/lib/docker}}" 2>/dev/null | awk 'NR==2{{print $4}}')"
 # Umgebung fuer den Probelauf: nur, was die Datenbank braucht - bleibt auf dem Rechner.
-docker inspect -f '{{{{range .Config.Env}}}}{{{{println .}}}}{{{{end}}}}' "$C" | grep -E '^(POSTGRES_|PG|MARIADB_|MYSQL_|MONGO_|REDIS_|TZ=)' | grep -v '^PGDATA=' > "$BK/env.list"
-chmod 600 "$BK/env.list"
+docker inspect -f '{{{{range .Config.Env}}}}{{{{println .}}}}{{{{end}}}}' "$C" | grep -E '^(POSTGRES_|POSTGRESQL_|PG|MARIADB_|MYSQL_|MONGO_|MONGODB_|REDIS_|VALKEY_|ALLOW_EMPTY_PASSWORD=|TZ=)' | grep -vE '^(PGDATA|PG_MAJOR|PG_VERSION|PG_SHA256|[A-Z]+_VERSION|[A-Z]+_MAJOR|[A-Z]+_DOWNLOAD_[A-Z0-9_]+|MONGO_PACKAGE|MONGO_REPO)=' > "$BK/env.raw"
+chmod 600 "$BK/env.raw"
+# Geheimnisse als Datei (POSTGRES_PASSWORD_FILE=/run/secrets/…) gibt es im
+# Probelauf-Container nicht - Wert aus dem Original lesen, Datei-Variable weglassen.
+: > "$BK/env.list"; chmod 600 "$BK/env.list"
+grep -E '^[A-Z0-9_]+_FILE=' "$BK/env.raw" | while IFS='=' read -r k v; do
+  val="$(docker exec "$C" cat "$v" 2>/dev/null | head -1 | tr -d '\r\n')"
+  [ -n "$val" ] && printf '%s=%s\n' "${{k%_FILE}}" "$val" >> "$BK/env.list"
+done
+grep -vE '^[A-Z0-9_]+_FILE=' "$BK/env.raw" >> "$BK/env.list"; rm -f "$BK/env.raw"
 echo "@@ENVKEYS=$(cut -d= -f1 "$BK/env.list" | tr '\\n' ' ')"
 if [ "$(docker inspect -f '{{{{.State.Status}}}}' "$C")" = "running" ]; then
 {_in_container('"$C"', m.engine, e['count'])}
@@ -357,9 +403,20 @@ echo "@@DONE=analyze"
 
 
 def script_backup(m: DbMigration, name: str = "dump") -> str:
+    """Abzug - beim ersten Abzug (name="dump") mit Zaehlung direkt davor und
+    danach. Der Probelauf vergleicht gegen diesen Bereich: Laufende Anwendungen
+    schreiben weiter, und ein Vergleich gegen die Zahlen der (laengst
+    vergangenen) Analyse meldete sonst "abweichende Zeilenzahl", obwohl der
+    Abzug vollstaendig war."""
     e = ENGINES[m.engine]
     out = f"$BK/{name}-{e['dumpfile']}"
-    return _header(m) + _dump_cmd(m.engine, out) + f"""
+    pre = post = ""
+    if name == "dump":
+        pre = _in_container('"$C"', m.engine, e['count'], '> "$BK/count-pre.txt" 2>/dev/null')
+        post = _in_container('"$C"', m.engine, e['count'], '> "$BK/count-post.txt" 2>/dev/null') + \
+            """awk -F'|' '$1!="@@COUNT"{next} NR==FNR{a[$2"|"$3]=$4+0;next} {k=$2"|"$3; n=$4+0; p=(k in a)?a[k]:n; lo=(p<n)?p:n; hi=(p>n)?p:n; print "@@RANGE|"k"|"lo"|"hi; delete a[k]} END{for(k in a) print "@@RANGE|"k"|"a[k]"|"a[k]}' "$BK/count-pre.txt" "$BK/count-post.txt"
+"""
+    return _header(m) + pre + _dump_cmd(m.engine, out) + post + f"""
 echo "@@DUMP={out}"
 echo "@@DUMPSIZE=$(stat -c %s "{out}")"
 sha256sum "{out}" | cut -d' ' -f1 | sed 's/^/@@SHA=/'
@@ -396,21 +453,27 @@ def script_dryrun(m: DbMigration) -> str:
 docker run -d --name "$X" --env-file "$BK/env.list" -v "$BK/dryrun-data:/data" {_q(target)} >/dev/null || {{ echo "@@FAIL=Probelauf-Container startet nicht"; exit 4; }}
 """
     else:
-        restore = f"""docker run -d --name "$X" --env-file "$BK/env.list" {_q(target)} >/dev/null || {{ echo "@@FAIL=Probelauf-Container startet nicht"; exit 4; }}
+        restore = f"""docker run -d --name "$X" --env-file "$BK/env.list" $EXTRA {_q(target)} >/dev/null || {{ echo "@@FAIL=Probelauf-Container startet nicht"; exit 4; }}
 """
     body = _header(m) + f"""
 X={_q(x)}
 T={_q(target)}
 [ -s "{dump}" ] || {{ echo "@@FAIL=Kein Abzug vorhanden – erst sichern."; exit 4; }}
+[ -f "$BK/env.list" ] || : > "$BK/env.list"
+# Wegwerf-Container ohne Ports: fehlt im Original ein Passwort (z. B. per
+# Docker-Secret, das es hier nicht gibt), legt das Image sonst keine Datenbank an.
+EXTRA=""
+case {_q(m.engine)} in
+  postgres) grep -qE '^POSTGRES(QL)?_PASSWORD=' "$BK/env.list" || EXTRA="-e POSTGRES_HOST_AUTH_METHOD=trust -e ALLOW_EMPTY_PASSWORD=yes" ;;
+  mariadb|mysql) grep -qE '^(MARIADB|MYSQL)_ROOT_PASSWORD=' "$BK/env.list" || EXTRA="-e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 -e MYSQL_ALLOW_EMPTY_PASSWORD=1 -e ALLOW_EMPTY_PASSWORD=yes" ;;
+esac
 docker rm -fv "$X" >/dev/null 2>&1
 cleanup() {{ docker rm -fv "$X" >/dev/null 2>&1; rm -rf "$BK/dryrun-data"; }}
 trap cleanup EXIT
-{restore}{_wait_ready('"$X"', m.engine, 240)}
+{restore}{_wait_ready('"$X"', m.engine, 300, fresh=True)}[ "$ok" = 1 ] || exit 4
 """
     if m.engine != "redis":
-        body += f"""sleep 3
-{_wait_ready('"$X"', m.engine, 120)}
-START=$(date +%s)
+        body += f"""START=$(date +%s)
 docker exec -i "$X" sh -c {_q(e.get('pw', '') + chr(10) + e['restore'])} < "{dump}" > "$BK/restore-dryrun.log" 2>&1
 echo "@@RESTORE_RC=$?"
 echo "@@RESTORE_SECONDS=$(( $(date +%s) - START ))"
@@ -473,11 +536,9 @@ def script_restore_and_verify(m: DbMigration, fresh: bool) -> str:
     Anpassungen, zaehlen, Nachbereitung, Projekt wieder starten."""
     e = ENGINES[m.engine]
     dump = f"$BK/final-{e['dumpfile']}"
-    body = _header(m) + _wait_ready('"$C"', m.engine, 300)
+    body = _header(m) + _wait_ready('"$C"', m.engine, 300, fresh=fresh)
     if fresh and m.engine != "redis":
-        body += f"""sleep 5
-{_wait_ready('"$C"', m.engine, 120)}
-docker exec -i "$C" sh -c {_q(e.get('pw', '') + chr(10) + e['restore'])} < "{dump}" > "$BK/restore-final.log" 2>&1
+        body += f"""docker exec -i "$C" sh -c {_q(e.get('pw', '') + chr(10) + e['restore'])} < "{dump}" > "$BK/restore-final.log" 2>&1
 echo "@@RESTORE_RC=$?"
 grep -iE 'error|fatal|failed' "$BK/restore-final.log" | head -80 | sed 's/^/@@ERR|/'
 echo "@@ERRCOUNT=$(grep -ciE 'error|fatal' "$BK/restore-final.log")"
@@ -581,6 +642,16 @@ def parse_output(text: str) -> dict:
                 except ValueError:
                     pass
             continue
+        if body.startswith("RANGE|"):
+            parts = body.split("|")
+            if len(parts) >= 5:
+                db, table = parts[1], "|".join(parts[2:-2])
+                try:
+                    key = f"{db}.{table}" if not table.startswith(db + ".") else table
+                    out.setdefault("ranges", {})[key] = [int(parts[-2].strip()), int(parts[-1].strip())]
+                except ValueError:
+                    pass
+            continue
         if body.startswith("ERR|"):
             out["errors"].append(body[4:][:400])
             continue
@@ -605,12 +676,27 @@ def parse_output(text: str) -> dict:
     return out
 
 
-def compare_counts(before: Dict[str, int], after: Dict[str, int]) -> dict:
+def compare_counts(before: Dict[str, int], after: Dict[str, int],
+                   ranges: Optional[Dict[str, list]] = None, engine_name: str = "") -> dict:
+    """Zeilen je Tabelle alt gegen neu.
+
+    ranges: {tabelle: [min, max]} aus der Zaehlung direkt vor und nach dem Abzug
+    - liegt der Probelauf darin, passt der Abzug (die Anwendung hat waehrenddessen
+    weitergeschrieben). Bei Redis verfallen Schluessel mit Ablaufzeit beim Laden;
+    dort sind 2 % weniger kein Fehler.
+    """
+    if ranges:
+        before = {k: int(v[1]) for k, v in ranges.items()}
     missing = sorted(k for k in before if k not in after)
     extra = sorted(k for k in after if k not in before)
     diffs = []
     for k, n in before.items():
-        if k in after and after[k] != n:
+        if k not in after:
+            continue
+        lo, hi = (int(ranges[k][0]), int(ranges[k][1])) if ranges and k in ranges else (n, n)
+        if engine_name == "redis":
+            lo = int(lo * 0.98) - 5
+        if not lo <= after[k] <= hi:
             diffs.append({"table": k, "before": n, "after": after[k]})
     return {"tables_before": len(before), "tables_after": len(after),
             "rows_before": sum(before.values()), "rows_after": sum(after.values()),
@@ -859,7 +945,7 @@ async def _ai_review(db: AsyncSession, m: DbMigration) -> Optional[dict]:
         "\"fixups\":[{\"database\":\"name oder leer\",\"code\":\"…\",\"note\":\"warum\"}]}"
     )
     try:
-        result = await ai.ask_text(cfg, system, prompt)
+        result = await ai.ask_text(cfg, ai.prompt_for(cfg, "db_review", system), prompt)
         parsed = ai.parse_json_answer(result.get("answer", "")) or {}
         return {"recommendation": str(parsed.get("recommendation", "")).lower()[:16],
                 "summary": str(parsed.get("summary", ""))[:1200],
@@ -966,7 +1052,8 @@ async def advance(db: AsyncSession, m: DbMigration) -> None:
         if r.get("fail"):
             await _finish(db, m, agent, False, f"Sicherung: {r['fail']}")
             return
-        _rep(m, "backup", {"dump": r.get("dump"), "size": int(r.get("dumpsize") or 0), "sha256": r.get("sha")})
+        _rep(m, "backup", {"dump": r.get("dump"), "size": int(r.get("dumpsize") or 0), "sha256": r.get("sha"),
+                           "ranges": r.get("ranges") or {}})
         _stage(m, "dryrun", f"Abzug fertig ({int(r.get('dumpsize') or 0) // 2**20} MB). Probelauf mit "
                             f"{plan.get('target') or m.image} läuft.")
         await _queue_shell(db, m, agent, "dryrun", script_dryrun(m), 4 * 3600)
@@ -978,7 +1065,10 @@ async def advance(db: AsyncSession, m: DbMigration) -> None:
             return
         r = _result(cmd)
         before = ((m.report or {}).get("analyze") or {}).get("counts") or {}
-        cmp_ = compare_counts(before, r["counts"]) if not r.get("fail") else {}
+        ranges = ((m.report or {}).get("backup") or {}).get("ranges") or None
+        if ranges:
+            before = {k: int(v[1]) for k, v in ranges.items()}
+        cmp_ = compare_counts(before, r["counts"], ranges, m.engine) if not r.get("fail") else {}
         errs = real_errors(m.engine, r["errors"])
         fix_fail = [f for f in r["fixups"] if f.get("rc") not in ("0", 0)]
         dry = {"compare": cmp_, "errors": r["errors"][:80], "real_errors": errs[:80], "logs": r["logs"][-15:],

@@ -891,6 +891,36 @@ async def app_server_update(data: AppServerUpdateIn, request: Request, db: Async
     return await apply_update(req, request, db, admin)
 
 
+@router.get("/server/autopilot")
+async def app_autopilot(_=Depends(get_current_admin)):
+    """Autopilot (RIMPERIO haelt sich selbst aktuell): Plan, wartende Freigabe, Verlauf."""
+    from .. import selfupdate
+    p = await selfupdate.plan()
+    st = p.get("state") or {}
+    return {"enabled": bool(p["config"].get("enabled")), "action": p["action"], "reason": p["reason"],
+            "installed": p["installed"], "candidate": p.get("candidate"), "window": p["config"].get("window"),
+            "in_window": p.get("in_window"), "history": (st.get("history") or [])[-10:][::-1],
+            "pending": st.get("pending")}
+
+
+class AppAutopilotIn(BaseModel):
+    version: str = Field(..., min_length=1, max_length=64)
+    decision: str = Field(..., pattern="^(approve|skip)$")
+
+
+@router.post("/server/autopilot")
+async def app_autopilot_decide(data: AppAutopilotIn, admin=Depends(get_current_admin)):
+    """Freigabe aus der App: kritische Updates (Hauptversion, [Freigabe]) mit einem Tipp."""
+    from .. import journal, selfupdate
+    if data.decision == "approve":
+        res = await selfupdate.approve(data.version, admin.username)
+    else:
+        res = await selfupdate.skip(data.version, admin.username)
+    journal.fire(category="system", event=f"selfupdate.{data.decision}", actor=admin.username,
+                 message=f"Update {data.version} in der App {'freigegeben' if data.decision == 'approve' else 'übersprungen'}.")
+    return res
+
+
 @router.get("/server/update/log")
 async def app_server_update_log(lines: int = Query(80, ge=10, le=500), _=Depends(get_current_admin)):
     from .. import updater

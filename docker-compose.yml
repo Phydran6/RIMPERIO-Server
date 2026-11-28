@@ -139,6 +139,34 @@ services:
           - rimperio-syslog
 
   # ============================================================================
+  # FREMD: guacd (Apache Guacamole) - RDP und Live-Sitzung (VNC) im Browser.
+  # ============================================================================
+  #   Kein Port nach aussen: nur das Backend spricht mit guacd (Port 4822 im
+  #   Docker-Netz). guacd verbindet sich seinerseits nur mit dem Backend, das
+  #   die Verbindung durch den Tunnel des Agents zum Rechner fuehrt.
+  guacd:
+    image: guacamole/guacd:${GUACD_VERSION:-1.5.5}
+    container_name: ${RIMPERIO_NAME:-rimperio}-ext-guacd
+    hostname: guacd
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      de.rimperio.stack: "core"
+      de.rimperio.origin: "upstream"
+      de.rimperio.update: "image"
+      de.rimperio.component: "guacd"
+      de.rimperio.role: "Fernzugriff: RDP und Live-Sitzung im Browser"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      rimperio:
+        aliases:
+          - guacd
+
+  # ============================================================================
   # EIGEN: Backend (FastAPI). Aus ./server/backend gebaut.
   # ============================================================================
   backend:
@@ -259,6 +287,11 @@ services:
       RIMPERIO_MULTITENANT: ${RIMPERIO_MULTITENANT:-false}
       # Name dieser Instanz (install.sh --instance) - Vorsilbe der Container.
       RIMPERIO_NAME: ${RIMPERIO_NAME:-rimperio}
+      # Fernzugriff (RDP und Live-Sitzung im Browser): guacd zeichnet die
+      # Verbindung, das Backend fuehrt sie durch den Agent-Tunnel (app/remote.py).
+      GUACD_HOST: ${GUACD_HOST:-guacd}
+      GUACD_PORT: ${GUACD_PORT:-4822}
+      RIMPERIO_TUNNEL_HOST: ${RIMPERIO_TUNNEL_HOST:-backend}
       # Sprache der Oberflaeche, wenn ein Browser nichts anderes verlangt.
       RIMPERIO_DEFAULT_LANGUAGE: ${RIMPERIO_DEFAULT_LANGUAGE:-de}
       # API-Dokumentation (/api/docs): admin = nur mit Ticket aus der Oberflaeche

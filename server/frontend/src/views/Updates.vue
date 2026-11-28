@@ -125,6 +125,59 @@
       </div>
     </div>
 
+    <!-- ==============================================================
+         AUTOPILOT: RIMPERIO haelt sich selbst aktuell
+         ============================================================== -->
+    <div v-if="auto" class="card mb-4 ap-card">
+      <div class="card-header">
+        <span class="card-title">Autopilot – RIMPERIO hält sich selbst aktuell</span>
+        <span class="badge" :class="auto.config.enabled ? 'badge-success' : 'badge-neutral'">{{ auto.config.enabled ? 'an' : 'aus' }}</span>
+      </div>
+      <div class="card-body space-y-3 text-sm">
+        <p class="ap-state" :class="'is-' + auto.action"><strong>{{ auto.reason }}</strong></p>
+        <div v-if="auto.action === 'await_approval' && auto.candidate" class="ap-approve">
+          <p>{{ auto.candidate.name }} <span v-if="auto.candidate.level === 'major'" class="badge badge-danger">Hauptversion</span>
+            <span v-if="auto.candidate.security" class="badge badge-warning">Sicherheit</span></p>
+          <pre v-if="auto.candidate.notes" class="ap-notes">{{ auto.candidate.notes }}</pre>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" :disabled="autoBusy" @click="autoDecide('approve')">Freigeben und jetzt einspielen</button>
+            <button class="btn btn-ghost btn-sm" :disabled="autoBusy" @click="autoDecide('skip')">Diese Version überspringen</button>
+          </div>
+        </div>
+        <div class="ap-grid">
+          <label class="ap-check"><input v-model="autoCfg.enabled" type="checkbox"> Autopilot an</label>
+          <label class="ap-check"><input v-model="autoCfg.auto_patch" type="checkbox" :disabled="!autoCfg.enabled"> Fehlerbehebungen (PATCH) automatisch</label>
+          <label class="ap-check"><input v-model="autoCfg.auto_minor" type="checkbox" :disabled="!autoCfg.enabled"> Neue Funktionen (MINOR) automatisch</label>
+          <label class="ap-check"><input v-model="autoCfg.security_now" type="checkbox" :disabled="!autoCfg.enabled"> Sicherheits-Releases sofort, ohne Wartungsfenster</label>
+          <label class="ap-check"><input v-model="autoCfg.images" type="checkbox" :disabled="!autoCfg.enabled"> Fremde Images (Caddy, Postfix, n8n …) im Wartungsfenster</label>
+          <label class="ap-check"><input v-model="autoCfg.images_db" type="checkbox" :disabled="!autoCfg.enabled || !autoCfg.images"> … auch Datenbank-Images</label>
+          <label class="ap-check"><input v-model="autoCfg.host_security" type="checkbox"> Sicherheitsupdates des Host-Betriebssystems (unattended-upgrades, ohne Neustart)</label>
+        </div>
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="ap-field">Wartungsfenster von<input v-model="autoCfg.window.start" type="time" class="input"></label>
+          <label class="ap-field">bis<input v-model="autoCfg.window.end" type="time" class="input"></label>
+          <div class="ap-days">
+            <label v-for="(d, i) in ['Mo','Di','Mi','Do','Fr','Sa','So']" :key="d" class="ap-day">
+              <input type="checkbox" :checked="autoCfg.window.days.includes(i)" @change="toggleDay(i)"> {{ d }}</label>
+          </div>
+          <button class="btn btn-primary btn-sm" :disabled="autoBusy" @click="saveAuto">Speichern</button>
+          <button class="btn btn-ghost btn-sm" :disabled="autoBusy" @click="checkAuto">Jetzt prüfen</button>
+        </div>
+        <p class="rmm-muted">Hauptversionen und Releases mit „[Freigabe]“ warten immer auf dich – als Meldung hier und als Push
+          in der App (Meldungen → Freigeben). Vor jedem Update wird die Datenbank gesichert; antwortet RIMPERIO danach
+          nicht, läuft der Rückfall automatisch, und dieselbe Version wird nicht noch einmal versucht.</p>
+        <p v-if="auto.state?.host_security" class="rmm-muted">Host: {{ auto.state.host_security.message }}</p>
+        <details v-if="(auto.state?.history || []).length">
+          <summary class="rmm-muted">Verlauf</summary>
+          <ul class="ap-hist">
+            <li v-for="(h, i) in [...auto.state.history].reverse()" :key="i">
+              <span class="rmm-code">{{ (h.at || '').replace('T', ' ').slice(0, 16) }}</span> {{ h.event }} {{ h.version || '' }}
+              <span class="rmm-muted">{{ h.reason || h.detail || (h.done || []).join(', ') }}</span></li>
+          </ul>
+        </details>
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <!-- ==============================================================
            STAND
@@ -593,7 +646,42 @@ const finishedLine = computed(() => {
   }
 })
 
+// ---------------------------------------------------------------- Autopilot
+const auto = ref(null)
+const autoBusy = ref(false)
+const autoCfg = ref({ window: { days: [], start: '03:00', end: '05:00', tz: 'Europe/Berlin' } })
+async function loadAuto(force = false) {
+  try {
+    auto.value = await auth.api('/api/updates/auto' + (force ? '?force=true' : ''))
+    autoCfg.value = JSON.parse(JSON.stringify(auto.value.config))
+  } catch (e) { error.value = e.message }
+}
+function toggleDay(i) {
+  const d = new Set(autoCfg.value.window.days)
+  d.has(i) ? d.delete(i) : d.add(i)
+  autoCfg.value.window.days = [...d].sort()
+}
+async function saveAuto() {
+  autoBusy.value = true
+  try { auto.value = await auth.api('/api/updates/auto', { method: 'PUT', body: autoCfg.value }); autoCfg.value = JSON.parse(JSON.stringify(auto.value.config)) }
+  catch (e) { error.value = e.message } finally { autoBusy.value = false }
+}
+async function checkAuto() {
+  autoBusy.value = true
+  try { await auth.api('/api/updates/auto/check', { method: 'POST' }); await loadAuto(true) }
+  catch (e) { error.value = e.message } finally { autoBusy.value = false }
+}
+async function autoDecide(decision) {
+  const v = auto.value?.candidate?.tag
+  if (!v) return
+  if (decision === 'approve' && !confirm(`Update auf ${v} freigeben? Es startet sofort (mit Sicherung vorher).`)) return
+  autoBusy.value = true
+  try { await auth.api(`/api/updates/auto/${decision}`, { method: 'POST', body: { version: v } }); await loadAuto() }
+  catch (e) { error.value = e.message } finally { autoBusy.value = false }
+}
+
 onMounted(async () => {
+  loadAuto()
   await load()
   loadReleases()
   loadBackupScopes()
@@ -1302,4 +1390,14 @@ function formatTime(value) {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+.ap-grid { display: grid; gap: .35rem 1.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); }
+.ap-check { display: flex; gap: .5rem; align-items: flex-start; }
+.ap-field { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; }
+.ap-days { display: flex; gap: .5rem; flex-wrap: wrap; }
+.ap-day { display: flex; gap: .2rem; align-items: center; font-size: .85rem; }
+.ap-state.is-await_approval, .ap-state.is-blocked { color: var(--color-danger); }
+.ap-state.is-install_now { color: var(--color-success); }
+.ap-approve { border: 1px solid var(--color-warning); border-radius: .5rem; padding: .7rem; }
+.ap-notes { white-space: pre-wrap; font-size: .78rem; max-height: 12rem; overflow: auto; }
+.ap-hist { margin: .4rem 0 0; padding-left: 1rem; font-size: .8rem; }
 </style>

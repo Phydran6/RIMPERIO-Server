@@ -297,3 +297,63 @@ async def rollback(data: RollbackRequest, request: Request,
         detail={"unit": result.get("unit")})
     result["pre_backup"] = pre
     return result
+
+
+# =============================================================================
+# Autopilot: RIMPERIO haelt sich selbst aktuell (app/selfupdate.py)
+# =============================================================================
+class AutoConfigIn(BaseModel):
+    enabled: Optional[bool] = None
+    auto_patch: Optional[bool] = None
+    auto_minor: Optional[bool] = None
+    security_now: Optional[bool] = None
+    images: Optional[bool] = None
+    images_db: Optional[bool] = None
+    host_security: Optional[bool] = None
+    window: Optional[dict] = None
+
+
+class AutoVersionIn(BaseModel):
+    version: str
+
+
+@router.get("/auto")
+async def auto_status(force: bool = False, _=Depends(get_current_admin)):
+    from .. import selfupdate
+    return await selfupdate.plan(force=force)
+
+
+@router.put("/auto")
+async def auto_config(data: AutoConfigIn, admin=Depends(get_current_admin)):
+    from .. import journal, selfupdate
+    try:
+        cfg = await selfupdate.save_config(data.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    journal.fire(category="system", event="selfupdate.config", actor=admin.username,
+                 message="Autopilot für Updates geändert: " + ("an" if cfg.get("enabled") else "aus"))
+    return await selfupdate.plan()
+
+
+@router.post("/auto/approve")
+async def auto_approve(data: AutoVersionIn, admin=Depends(get_current_admin)):
+    from .. import journal, selfupdate
+    res = await selfupdate.approve(data.version.strip(), admin.username)
+    journal.fire(category="system", event="selfupdate.approved", actor=admin.username,
+                 message=f"Update auf {data.version} freigegeben – wird jetzt eingespielt.")
+    return res
+
+
+@router.post("/auto/skip")
+async def auto_skip(data: AutoVersionIn, admin=Depends(get_current_admin)):
+    from .. import journal, selfupdate
+    res = await selfupdate.skip(data.version.strip(), admin.username)
+    journal.fire(category="system", event="selfupdate.skipped", actor=admin.username,
+                 message=f"Update auf {data.version} übersprungen.")
+    return res
+
+
+@router.post("/auto/check")
+async def auto_check(_=Depends(get_current_admin)):
+    from .. import selfupdate
+    return await selfupdate.tick()
