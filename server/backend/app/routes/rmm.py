@@ -280,10 +280,13 @@ async def enroll(data: EnrollIn, request: Request, db: AsyncSession = Depends(ge
         kind = (key.kind or "agent").lower()
         bound_here = key.agent_id is not None and key.agent_id == agent.id
         if kind != "global" and not bound_here:
+            # Name vor dem Rollback lesen: danach ist das Objekt abgelaufen, und
+            # ein Nachladen im async-Kontext endete in HTTP 500 statt 409.
+            key_name = key.name
             await db.rollback()
             rmm.record("enroll.denied",
                        f"RMM-Anmeldung für {hostname} abgelehnt: das Gerät ist bereits angemeldet "
-                       f"(Schlüssel '{key.name}').", actor=hostname, target=hostname, source_ip=ip)
+                       f"(Schlüssel '{key_name}').", actor=hostname, target=hostname, source_ip=ip)
             raise HTTPException(
                 status_code=409,
                 detail=("Ein Gerät mit diesem Namen ist bereits angemeldet. Für eine Neuinstallation "
