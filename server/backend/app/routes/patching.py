@@ -13,6 +13,7 @@ Administratoren. Jede Entscheidung steht im Systemtagebuch.
 """
 
 import asyncio
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,8 @@ from ..database import get_db
 from ..models import (Advisory, Agent, Notification, PatchItem, PatchPolicy, PatchRun,
                       PveHost, PveLink, UpdateSource, User)
 from ..rmm import is_online
+
+logger = logging.getLogger("rimperio.patching")
 
 router = APIRouter(prefix="/api/patching", tags=["Patchmanagement"])
 notifications_router = APIRouter(prefix="/api/notifications", tags=["Eingang"])
@@ -867,6 +870,9 @@ async def pve_guest_install(host_id: int, data: PveInstallIn, request: Request,
         result = await pve.install_via_guest_agent(h, data.node, data.vmid, data.os, command)
     except pve.PveError as exc:
         raise _bad(exc) from exc
+    except Exception as exc:  # nie ein nacktes HTTP 500 - die Oberflaeche soll sagen koennen, was los ist
+        logger.exception("QEMU-Gastagent: Installation in VM %s fehlgeschlagen", data.vmid)
+        raise HTTPException(status_code=502, detail=f"Installation über den Gastagent fehlgeschlagen: {exc}") from exc
     journal.fire(category="rmm", event="pve.guest.install", actor=user.username,
                  message=f"RIMPERIO-Agent über den QEMU-Gastagent in VM {data.vmid} ({h.name}/{data.node}) gestartet.")
     return {"started": True, **result}
