@@ -9,6 +9,11 @@ FastAPI-API (`backend/`). Versionsformat: [Semantic Versioning](README.md#versio
 - **Abrechnung:** `billing_config.tenant_fee` – Grundgebühr je Mandant und Monat für jeden angelegten Mandanten, auch ohne Geräte; je Mandant überschreibbar (`flat_fee` leer = Standard). Mandanten ohne Geräte stehen mit Grundgebühr/Mindestbetrag auf der Abrechnung.
 - **Tests:** Lizenz- und Abrechnungsfälle in `tests/test_tenancy.py`.
 
+## 0.2.1
+
+### Added
+- **Herausgeber-Schlüssel `rimperio-2026`** in `app/license_keys.py` (`TRUSTED_KEYS`). Ab dieser Version prüfen Instanzen Lizenzen aus dem Lizenz-Repository `Phydran6/RIMPERIO-Licenses`, einem eigenen Lizenz-Endpunkt oder hochgeladene Dateien; vorher blieb jede Instanz Community.
+
 ## 0.2.0
 
 ### Added
